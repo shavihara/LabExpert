@@ -63,7 +63,7 @@ $conn->close();
 <body>
 <!--Headding-->
 <div class="heder1">
-    <div class="he1"><img src="labex1.jpeg" class="im1"></div>
+    <div class="he1"><img src="img/labex1.jpeg" class="im1"></div>
 </div>
   <div class="container">
     <div class="login-form">
@@ -97,7 +97,7 @@ $conn->close();
     </div>
 
     <div class="illustration">
-      <img src="lab1.jpg" alt="Lab Expert Illustration">
+      <img src="img/lab1.jpg" alt="Lab Expert Illustration">
     </div>
   </div>
   <div class="footer1">

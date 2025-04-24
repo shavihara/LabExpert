@@ -43,18 +43,18 @@ $conn->close();
 <head>
     <title>create account</title>
     <link rel="stylesheet" href="create_acc.css">
-    <link rel="icon" href="cre.png">
+    <link rel="icon" href="img/cre.png">
 </head>
 
 <body>
 <!--header-->
 <div class="heder1">
-    <div class="he1"><img src="labex1.jpeg" class="im1"></div>
+    <div class="he1"><img src="img/labex1.jpeg" class="im1"></div>
 </div>
 
   <div class="signup-container">
     <div class="image-section">
-      <img src="lab1.jpg" alt="Sign up illustration" />
+      <img src="img/lab1.jpg" alt="Sign up illustration" />
     </div>
     
     <div class="form-section">
