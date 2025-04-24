@@ -18,11 +18,11 @@ SET time_zone = "+00:00";
 /*!40101 SET NAMES utf8mb4 */;
 
 --
--- Database: `smallshop`
+-- Database: `labexpert`
 --
 
-CREATE DATABASE IF NOT EXISTS `smallshop` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
-USE `smallshop`;
+CREATE DATABASE IF NOT EXISTS `labexpert` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+USE `labexpert`;
 
 -- --------------------------------------------------------
 
