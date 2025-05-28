@@ -328,7 +328,7 @@
                 <p style="color: #666; margin: 20px 0;">
                     Your password has been reset successfully. You can now login with your new password.
                 </p>
-                <button onclick="window.location.href='login.html'" style="margin-top: 20px;">
+                <button onclick="window.location.href='home.php'" style="margin-top: 20px;">
                     Go to Login
                 </button>
             </div>
