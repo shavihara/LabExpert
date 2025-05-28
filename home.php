@@ -15,36 +15,38 @@ if ($conn->connect_error) {
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     // Get the values from the form
-    $user = $_POST['username'];
-    $pass = $_POST['password'];
+    $email = $_POST['email'];
+    $password = $_POST['password']; // Correct variable
 
-    // SQL query to check if the username and password match
-    $sql = "SELECT * FROM users WHERE username = '$user'";
-    $result = $conn->query($sql);
+    // Prevent SQL injection (optional but highly recommended)
+    $stmt = $conn->prepare("SELECT * FROM users WHERE email = ?");
+    $stmt->bind_param("s", $email);
+    $stmt->execute();
+    $result = $stmt->get_result();
 
+    // Check if user exists
     if ($result->num_rows > 0) {
         $row = $result->fetch_assoc();
 
-        // Verify the password
-        if (password_verify($pass, $row['password'])) {
-            // Redirect based on the job
-            if ($row['job'] == 'admin') {
-                header("Location: admin.php");
+        // Corrected password verification
+        if (password_verify($password, $row['password'])) {
+            // Redirect based on role or email
+            if ($row['email'] == 'admin@labexpert.com') {
+                header("Location: labexpert_admin.php");
                 exit();
-            } elseif ($row['job'] == 'cashier') {
-                header("Location: cashier.php");
-                exit();
-            } elseif ($row['job'] == 'inventory_boy') {
-                header("Location: inventory_boy.php");
+            } else {
+                header("Location: http://127.0.0.1:5000/"); // Redirect to the Flask app
+                // If you want to pass the user ID or other data, you can append it to the URL
                 exit();
             }
         } else {
-            $error = "Invalid username or password!";
+            $error = "Incorrect password!";
         }
     } else {
-        $error = "Invalid username or password!";
+        $error = "Invalid email!";
     }
 }
+
 
 $conn->close();
 ?>
@@ -72,7 +74,7 @@ $conn->close();
 
       <form action="" autocapitalize="on" autocomplete="on" method="post">
         <label>Email</label>
-        <input type="email" id="username" name="username" placeholder="example@gmail.com" required>
+        <input type="email" id="email" name="email" placeholder="example@gmail.com" required>
 
         <label>Password</label>
         <div class="password-wrapper">
