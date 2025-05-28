@@ -83,7 +83,7 @@ $conn->close();
 
         <div class="options">
           <label><input type="checkbox"> Remember me</label>
-          <a href="#" class="forgot">Forgot Password</a>
+          <a href="Forget_password.php" class="forgot">Forgot Password</a>
         </div>
 
         <button class="login-btn" type="submit" value="Login">Login</button>

@@ -1,0 +1,7 @@
+/forget-password/
+├── config.php (Database configuration)
+├── forgot_password.php (Send OTP endpoint)
+├── verify_otp.php (Verify OTP endpoint)
+├── reset_password.php (Reset password endpoint)
+├── forget_password.html (Frontend interface)
+└── vendor/ (PHPMailer via Composer)
