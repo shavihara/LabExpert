@@ -93,27 +93,80 @@
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
 
+         /* MOBILE-OPTIMIZED OTP INPUTS */
         .otp-inputs {
             display: flex;
-            gap: 10px;
+            gap: 8px;
             justify-content: center;
             margin: 20px 0;
+            flex-wrap: nowrap;
         }
 
         .otp-input {
-            width: 50px;
+            width: 45px;
             height: 50px;
             text-align: center;
-            font-size: 20px;
+            font-size: 18px;
             font-weight: bold;
             border: 2px solid #e1e5e9;
             border-radius: 8px;
-            background: #f8f9fa;
+            background: white;
+            color: #333;
+            /* Mobile-specific fixes */
+            -webkit-appearance: none;
+            -moz-appearance: textfield;
+            appearance: none;
+            /* Prevent zoom on iOS */
+            font-size: 16px;
+            /* Better touch target */
+            min-height: 44px;
+            /* Prevent text selection issues */
+            user-select: none;
+            -webkit-user-select: none;
+            /* Force numeric keyboard on mobile */
+            inputmode: numeric;
+            pattern: "[0-9]*";
         }
 
         .otp-input:focus {
             border-color: #667eea;
             background: white;
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+            /* Prevent zoom on focus */
+            transform: none;
+        }
+
+        /* Mobile responsive adjustments */
+        @media (max-width: 480px) {
+            .container {
+                padding: 20px;
+                margin: 10px;
+            }
+            
+            .otp-inputs {
+                gap: 6px;
+                margin: 15px 0;
+            }
+            
+            .otp-input {
+                width: 40px;
+                height: 45px;
+                font-size: 16px;
+                min-height: 44px;
+            }
+        }
+
+        @media (max-width: 360px) {
+            .otp-inputs {
+                gap: 4px;
+            }
+            
+            .otp-input {
+                width: 35px;
+                height: 42px;
+                font-size: 16px;
+            }
         }
 
         button {
@@ -235,8 +288,8 @@
         <div class="step active" id="step1">
             <h2>Forget Password</h2>
             <p style="text-align: center; color: #666; margin-bottom: 30px;">
-                Enter your email address and we'll send you an OTP to reset your password.
-            </p>
+                Enter your email address and we'll send you an OTP to reset your password. <br><p style="text-align: center; color: black; margin-bottom: 30px;">(if didnt get email check spam section)
+            </p></p>
             
             <div id="message1"></div>
             
@@ -267,12 +320,12 @@
             
             <form id="otpForm">
                 <div class="otp-inputs">
-                    <input type="text" class="otp-input" maxlength="1" pattern="[0-9]">
-                    <input type="text" class="otp-input" maxlength="1" pattern="[0-9]">
-                    <input type="text" class="otp-input" maxlength="1" pattern="[0-9]">
-                    <input type="text" class="otp-input" maxlength="1" pattern="[0-9]">
-                    <input type="text" class="otp-input" maxlength="1" pattern="[0-9]">
-                    <input type="text" class="otp-input" maxlength="1" pattern="[0-9]">
+                    <input type="text" inputmode="numeric" class="otp-input" maxlength="1" pattern="[0-9]">
+                    <input type="text" inputmode="numeric" class="otp-input" maxlength="1" pattern="[0-9]">
+                    <input type="text" inputmode="numeric" class="otp-input" maxlength="1" pattern="[0-9]">
+                    <input type="text" inputmode="numeric" class="otp-input" maxlength="1" pattern="[0-9]">
+                    <input type="text" inputmode="numeric" class="otp-input" maxlength="1" pattern="[0-9]">
+                    <input type="text" inputmode="numeric" class="otp-input" maxlength="1" pattern="[0-9]">
                 </div>
                 
                 <button type="submit" id="verifyOtpBtn">
@@ -573,4 +626,4 @@
         }
     </script>
 </body>
-</html>
+</html
