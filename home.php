@@ -31,7 +31,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         // Corrected password verification
         if (password_verify($password, $row['password'])) {
             // Redirect based on role or email
-            if ($row['email'] == 'admin@labexpert.com') {
+            if ($row['email'] == 'labexpert.us@gmail.com') {
                 header("Location: labexpert_admin.php");
                 exit();
             } else {
