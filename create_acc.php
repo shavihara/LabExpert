@@ -126,6 +126,7 @@ $conn->close();
     </form>
   </div>
   </div>
+  </div>
   <div class="footer">
     <p>&copy; 2025 Lab Expert. All rights reserved.</p>
   </div>
