@@ -84,7 +84,7 @@ $conn->close();
       background: #f0f8ff;
       align-items: center;
       justify-content: center;
-      padding: 40px;
+      padding-top: 15px;
 
       margin-left: 20vh;
       margin-right: 20vh;
@@ -180,6 +180,7 @@ $conn->close();
 
     .form-row.single {
       flex-direction: column;
+      width:100%;
     }
 
     input[type="text"],
@@ -201,6 +202,71 @@ $conn->close();
       position: relative;
     }
 
+    /* Password Strength Styling - Enhanced */
+    .password-strength {
+      margin-top: 0px;
+      font-size: 13px;
+    }
+
+    .strength-text {
+      color: #666;
+      font-weight: 500;
+      margin-bottom: 5px;
+      min-height: 18px;
+    }
+
+    .strength-meter {
+      height: 6px;
+      background-color: #e0e0e0;
+      border-radius: 3px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .strength-fill {
+      height: 100%;
+      transition: all 0.4s ease;
+      border-radius: 3px;
+      position: absolute;
+      left: 0;
+      top: 0;
+    }
+
+    .strength-weak .strength-fill {
+      width: 25%;
+      background: linear-gradient(90deg, #ff4444, #ff6666);
+    }
+
+    .strength-fair .strength-fill {
+      width: 50%;
+      background: linear-gradient(90deg, #ffaa00, #ffcc44);
+    }
+
+    .strength-good .strength-fill {
+      width: 75%;
+      background: linear-gradient(90deg, #88cc00, #aadd44);
+    }
+
+    .strength-strong .strength-fill {
+      width: 100%;
+      background: linear-gradient(90deg, #00cc44, #44dd88);
+    }
+
+    .error-message {
+      color: #ff4444;
+      font-size: 12px;
+      margin-top: 5px;
+      display: none;
+    }
+
+    .success-message {
+      color: #00cc44;
+      font-size: 12px;
+      margin-top: 5px;
+      display: none;
+    }
+
+    
 
     .checkbox-container {
       display: flex;
@@ -344,7 +410,7 @@ $conn->close();
       width: 100%;
       padding: 12px;
       /* Increased */
-      margin-bottom: 15px;
+      margin-bottom: 5px;
       border: 1px solid #cccc;
       font-size: 16px;
       /* Increased from 14px */
@@ -420,7 +486,7 @@ $conn->close();
 
       background: linear-gradient(135deg, #667eea, #764ba2, #6bcbef, #ff6bcb);
       background-size: 300% 300%;
-      animation: gradientMove 8s ease infinite;
+      animation: gradientMove 30s ease infinite;
       border-radius: 10px;
       box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
     }

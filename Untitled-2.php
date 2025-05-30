@@ -35,7 +35,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         header("Location: labexpert_admin.php");
         exit();
       } else {
-        header("Location: https://8ee8-192-248-2-10.ngrok-free.app/LabExpert/templates/index.html"); // Redirect to the Flask app
+        header("Location: http://127.0.0.1:5000/"); // Redirect to the Flask app
 
         exit();
       }
@@ -57,23 +57,20 @@ $conn->close();
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
+  
   <!-- PWA Meta Tags -->
   <meta name="description" content="Lab Expert - Professional Laboratory Management System">
   <meta name="theme-color" content="#667eea">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Lab Expert">
-
+  
   <!-- PWA Manifest -->
   <link rel="manifest" href="data:application/json;base64,eyJuYW1lIjoiTGFiIEV4cGVydCIsInNob3J0X25hbWUiOiJMYWJFeHBlcnQiLCJzdGFydF91cmwiOiIvIiwiZGlzcGxheSI6InN0YW5kYWxvbmUiLCJiYWNrZ3JvdW5kX2NvbG9yIjoiIzY2N2VlYSIsInRoZW1lX2NvbG9yIjoiIzY2N2VlYSIsImljb25zIjpbeyJzcmMiOiJkYXRhOmltYWdlL3N2Zyt4bWw7YmFzZTY0LFBITjJaeUIzYVdSMGFEMGlNVEkwSWlCb1pXbG5hSFE5SWpFeU5DSWdlRzFzYm5NOUltaDBkSEE2THk5M2QzY3Vkek11YjNKbkx6SXdNREF2YzNabklpQjJhV1YzUW05NFBTSXdJREFnTVRJMElERXlOQ0krUEhKbFkzUWdkMmxrZEdnOUlqRXlOQ0lnYUdWcFoyaDBQU0l4TWpRaUlHWnBiR3c5SWlNMk5qZGxaV0VpTHo0OEwzTjJaejQ9Iiwic2l6ZXMiOiIxMjR4MTI0IiwidHlwZSI6ImltYWdlL3N2Zyt4bWwifV19">
-
+  
   <link rel="icon" type="image/x-icon" href="home.ico">
   <title>home page</title>
   <link rel="stylesheet" href="home.css">
-
-  <link rel="manifest" href="manifest.json">
-  <meta name="theme-color" content="#667eea">
   <style>
     * {
       margin: 0;
@@ -137,7 +134,7 @@ $conn->close();
       margin-right: 20px;
       margin-left: 20px;
       opacity: 0;
-
+     
       transform: translateY(50px);
       animation: fadeSlideUp 1s ease-out forwards;
       animation-delay: 0.3s;
@@ -203,7 +200,7 @@ $conn->close();
     .login-btn {
       width: 100%;
       padding: 12px;
-
+      
       color: white;
       border: none;
       border-radius: 5px;
@@ -438,7 +435,7 @@ $conn->close();
     }
 
     /* ============ WEB APP RESPONSIVE FEATURES ============ */
-
+    
     /* Mobile First Responsive Design */
     @media (max-width: 768px) {
       .con {
@@ -456,35 +453,26 @@ $conn->close();
       }
 
       .illustration {
-        display: none;
+    display: none;
+  }
+
+      .heder1 {
+        font-size: 1.5em;
+        padding: 8px;
       }
 
-      .divider1 {
-        display: none;
+      .im1 {
+        width: 100px;
       }
 
       .social-buttons {
-        display: none;
+        flex-direction: column;
+        gap: 8px;
       }
-    }
 
-    .heder1 {
-      font-size: 1.5em;
-      padding: 8px;
-    }
-
-    .im1 {
-      width: 100px;
-    }
-
-    .social-buttons {
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .login-form h1 {
-      font-size: 1.5rem;
-    }
+      .login-form h1 {
+        font-size: 1.5rem;
+      }
     }
 
     @media (max-width: 480px) {
@@ -516,8 +504,7 @@ $conn->close();
       input[type="email"],
       input[type="password"] {
         padding: 14px;
-        font-size: 16px;
-        /* Prevents zoom on iOS */
+        font-size: 16px; /* Prevents zoom on iOS */
       }
 
       .login-btn {
@@ -544,7 +531,6 @@ $conn->close();
 
     /* Touch device optimizations */
     @media (hover: none) and (pointer: coarse) {
-
       .login-btn,
       .social-buttons button,
       .forgot,
@@ -613,12 +599,11 @@ $conn->close();
 
     /* Print styles */
     @media print {
-
       .social-buttons,
       .heder1 {
         display: none;
       }
-
+      
       body {
         background: white;
         color: black;
@@ -648,16 +633,8 @@ $conn->close();
       }
 
       .illustration {
-        display: none;
-      }
-
-      .divider1 {
-        display: none;
-      }
-
-      .social-buttons {
-        display: none;
-      }
+    display: none;
+  }
     }
 
     /* Error message styles for PHP errors */
@@ -670,14 +647,11 @@ $conn->close();
       font-size: 14px;
       border: 1px solid #ffcdd2;
     }
-
-
   </style>
 
 </head>
 
 <body>
-  
   <!--Headding-->
   <div class="heder1">
     <div class="he1"><img src="img/labex1.jpeg" class="im1"></div>
@@ -729,13 +703,53 @@ $conn->close();
 
   <!-- Web App JavaScript -->
   <script>
+    // Service Worker Registration for PWA
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function() {
+        navigator.serviceWorker.register('data:application/javascript;base64,' + btoa(`
+          const CACHE_NAME = 'lab-expert-v1';
+          const urlsToCache = [
+            '/',
+            '/home.css',
+            '/home.ico',
+            '/img/labex1.jpeg',
+            '/img/lab1.jpg'
+          ];
+
+          self.addEventListener('install', event => {
+            event.waitUntil(
+              caches.open(CACHE_NAME)
+                .then(cache => {
+                  return cache.addAll(urlsToCache.filter(url => url !== '/'));
+                })
+            );
+          });
+
+          self.addEventListener('fetch', event => {
+            event.respondWith(
+              caches.match(event.request)
+                .then(response => {
+                  if (response) {
+                    return response;
+                  }
+                  return fetch(event.request);
+                })
+            );
+          });
+        `)).then(function(registration) {
+          console.log('Service Worker registered successfully');
+        }).catch(function(error) {
+          console.log('Service Worker registration failed:', error);
+        });
+      });
+    }
 
     // Install prompt for PWA
     let deferredPrompt;
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
       deferredPrompt = e;
-
+      
       // Show install notification (optional)
       setTimeout(() => {
         if (deferredPrompt && !localStorage.getItem('installPromptShown')) {
@@ -758,9 +772,7 @@ $conn->close();
     window.installApp = async function() {
       if (deferredPrompt) {
         deferredPrompt.prompt();
-        const {
-          outcome
-        } = await deferredPrompt.userChoice;
+        const { outcome } = await deferredPrompt.userChoice;
         deferredPrompt = null;
         document.querySelector('[onclick="installApp()"]').closest('div').remove();
         localStorage.setItem('installPromptShown', 'true');
@@ -777,9 +789,7 @@ $conn->close();
     });
 
     // Touch events for better mobile experience
-    document.addEventListener('touchstart', function() {}, {
-      passive: true
-    });
+    document.addEventListener('touchstart', function() {}, { passive: true });
 
     // Prevent form resubmission on refresh
     if (window.history.replaceState) {
@@ -790,7 +800,7 @@ $conn->close();
     document.addEventListener('DOMContentLoaded', function() {
       const form = document.querySelector('form');
       const submitBtn = document.querySelector('.login-btn');
-
+      
       // Add loading state to form submission
       form.addEventListener('submit', function() {
         submitBtn.style.opacity = '0.7';
@@ -842,9 +852,6 @@ $conn->close();
 
     window.addEventListener('resize', adjustFontSize);
     adjustFontSize();
-    if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js');
-}
   </script>
 </body>
 
