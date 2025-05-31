@@ -84,6 +84,7 @@ $conn->close();
   <link rel="stylesheet" href="home.css">
 </head>
   <style>
+
     * {
       margin: 0;
       padding: 0;
@@ -96,12 +97,22 @@ $conn->close();
       color: #333;
     }
 
+    .divider1 {
+        display: none;
+      }
+
+      .social-buttons {
+        display: none;
+      }
+
     .container {
       display: flex;
       min-height: 85vh;
       align-items: center;
       justify-content: center;
       padding: 10px 10px 0px 10px;
+      margin-top: 15px;
+      margin-bottom: 15px;
 
     }
 
@@ -163,9 +174,9 @@ $conn->close();
     }
 
     .login-form h1 {
-      font-size: 2rem;
+      font-size: 10rem;
       font-weight: 700;
-      margin-bottom: 10px;
+      margin-bottom: 14px;
     }
 
     .login-form p {
@@ -548,6 +559,13 @@ $conn->close();
       .con {
         margin-left: 25vh;
         margin-right: 25vh;
+      }
+      .divider1 {
+        display: none;
+      }
+
+      .social-buttons {
+        display: none;
       }
     }
 
