@@ -330,7 +330,7 @@
             </form>
             
             <div class="back-link">
-                <a href="home.php">← Back to Login</a>
+                <a href="index.php">← Back to Login</a>
             </div>
         </div>
 
@@ -406,7 +406,7 @@
                 <p style="color: #666; margin: 20px 0;">
                     Your password has been reset successfully. You can now login with your new password.
                 </p>
-                <button onclick="window.location.href='home.php'" style="margin-top: 20px;">
+                <button onclick="window.location.href='index.php'" style="margin-top: 20px;">
                     Go to Login
                 </button>
             </div>

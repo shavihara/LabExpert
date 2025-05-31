@@ -31,8 +31,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     // Email already exists, redirect to login page with message
     echo "<p style='color: white; font-weight: bold; background-color: green;height:30px; width:100%;
         text-align: center; padding: 10px; border-radius: 5px;'>This Email already registered.  Please Login...!</p>";
-    // Redirect to home page after 2 seconds
-    header("refresh:3;url=home.php");
+    // Redirect to index page after 2 seconds
+    header("refresh:3;url=index.php");
     exit();
   }
 
@@ -44,9 +44,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
   if ($stmt->execute()) {
     echo "<p style='color: white; font-weight: bold; background-color: green; width:100%;
-        text-align: center; padding: 10px; border-radius: 5px;'>Account created successfully! Redirecting to home page in 3 seconds...</p>";
-    // Redirect to home page after 2 seconds
-    header("refresh:3;url=home.php");
+        text-align: center; padding: 10px; border-radius: 5px;'>Account created successfully! Redirecting to index page in 3 seconds...</p>";
+    // Redirect to index page after 2 seconds
+    header("refresh:3;url=index.php");
     exit();
   } else {
     echo "Error: " . $stmt->error;
@@ -868,7 +868,7 @@ $conn->close();
                     <button type="submit" class="signup-btn" id="submitBtn">Create account</button>
                 </form>
 
-                <p class="login-text">Already have an account? <a href="home.php">Login</a></p>
+                <p class="login-text">Already have an account? <a href="index.php">Login</a></p>
             </div>
         </div>
     </div>

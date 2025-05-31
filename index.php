@@ -81,7 +81,7 @@ $conn->close();
   <meta name="msapplication-TileColor" content="#667eea">
   
   <title>Lab Expert - Laboratory Management System</title>
-  <link rel="stylesheet" href="home.css">
+  <link rel="stylesheet" href="index.css">
 </head>
   <style>
 
