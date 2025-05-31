@@ -769,6 +769,43 @@ $conn->close();
             cursor: not-allowed;
             transform: none;
         }
+
+        /* Dark mode support */
+    @media (prefers-color-scheme: dark) {
+      .con {
+        background: rgba(30, 30, 30, 0.95);
+        color: #fff;
+      }
+
+      .form-section h1,
+      .logo,
+      .password-wrapper,
+      .form-row single,
+      .form-row,
+      .form-section p,
+      form label {
+        color: #fff;
+      }
+
+      input[type="email"],
+      input[type="text"],
+      input[type="tel"],
+      input[type="password"] {
+        background: #2d2d2d;
+        border-color: #555;
+        color: #fff;
+      }
+
+      .divider1 span {
+        background: rgba(30, 30, 30, 0.95);
+        color: #aaa;
+      }
+
+      .footer1 {
+        color: rgba(255, 255, 255, 0.7);
+      }
+    }
+
     }
   </style>
   

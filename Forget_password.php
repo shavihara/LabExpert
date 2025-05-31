@@ -280,6 +280,31 @@
         .strength-weak { background: #dc3545; width: 33%; }
         .strength-medium { background: #ffc107; width: 66%; }
         .strength-strong { background: #28a745; width: 100%; }
+
+        @media (max-width: 480px) {
+            .container {
+                padding: 20px;
+                margin: 10px;
+            }
+            
+            h2 {
+                font-size: 24px;
+            }
+            
+            button {
+                padding: 12px;
+                font-size: 14px;
+            }
+            
+            .form-group label {
+                font-size: 14px;
+            }
+            
+            input[type="email"],
+            input[type="text"],
+            input[type="password"] {
+                font-size: 14px;
+            }
     </style>
 </head>
 <body>
