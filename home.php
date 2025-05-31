@@ -57,23 +57,32 @@ $conn->close();
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-  <!-- PWA Meta Tags -->
-  <meta name="description" content="Lab Expert - Professional Laboratory Management System">
+  
+  <!-- PWA Essential Meta Tags -->
+  <meta name="description" content="Lab Expert - Professional Laboratory Management System for efficient lab operations and data management">
   <meta name="theme-color" content="#667eea">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Lab Expert">
-
-  <!-- PWA Manifest -->
-  <link rel="manifest" href="data:application/json;base64,eyJuYW1lIjoiTGFiIEV4cGVydCIsInNob3J0X25hbWUiOiJMYWJFeHBlcnQiLCJzdGFydF91cmwiOiIvIiwiZGlzcGxheSI6InN0YW5kYWxvbmUiLCJiYWNrZ3JvdW5kX2NvbG9yIjoiIzY2N2VlYSIsInRoZW1lX2NvbG9yIjoiIzY2N2VlYSIsImljb25zIjpbeyJzcmMiOiJkYXRhOmltYWdlL3N2Zyt4bWw7YmFzZTY0LFBITjJaeUIzYVdSMGFEMGlNVEkwSWlCb1pXbG5hSFE5SWpFeU5DSWdlRzFzYm5NOUltaDBkSEE2THk5M2QzY3Vkek11YjNKbkx6SXdNREF2YzNabklpQjJhV1YzUW05NFBTSXdJREFnTVRJMElERXlOQ0krUEhKbFkzUWdkMmxrZEdnOUlqRXlOQ0lnYUdWcFoyaDBQU0l4TWpRaUlHWnBiR3c5SWlNMk5qZGxaV0VpTHo0OEwzTjJaejQ9Iiwic2l6ZXMiOiIxMjR4MTI0IiwidHlwZSI6ImltYWdlL3N2Zyt4bWwifV19">
-
-  <link rel="icon" type="image/x-icon" href="home.ico">
-  <title>home page</title>
-  <link rel="stylesheet" href="home.css">
-
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="application-name" content="Lab Expert">
+  
+  <!-- PWA Manifest Link -->
   <link rel="manifest" href="manifest.json">
-  <meta name="theme-color" content="#667eea">
+  
+  <!-- Favicon and Apple Touch Icons -->
+  <link rel="icon" type="image/x-icon" href="home.ico">
+  <link rel="apple-touch-icon" href="img/icon-192x192.png">
+  <link rel="apple-touch-icon" sizes="152x152" href="img/icon-152x152.png">
+  <link rel="apple-touch-icon" sizes="192x192" href="img/icon-192x192.png">
+  
+  <!-- Windows Tiles -->
+  <meta name="msapplication-TileImage" content="img/icon-144x144.png">
+  <meta name="msapplication-TileColor" content="#667eea">
+  
+  <title>Lab Expert - Laboratory Management System</title>
+  <link rel="stylesheet" href="home.css">
+</head>
   <style>
     * {
       margin: 0;
@@ -844,6 +853,57 @@ $conn->close();
     adjustFontSize();
     if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js');
+}
+
+
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', async function() {
+    try {
+      const registration = await navigator.serviceWorker.register('sw.js');
+      console.log('ServiceWorker registration successful');
+      
+      // Update service worker when available
+      registration.addEventListener('updatefound', () => {
+        const newWorker = registration.installing;
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            console.log('New content available, please refresh.');
+          }
+        });
+      });
+    } catch (error) {
+      console.log('ServiceWorker registration failed: ', error);
+    }
+  });
+}
+
+// PWA Install Detection
+let deferredPrompt;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  console.log('PWA install prompt available');
+  e.preventDefault();
+  deferredPrompt = e;
+  
+  // The browser will show the install icon in address bar automatically
+  console.log('Install icon should appear in browser address bar');
+});
+
+window.addEventListener('appinstalled', (evt) => {
+  console.log('PWA was installed successfully');
+  deferredPrompt = null;
+});
+
+// Detect if running as PWA
+function isPWA() {
+  return window.matchMedia('(display-mode: standalone)').matches || 
+         window.navigator.standalone === true;
+}
+
+if (isPWA()) {
+  console.log('Running as installed PWA');
+  document.body.classList.add('pwa-mode');
 }
   </script>
 </body>
