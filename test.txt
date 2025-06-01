@@ -2,7 +2,7 @@ ngrok.exe http 80
 https://b3eb-192-248-2-10.ngrok-free.app
 https://b3eb-192-248-2-10.ngrok-free.app/LabExpert/home.php
 
-
+power@2020@githz
 
 /forget-password/
 ├── config.php (Database configuration)
