@@ -568,6 +568,10 @@
             <span class="btn-icon">🔄</span>
             <span class="btn-text">Reset</span>
         </button>
+        <button class="stop-camera-btn" disabled>
+            <span class="btn-icon">🚫</span>
+            <span class="btn-text">Stop Cam</span>
+        </button>
     </div>
 
 <div class="container" id="mainContainer">
@@ -628,6 +632,10 @@
                     Enable Adaptive Color:
                     <input type="checkbox" id="adaptiveColorCheckbox" style="width: auto; height: auto; margin-left: 5px;">
                 </label>
+                <div class="setting" style="display: flex; flex-direction: row; align-items: center; justify-content: space-between; margin-top: 10px;">
+                    <label for="targetOscillations" style="margin-bottom: 0;">Target Oscillations:</label>
+                    <input type="number" id="targetOscillations" value="25" min="1" style="width: 60px; padding: 5px; border: 1px solid #ccc; border-radius: 4px;">
+                </div>
             </div>
         </div>
 
@@ -647,6 +655,22 @@
                 <div>📈 Oscillation Chart<br><small>Chart will appear when tracking starts</small></div>
                 <canvas id="oscillationChart" style="display: none;"></canvas>
             </div>
+
+            <div id="oscillation-log-container" style="margin-top: 20px;">
+                <h4 style="text-align: center; margin-bottom: 10px; color: #2c3e50;">📋 Oscillation Log</h4>
+                <table id="oscillation-log-table" style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+                    <thead>
+                        <tr>
+                            <th style="border: 1px solid #ddd; padding: 8px; text-align: left; background-color: #f8f9fa; color: #495057;">Target</th>
+                            <th style="border: 1px solid #ddd; padding: 8px; text-align: left; background-color: #f8f9fa; color: #495057;">Actual</th>
+                            <th style="border: 1px solid #ddd; padding: 8px; text-align: left; background-color: #f8f9fa; color: #495057;">Time Taken (s)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Log rows will be added here by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 
@@ -659,11 +683,23 @@
     <script>
         // Global variables
         let tracking = false;
+        let pollingInterval = null; // Declare pollingInterval here
+
+        // Oscillation Counting Variables
+        let targetOscillations = 25; // Default, will be updated from input
+        let oscillationBatchStartTime = null;
+        let batchStartExtremeCount = -1; // Using -1 to indicate it's not yet set for the current batch
+
+        // DOM Elements
+        const oscillationLogTableBody = document.querySelector('#oscillation-log-table tbody');
+        const targetOscillationsInput = document.getElementById('targetOscillations');
+
         // Corrected selectors for buttons:
         let startBtn = document.querySelector('.controls .start-btn');
         let trackBtn = document.querySelector('.controls .track-btn');
         let stopBtn = document.querySelector('.controls .stop-btn');
         let resetBtn = document.querySelector('.controls .reset-btn');
+        const stopCameraBtn = document.querySelector('.controls .stop-camera-btn'); // Added stop camera button
         let statusDiv = document.getElementById('status');
         let periodDiv = document.getElementById('period');
 
@@ -687,6 +723,17 @@
 
         // Chart
         let oscillationChart = null;
+
+        // Event listener for Target Oscillations Input
+        if (targetOscillationsInput) {
+            targetOscillationsInput.addEventListener('change', function() {
+                targetOscillations = parseInt(this.value) || 25;
+                // Optional: Add behavior if target changes mid-tracking, e.g., update status or reset current batch.
+                // For now, new target applies to the next batch.
+                console.log(`Target oscillations updated to: ${targetOscillations}`);
+                statusDiv.textContent = `Target oscillations set to ${targetOscillations}. New target will apply to the next batch.`;
+            });
+        }
 
         // Event listeners for range inputs
         hueMin.addEventListener('input', () => {
@@ -811,6 +858,7 @@
                     if (data.status === 'success' && data.message === 'Camera started') { // Check message for specific success
                         startBtn.disabled = true;
                         trackBtn.disabled = false;
+                        stopCameraBtn.disabled = false; // Enable Stop Camera button
                         statusDiv.textContent = "Camera started. Adjust settings and click 'Start Tracking'";
                         document.getElementById('video-feed').src = '/video_feed'; // Set video feed source
                         document.getElementById('video-feed').alt = 'Live video feed.';
@@ -844,7 +892,14 @@
                     tracking = true;
                     trackBtn.disabled = true;
                     stopBtn.disabled = false;
-                    statusDiv.textContent = "Tracking pendulum movement...";
+
+                    // Oscillation counting setup for new tracking session
+                    targetOscillations = parseInt(targetOscillationsInput.value) || 25; // Get current target
+                    batchStartExtremeCount = -1; // Reset: will be set upon receiving first data with extremes for this session
+                    oscillationBatchStartTime = new Date().getTime(); // Start time for the first batch
+                    // oscillationLogTableBody.innerHTML = ''; // Optional: Clear log table
+
+                    statusDiv.textContent = `Tracking started. Counting ${targetOscillations} oscillations...`;
 
                     // Reset chart
                     resetChart();
@@ -862,10 +917,12 @@
             })
                 .then(response => response.json())
                 .then(data => {
-                    tracking = false;
+                    tracking = false; // Already here
+                    oscillationBatchStartTime = null; // Stop oscillation counting
+                    batchStartExtremeCount = -1; // Reset batch extreme count state
                     trackBtn.disabled = false;
                     stopBtn.disabled = true;
-                    statusDiv.textContent = "Tracking stopped. Camera still active.";
+                    statusDiv.textContent = "Tracking and oscillation counting stopped. Camera still active.";
                 })
                 .catch(error => {
                     console.error('Error stopping tracking:', error);
@@ -882,7 +939,17 @@
                 .then(data => {
                     resetChart();
                     periodDiv.textContent = "Period: - seconds";
-                    statusDiv.textContent = "Data reset. Camera still active.";
+
+                    // Clear oscillation log table
+                    if (oscillationLogTableBody) {
+                        oscillationLogTableBody.innerHTML = '';
+                    }
+
+                    // Reset oscillation counting variables
+                    oscillationBatchStartTime = null;
+                    batchStartExtremeCount = -1;
+
+                    statusDiv.textContent = "Tracking reset. Oscillation log cleared. Camera still active.";
                 })
                 .catch(error => {
                     console.error('Error resetting data:', error);
@@ -892,7 +959,10 @@
 
         // Poll tracking data periodically
         function startDataPolling() {
-            setInterval(() => {
+            if (pollingInterval) { // Clear existing interval before starting a new one
+                clearInterval(pollingInterval);
+            }
+            pollingInterval = setInterval(() => { // Assign to the shared pollingInterval
                 fetch('/api/tracking_data')
                     .then(response => response.json())
                     .then(data => {
@@ -911,6 +981,44 @@
                             if (data.period) {
                                 periodDiv.textContent = `Period: ${data.period.toFixed(3)} seconds`;
                             }
+
+                            // Oscillation Counting Logic
+                            if (tracking && oscillationBatchStartTime && data.extreme_points) {
+                                if (batchStartExtremeCount === -1 && data.extreme_points.length > 0) {
+                                    // This is the first data received for this batch that has extreme points.
+                                    // Or, if trackBtn was just pressed, this sets the baseline for the first batch.
+                                    batchStartExtremeCount = data.extreme_points.length;
+                                }
+
+                                let currentTotalExtremePoints = data.extreme_points.length;
+                                let oscillationsCountForCurrentBatch = Math.floor((currentTotalExtremePoints - batchStartExtremeCount) / 2);
+
+                                if (oscillationsCountForCurrentBatch < 0) {
+                                    oscillationsCountForCurrentBatch = 0; // Should not happen if batchStartExtremeCount is correctly set
+                                }
+
+                                if (oscillationsCountForCurrentBatch >= targetOscillations) {
+                                    const timeNow = new Date().getTime();
+                                    const timeTaken = (timeNow - oscillationBatchStartTime) / 1000; // Time for THIS batch
+
+                                    if (oscillationLogTableBody) {
+                                        const newRow = oscillationLogTableBody.insertRow();
+                                        newRow.insertCell(0).textContent = targetOscillations; // Target for the batch that just finished
+                                        newRow.insertCell(1).textContent = oscillationsCountForCurrentBatch;
+                                        newRow.insertCell(2).textContent = timeTaken.toFixed(3);
+                                    }
+
+                                    // Prepare for next batch
+                                    targetOscillations = parseInt(targetOscillationsInput.value) || 25; // Get potentially new target
+                                    oscillationBatchStartTime = timeNow; // Start time for the new batch
+                                    batchStartExtremeCount = currentTotalExtremePoints; // New baseline for the next batch's count
+
+                                    statusDiv.textContent = `Batch of ${oscillationsCountForCurrentBatch} completed in ${timeTaken.toFixed(3)}s. Target for next: ${targetOscillations}. Counting...`;
+                                } else {
+                                     // Update status with current count for the ongoing batch (optional)
+                                     // statusDiv.textContent = `Counting: ${oscillationsCountForCurrentBatch} / ${targetOscillations} oscillations...`;
+                                }
+                            }
                         }
                     })
                     .catch(error => {
@@ -918,7 +1026,8 @@
                     });
             }, 100); // Poll every 100ms
         }
-                function toggleTrackingMode() {
+
+        function toggleTrackingMode() {
             const container = document.getElementById('mainContainer');
             const status = document.getElementById('status');
             const chart = document.querySelector('.chart-container div');
@@ -966,6 +1075,43 @@
                     console.error('Error toggling adaptive color:', error);
                     statusDiv.textContent = 'Error toggling adaptive color.';
                 });
+            });
+        }
+
+        // Event listener for Stop Camera button
+        if(stopCameraBtn) {
+            stopCameraBtn.addEventListener('click', function() {
+                fetch('/api/stop_camera', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            statusDiv.textContent = data.message || 'Camera stopped successfully.';
+                            document.getElementById('video-feed').src = '#'; // Clear video feed
+                            document.getElementById('video-feed').alt = 'Video feed stopped.';
+
+                            // Manage button states
+                            startBtn.disabled = false;
+                            stopCameraBtn.disabled = true;
+                            trackBtn.disabled = true;
+                            stopBtn.disabled = true; // Stop tracking button
+                            // resetBtn.disabled = true; // Reset button might depend on tracking state too
+
+                            tracking = false; // Ensure tracking state is reset
+
+                            if (pollingInterval) {
+                                clearInterval(pollingInterval);
+                                pollingInterval = null;
+                            }
+                            // If chart exists, potentially clear it or leave as is
+                            // resetChart(); // Optionally reset chart if desired when camera stops
+                        } else {
+                            statusDiv.textContent = data.message || 'Error stopping camera.';
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error stopping camera:', error);
+                        statusDiv.textContent = 'Failed to stop camera.';
+                    });
             });
         }
     </script>
