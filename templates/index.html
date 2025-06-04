@@ -624,6 +624,10 @@
                         <span class="value-display" id="minSizeValue">10</span>
                     </div>
                 </label>
+                <label for="adaptiveColorCheckbox" style="flex-direction: row; align-items: center; gap: 10px; margin-top: 10px;">
+                    Enable Adaptive Color:
+                    <input type="checkbox" id="adaptiveColorCheckbox" style="width: auto; height: auto; margin-left: 5px;">
+                </label>
             </div>
         </div>
 
@@ -655,10 +659,11 @@
     <script>
         // Global variables
         let tracking = false;
-        let startBtn = document.getElementById('startBtn');
-        let trackBtn = document.getElementById('trackBtn');
-        let stopBtn = document.getElementById('stopBtn');
-        let resetBtn = document.getElementById('resetBtn');
+        // Corrected selectors for buttons:
+        let startBtn = document.querySelector('.controls .start-btn');
+        let trackBtn = document.querySelector('.controls .track-btn');
+        let stopBtn = document.querySelector('.controls .stop-btn');
+        let resetBtn = document.querySelector('.controls .reset-btn');
         let statusDiv = document.getElementById('status');
         let periodDiv = document.getElementById('period');
 
@@ -803,10 +808,12 @@
             })
                 .then(response => response.json())
                 .then(data => {
-                    if (data.status === 'success') {
+                    if (data.status === 'success' && data.message === 'Camera started') { // Check message for specific success
                         startBtn.disabled = true;
                         trackBtn.disabled = false;
                         statusDiv.textContent = "Camera started. Adjust settings and click 'Start Tracking'";
+                        document.getElementById('video-feed').src = '/video_feed'; // Set video feed source
+                        document.getElementById('video-feed').alt = 'Live video feed.';
 
                         // Initialize chart if needed
                         if (!oscillationChart) {
@@ -816,12 +823,14 @@
                         // Start polling tracking data for the chart
                         startDataPolling();
                     } else {
-                        statusDiv.textContent = data.message;
+                        statusDiv.textContent = data.message || "Could not start camera.";
+                        document.getElementById('video-feed').alt = data.message || "Camera failed to start."; // Update alt text on error
                     }
                 })
                 .catch(error => {
                     console.error('Error starting camera:', error);
                     statusDiv.textContent = 'Error starting camera';
+                    document.getElementById('video-feed').alt = 'Error starting camera';
                 });
         });
 
@@ -937,6 +946,28 @@
                 valueSpan.textContent = slider.value;
             });
         });
+
+        // Adaptive Color Toggle
+        const adaptiveColorCheckbox = document.getElementById('adaptiveColorCheckbox');
+        if (adaptiveColorCheckbox) { // Ensure element exists before adding listener
+            adaptiveColorCheckbox.addEventListener('change', function() {
+                fetch('/api/toggle_adaptive_color', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled: this.checked })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    // The backend returns: {'status': 'success', 'message': f'Adaptive color tracking: {"enabled" if tracker.adaptive_color else "disabled"}'}
+                    console.log('Adaptive color status:', data.message);
+                    statusDiv.textContent = data.message; // Display the message from backend
+                })
+                .catch(error => {
+                    console.error('Error toggling adaptive color:', error);
+                    statusDiv.textContent = 'Error toggling adaptive color.';
+                });
+            });
+        }
     </script>
 </body>
 
