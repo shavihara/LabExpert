@@ -983,21 +983,36 @@
                             }
 
                             // Oscillation Counting Logic
+                            // Add this at the beginning of the data processing for tracking_data
+                            console.log('[OSC_DEBUG] Received tracking_data:', JSON.parse(JSON.stringify(data))); // Deep copy for logging
+                            console.log('[OSC_DEBUG] Tracking status:', tracking);
+                            console.log('[OSC_DEBUG] oscillationBatchStartTime:', oscillationBatchStartTime);
+
                             if (tracking && oscillationBatchStartTime && data.extreme_points) {
-                                if (batchStartExtremeCount === -1 && data.extreme_points.length > 0) {
-                                    // This is the first data received for this batch that has extreme points.
-                                    // Or, if trackBtn was just pressed, this sets the baseline for the first batch.
+                                console.log('[OSC_DEBUG] Entered main counting condition. data.extreme_points.length:', data.extreme_points.length);
+                                console.log('[OSC_DEBUG] batchStartExtremeCount (before set):', batchStartExtremeCount);
+
+                                if (batchStartExtremeCount === -1 && data.extreme_points.length > 0) { // Modified condition to only set if length > 0
                                     batchStartExtremeCount = data.extreme_points.length;
+                                    console.log('[OSC_DEBUG] batchStartExtremeCount (after set to initial):', batchStartExtremeCount);
+                                } else if (batchStartExtremeCount === -1 && data.extreme_points.length === 0) {
+                                     console.log('[OSC_DEBUG] batchStartExtremeCount is -1 but no extreme points yet to set baseline.');
                                 }
+
 
                                 let currentTotalExtremePoints = data.extreme_points.length;
-                                let oscillationsCountForCurrentBatch = Math.floor((currentTotalExtremePoints - batchStartExtremeCount) / 2);
+                                console.log('[OSC_DEBUG] currentTotalExtremePoints:', currentTotalExtremePoints);
 
-                                if (oscillationsCountForCurrentBatch < 0) {
-                                    oscillationsCountForCurrentBatch = 0; // Should not happen if batchStartExtremeCount is correctly set
+                                let oscillationsCountForCurrentBatch = 0;
+                                if (batchStartExtremeCount !== -1) { // Only calculate if baseline is set
+                                   oscillationsCountForCurrentBatch = Math.floor((currentTotalExtremePoints - batchStartExtremeCount) / 2);
+                                   if (oscillationsCountForCurrentBatch < 0) oscillationsCountForCurrentBatch = 0;
                                 }
+                                console.log('[OSC_DEBUG] oscillationsCountForCurrentBatch:', oscillationsCountForCurrentBatch);
+                                console.log('[OSC_DEBUG] targetOscillations:', targetOscillations);
 
                                 if (oscillationsCountForCurrentBatch >= targetOscillations) {
+                                    console.log('[OSC_DEBUG] Condition MET: oscillationsCountForCurrentBatch >= targetOscillations. Logging to table.');
                                     const timeNow = new Date().getTime();
                                     const timeTaken = (timeNow - oscillationBatchStartTime) / 1000; // Time for THIS batch
 
@@ -1012,12 +1027,18 @@
                                     targetOscillations = parseInt(targetOscillationsInput.value) || 25; // Get potentially new target
                                     oscillationBatchStartTime = timeNow; // Start time for the new batch
                                     batchStartExtremeCount = currentTotalExtremePoints; // New baseline for the next batch's count
+                                    console.log('[OSC_DEBUG] New batch started. Target:', targetOscillations, 'New batchStartExtremeCount:', batchStartExtremeCount);
 
                                     statusDiv.textContent = `Batch of ${oscillationsCountForCurrentBatch} completed in ${timeTaken.toFixed(3)}s. Target for next: ${targetOscillations}. Counting...`;
                                 } else {
-                                     // Update status with current count for the ongoing batch (optional)
-                                     // statusDiv.textContent = `Counting: ${oscillationsCountForCurrentBatch} / ${targetOscillations} oscillations...`;
+                                     console.log('[OSC_DEBUG] Condition NOT MET: oscillationsCountForCurrentBatch < targetOscillations.');
                                 }
+                            } else {
+                                console.log('[OSC_DEBUG] Did NOT enter main counting condition. Reasons:');
+                                if (!tracking) console.log('[OSC_DEBUG] - tracking is false');
+                                if (!oscillationBatchStartTime) console.log('[OSC_DEBUG] - oscillationBatchStartTime is null or 0');
+                                if (!data.extreme_points) console.log('[OSC_DEBUG] - data.extreme_points is missing');
+                                else if (data.extreme_points && data.extreme_points.length === 0 && batchStartExtremeCount === -1) console.log('[OSC_DEBUG] - data.extreme_points is empty and batchStartExtremeCount is -1');
                             }
                         }
                     })
