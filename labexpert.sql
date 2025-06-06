@@ -2,10 +2,10 @@
 -- version 5.2.1
 -- https://www.phpmyadmin.net/
 --
--- Host: 127.0.0.1
--- Generation Time: Apr 21, 2025 at 06:20 PM
--- Server version: 10.4.32-MariaDB
--- PHP Version: 8.2.12
+-- Host: 127.0.0.1:3306
+-- Generation Time: May 29, 2025 at 05:02 PM
+-- Server version: 9.1.0
+-- PHP Version: 8.3.14
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 START TRANSACTION;
@@ -21,8 +21,27 @@ SET time_zone = "+00:00";
 -- Database: `labexpert`
 --
 
-CREATE DATABASE IF NOT EXISTS `labexpert` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
-USE `labexpert`;
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `password_resets`
+--
+
+DROP TABLE IF EXISTS `password_resets`;
+CREATE TABLE IF NOT EXISTS `password_resets` (
+  `email` varchar(100) COLLATE utf8mb4_general_ci NOT NULL,
+  `otp` varchar(6) COLLATE utf8mb4_general_ci NOT NULL,
+  `expires_at` datetime NOT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`email`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `password_resets`
+--
+
+INSERT INTO `password_resets` (`email`, `otp`, `expires_at`, `created_at`) VALUES
+('labexpert.us@gmail.com', '694134', '2025-05-29 22:25:56', '2025-05-29 16:45:56');
 
 -- --------------------------------------------------------
 
@@ -30,39 +49,28 @@ USE `labexpert`;
 -- Table structure for table `users`
 --
 
-CREATE TABLE `users` (
-  `username` varchar(50) NOT NULL,
-  `password` varchar(255) DEFAULT NULL,
-  `tel_number` varchar(15) DEFAULT NULL,
-  `job` enum('admin','cashier','inventory_boy') NOT NULL
+DROP TABLE IF EXISTS `users`;
+CREATE TABLE IF NOT EXISTS `users` (
+  `fname` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
+  `lname` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
+  `email` varchar(100) COLLATE utf8mb4_general_ci NOT NULL,
+  `tel_number` varchar(15) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `password` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `google_id` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `login_type` enum('email','google') COLLATE utf8mb4_general_ci DEFAULT 'email',
+  `profile_picture` varchar(500) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  PRIMARY KEY (`email`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- Dumping data for table `users`
 --
 
-INSERT INTO `users` (`username`, `password`, `tel_number`, `job`) VALUES
-('aa', '$2y$10$KinD2kPUjRCRBF2xKgXOPOwUSCAgE//cV8g7EmsuiBQPCNlDkfk0K', '0711936547', 'cashier'),
-('dfgh', '$2y$10$JMzVqCHhnEqlTJuQ8VQn3uzrMN.IUC2CtJ8eHFr5ydReT.6kwaHpu', '23456', 'inventory_boy'),
-('DMT', '$2y$10$Ey2GMYhzUGXiRYK/H9GNxurmicfeS646LKMe4DCwkagBF3JMQiYPW', '0711926547', 'cashier'),
-('DT', '$2y$10$bv9BY09D0CwtNCNcMxCU5uHEvSUM3MjVxfmXAte3KQfpTS3Wd7a6y', '0711936547', 'admin'),
-('erty', '$2y$10$a1ZSBob/Kk0INY4HbO/u8.loRsrjX/pGfI6s8hdf4/D8pOG44bzpS', '23456', 'admin'),
-('hula', '$2y$10$3gURbBiEIlSRo9WTpXd6we/vi2AllimWZQ5WYwRlk4UFfuAT8599G', '0711936547', 'inventory_boy'),
-('kamal', '$2y$10$YngMoc/33lQLk/ARfYi.ies6GLSQUuMGIAnarHmTRJlfoO5p4pWEy', '0711936547', 'inventory_boy'),
-('namal', '$2y$10$u2Xr/0HGQ52ZCyG6D9Ojcu4KEzVDcaMAE9fZzVCfl/QVoX.qP5rAa', '0711936547', 'inventory_boy'),
-('nimal', '$2y$10$jx8CJXG1yB1pnwC6Zteb.us77B1nRxuP1qh3T9Hb5P5F/1fzbO4eS', '0711936547', 'cashier'),
-('sdf', '$2y$10$lgTyrjjhnWJggvChMNzX7uyOWPv2KEQqbJm.jRLEg7ikHbiVv82xu', '123456', 'admin'),
-('sdfg', '$2y$10$pa0YA8tvTeNIjrjDETga1e.J4TvhK1bJO0BAbPzLFMhhYAwIuVove', '123456', 'admin');
-
---
--- Indexes for dumped tables
---
-
---
--- Indexes for table `users`
---
-ALTER TABLE `users`
-  ADD PRIMARY KEY (`username`);
+INSERT INTO `users` (`fname`, `lname`, `email`, `tel_number`, `password`, `google_id`, `login_type`, `profile_picture`) VALUES
+('Githma ', 'Marapana', 'githma@gmail.com', '0769326895', '$2y$10$Gg4RYA3il2ierfkVCsx1geMSL4PLjruXIaPrv67RcBYNfuTaHmyOu', NULL, 'email', NULL),
+('John', 'Doe', 'jon@gmail.com', '1234567890', '$2y$10$eImiTMZG4T8YQ1j5z5Z3uO7F9b6a1k5f5d5f5d5f5d5f5d5f5d5f', NULL, 'email', NULL),
+('Lab', 'Expert', 'labexpert.us@gmail.com', '0767560128', '$2y$10$CG09F7Rtl3I4ucVYu4oJi.HEeYYgKR13Ey3Dtb14Uz.PYnZfgwaSm', NULL, 'email', NULL),
+('Sineth', '', 'shavihara7@gmail.com', '0767560128', '$2y$10$SzuGYZIo.LVlC6D1e/BLTu9nWXjahMkgKDEjdjg1SHDyOkDygdSzi', NULL, 'email', NULL);
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
