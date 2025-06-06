@@ -20,6 +20,7 @@ class PendulumTracker:
         
         # Tracking data
         self.positions = deque(maxlen=300)  # y-positions
+        
         self.timestamps = deque(maxlen=300)  # corresponding timestamps
         self.periods = deque(maxlen=10)     # calculated periods
         

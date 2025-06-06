@@ -35,7 +35,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         header("Location: labexpert_admin.php");
         exit();
       } else {
-        header("Location: lab-expert-ui.tsx"); // Redirect to the Flask app
+        header("Location: http://127.0.0.1:5000"); // Redirect to the Flask app
 
         exit();
       }
