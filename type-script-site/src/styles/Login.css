@@ -1,3 +1,17 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 /* Add this class for pages that need header spacing */
 .page-with-header {
   padding-top: 90px; /* Space for fixed header */
@@ -13,6 +27,17 @@
   padding-top: 90px;
 }
 
+@keyframes fadeSlideUp {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
 .login-card {
   background: white;
   padding: 2.5rem;
@@ -20,6 +45,10 @@
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
   width: 100%;
   max-width: 400px;
+  opacity: 0;
+      transform: translateY(50px);
+      animation: fadeSlideUp 1s ease-out forwards;
+      animation-delay: 0.1s;
 }
 
 .login-title {
@@ -40,7 +69,7 @@
 .login-form {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 0rem;
 }
 
 .form-group {
