@@ -1,11 +1,13 @@
 // src/App.tsx
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Login from './components/Login';
 import Signup from './components/Signup';
 import ForgotPassword from './components/ForgotPassword';
 import Home from './components/Home';
+import { PWAInstallPopup } from './components/PWAInstallPopup';
+import { registerServiceWorker } from './utils/registerSW';
 import './App.css';
 
 const App: React.FC = () => {

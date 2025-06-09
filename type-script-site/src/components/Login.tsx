@@ -6,6 +6,8 @@ import { findUser, setCurrentUser } from '../utils/LocalStorage';
 import type { FormSubmitEvent, InputChangeEvent } from '../types';
 import '../styles/Login.css';
 
+
+
 interface LoginFormProps {
   onSubmit: (email: string, password: string) => void;
 }
