@@ -1,0 +1,1141 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pendulum Oscillation Tracker (Python+OpenCV)</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 20px;
+            background-color: #f8f9fa;
+        }
+
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: linear-gradient(135deg, #e9f7ff 0%, #f0f8ff 100%);
+            padding: 12px 20px;
+            border-radius: 8px;
+            border-left: 4px solid #007BFF;
+            box-shadow: 0 2px 4px rgba(0, 123, 255, 0.1);
+            margin-bottom: 20px;
+            max-width: 800px;
+        }
+
+        .title {
+            font-size: 1.4rem;
+            font-weight: 600;
+            color: #2c3e50;
+            margin: 0;
+            flex-grow: 1;
+        }
+
+        .instructions {
+            position: relative;
+            display: inline-block;
+        }
+
+        .instructions-trigger {
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .instructions-trigger:hover {
+            background-color: #0056b3;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0, 123, 255, 0.3);
+        }
+
+        .instructions-trigger::after {
+            content: "ℹ️";
+            font-size: 1rem;
+        }
+
+        .instruction-dropdown {
+            display: none;
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            z-index: 100;
+            background-color: white;
+            border: 1px solid #e1e8ed;
+            border-radius: 8px;
+            padding: 16px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+            width: 320px;
+            animation: fadeIn 0.2s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .instructions:hover .instruction-dropdown {
+            display: block;
+        }
+
+        .instruction-dropdown h4 {
+            margin: 0 0 12px 0;
+            color: #2c3e50;
+            font-size: 1rem;
+            font-weight: 600;
+            border-bottom: 2px solid #e9f7ff;
+            padding-bottom: 8px;
+        }
+
+        .instruction-dropdown ol {
+            margin: 0;
+            padding-left: 20px;
+            color: #4a5568;
+            line-height: 1.5;
+        }
+
+        .instruction-dropdown li {
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+        }
+
+        .instruction-dropdown li:last-child {
+            margin-bottom: 0;
+        }
+
+        .controls {
+            position: fixed;
+            top: 15px;
+            right: 15px;
+            display: flex;
+            gap: 4px;
+            background: rgba(255, 255, 255, 0.95);
+            -webkit-backdrop-filter: blur(10px);
+            backdrop-filter: blur(10px);
+            padding: 6px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            z-index: 1000;
+            transition: all 0.3s ease;
+        }
+
+        .controls:hover {
+            gap: 6px;
+            padding: 8px;
+        }
+
+        .controls button {
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 500;
+            overflow: hidden;
+            white-space: nowrap;
+            /* Default state - icon only */
+            width: 32px;
+            height: 32px;
+            font-size: 14px;
+            padding: 0;
+        }
+
+        /* Hover state - expand to show text */
+        .controls:hover button {
+            width: auto;
+            min-width: 70px;
+            height: 34px;
+            padding: 6px 12px;
+            font-size: 0.8rem;
+            gap: 6px;
+        }
+
+        /* Text is hidden by default */
+        .btn-text {
+            opacity: 0;
+            max-width: 0;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            font-size: 0.8rem;
+            margin-left: 0;
+        }
+
+        /* Show text on hover */
+        .controls:hover .btn-text {
+            opacity: 1;
+            max-width: 60px;
+            margin-left: 6px;
+        }
+
+        /* Button colors and hover effects */
+        .start-btn {
+            background-color: #28a745;
+            color: white;
+        }
+        .start-btn:hover {
+            background-color: #218838;
+            transform: translateY(-1px);
+        }
+
+        .track-btn {
+            background-color: #007bff;
+            color: white;
+        }
+        .track-btn:hover {
+            background-color: #0056b3;
+            transform: translateY(-1px);
+        }
+        .track-btn:disabled {
+            background-color: #6c757d !important;
+            cursor: not-allowed !important;
+            opacity: 0.6;
+            transform: none !important;
+        }
+
+        .stop-btn {
+            background-color: #dc3545;
+            color: white;
+        }
+        .stop-btn:hover {
+            background-color: #c82333;
+            transform: translateY(-1px);
+        }
+        .stop-btn:disabled {
+            background-color: #6c757d !important;
+            cursor: not-allowed !important;
+            opacity: 0.6;
+            transform: none !important;
+        }
+
+        .reset-btn {
+            background-color: #6c757d;
+            color: white;
+        }
+        .reset-btn:hover {
+            background-color: #545b62;
+            transform: translateY(-1px);
+        }
+
+        button {
+            padding: 10px 20px;
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .container {
+            display: grid;
+            gap: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+            transition: all 0.5s ease;
+        }
+
+        /* Default layout: Settings on left, video and data on right */
+        .container {
+            grid-template-columns: 300px 1fr;
+            grid-template-areas: 
+                "settings video"
+                "settings data";
+        }
+
+        /* Tracking mode: Hide settings, prioritize chart */
+        .container.tracking-mode {
+            grid-template-columns: 1fr 1fr;
+            grid-template-areas: 
+                "video data"
+                "video data";
+        }
+
+        .settings-panel {
+            grid-area: settings;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            height: fit-content;
+            position: sticky;
+            top: 20px;
+            transition: all 0.5s ease;
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        /* Hide settings in tracking mode */
+        .container.tracking-mode .settings-panel {
+            opacity: 0;
+            transform: translateX(-100%);
+            pointer-events: none;
+            width: 0;
+            padding: 0;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        .video-container {
+            grid-area: video;
+            position: relative;
+            background-color: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            transition: all 0.5s ease;
+            
+            /* Default size */
+            width: 100%;
+            max-width: 640px;
+            aspect-ratio: 4/3;
+        }
+
+        /* Smaller video in tracking mode */
+        .container.tracking-mode .video-container {
+            max-width: 480px;
+        }
+
+        #video-feed {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            background: linear-gradient(45deg, #333 25%, transparent 25%), 
+                        linear-gradient(-45deg, #333 25%, transparent 25%), 
+                        linear-gradient(45deg, transparent 75%, #333 75%), 
+                        linear-gradient(-45deg, transparent 75%, #333 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+        }
+
+        .data-container {
+            grid-area: data;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .settings-panel h3 {
+            margin: 0 0 20px 0;
+            color: #2c3e50;
+            border-bottom: 2px solid #e9f7ff;
+            padding-bottom: 10px;
+        }
+
+        .settings {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .settings label {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: #4a5568;
+        }
+
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .settings input[type="range"] {
+            flex: 1;
+            height: 6px;
+            border-radius: 3px;
+            background: #e2e8f0;
+            outline: none;
+            -webkit-appearance: none;
+            appearance: none;
+            
+        }
+
+        .settings input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #007bff;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0, 123, 255, 0.3);
+        }
+
+        .settings input[type="range"]::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #007bff;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 2px 4px rgba(0, 123, 255, 0.3);
+        }
+
+        .value-display {
+            min-width: 40px;
+            text-align: center;
+            background: #f8f9fa;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .status {
+            text-align: center;
+            padding: 12px;
+            border-radius: 6px;
+            font-weight: 600;
+            background: #e3f2fd;
+            color: #1976d2;
+            border-left: 4px solid #2196f3;
+        }
+
+        .status.tracking {
+            background: #e8f5e8;
+            color: #2e7d32;
+            border-left-color: #4caf50;
+        }
+
+        #period {
+            font-size: 1.2rem;
+            text-align: center;
+            font-weight: 600;
+            color: #2c3e50;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border: 2px solid #e9ecef;
+        }
+
+        .chart-container {
+            flex: 1;
+            min-height: 300px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border: 2px dashed #dee2e6;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #6c757d;
+            font-size: 1.1rem;
+            transition: all 0.5s ease;
+        }
+
+        /* Expand chart in tracking mode */
+        .container.tracking-mode .chart-container {
+            min-height: 400px;
+            background: white;
+            border: 1px solid #dee2e6;
+            border-style: solid;
+        }
+
+        #oscillationChart {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Demo toggle button */
+        .demo-toggle {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
+            transition: all 0.2s ease;
+            z-index: 1000;
+        }
+
+        .demo-toggle:hover {
+            background: #0056b3;
+            transform: translateY(-2px);
+        }
+
+        /* Responsive design */
+        @media (max-width: 1200px) {
+            .container {
+                grid-template-columns: 250px 1fr;
+            }
+        }
+
+        @media (max-width: 968px) {
+            .container {
+                grid-template-columns: 1fr;
+                grid-template-areas: 
+                    "settings"
+                    "video"
+                    "data";
+            }
+            
+            .container.tracking-mode {
+                grid-template-areas: 
+                    "video"
+                    "data";
+            }
+
+            .settings-panel {
+                position: static;
+            }
+
+            .video-container {
+                max-width: 100%;
+            }
+        }
+
+        /* Smooth transitions for all elements */
+        * {
+            transition: opacity 0.5s ease, transform 0.5s ease, width 0.5s ease, padding 0.5s ease, margin 0.5s ease;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <h3 class="title">Pendulum Oscillation Tracker</h3>
+        <div class="instructions">
+            <button class="instructions-trigger">How to Use</button>
+            <div class="instruction-dropdown">
+                <h4>Instructions</h4>
+                <ol>
+                    <li>Click "Start Camera" to enable camera access</li>
+                    <li>Adjust the color detection settings for your pendulum</li>
+                    <li>Place a colored ball pendulum in view of the camera</li>
+                    <li>Click "Start Tracking" to begin analysis</li>
+                    <li>The application will track the pendulum motion and calculate its period</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+
+
+    <div class="controls">
+        <button class="start-btn">
+            <span class="btn-icon">📹</span>
+            <span class="btn-text">Start</span>
+        </button>
+        <button class="track-btn" disabled>
+            <span class="btn-icon">🎯</span>
+            <span class="btn-text">Track</span>
+        </button>
+        <button class="stop-btn" disabled>
+            <span class="btn-icon">⏹️</span>
+            <span class="btn-text">Stop</span>
+        </button>
+        <button class="reset-btn">
+            <span class="btn-icon">🔄</span>
+            <span class="btn-text">Reset</span>
+        </button>
+        <button class="stop-camera-btn" disabled>
+            <span class="btn-icon">🚫</span>
+            <span class="btn-text">Stop Cam</span>
+        </button>
+    </div>
+
+<div class="container" id="mainContainer">
+        <!-- Settings Panel (Left Side) -->
+        <div class="settings-panel">
+            <h3>🎨 Color Detection Settings</h3>
+            <div class="settings">
+                <label>
+                    Hue Min:
+                    <div class="slider-container">
+                        <input type="range" id="hueMin" min="0" max="179" value="0" step="1">
+                        <span class="value-display" id="hueMinValue">0</span>
+                    </div>
+                </label>
+                <label>
+                    Hue Max:
+                    <div class="slider-container">
+                        <input type="range" id="hueMax" min="0" max="179" value="50" step="1">
+                        <span class="value-display" id="hueMaxValue">50</span>
+                    </div>
+                </label>
+                <label>
+                    Saturation Min:
+                    <div class="slider-container">
+                        <input type="range" id="satMin" min="0" max="255" value="100" step="1">
+                        <span class="value-display" id="satMinValue">100</span>
+                    </div>
+                </label>
+                <label>
+                    Saturation Max:
+                    <div class="slider-container">
+                        <input type="range" id="satMax" min="0" max="255" value="255" step="1">
+                        <span class="value-display" id="satMaxValue">255</span>
+                    </div>
+                </label>
+                <label>
+                    Value Min:
+                    <div class="slider-container">
+                        <input type="range" id="valMin" min="0" max="255" value="50" step="1">
+                        <span class="value-display" id="valMinValue">50</span>
+                    </div>
+                </label>
+                <label>
+                    Value Max:
+                    <div class="slider-container">
+                        <input type="range" id="valMax" min="0" max="255" value="255" step="1">
+                        <span class="value-display" id="valMaxValue">255</span>
+                    </div>
+                </label>
+                <label>
+                    Min Ball Size:
+                    <div class="slider-container">
+                        <input type="range" id="minSize" min="5" max="100" value="10" step="1">
+                        <span class="value-display" id="minSizeValue">10</span>
+                    </div>
+                </label>
+                <label for="adaptiveColorCheckbox" style="flex-direction: row; align-items: center; gap: 10px; margin-top: 10px;">
+                    Enable Adaptive Color:
+                    <input type="checkbox" id="adaptiveColorCheckbox" style="width: auto; height: auto; margin-left: 5px;">
+                </label>
+                <div class="setting" style="display: flex; flex-direction: row; align-items: center; justify-content: space-between; margin-top: 10px;">
+                    <label for="targetOscillations" style="margin-bottom: 0;">Target Oscillations:</label>
+                    <input type="number" id="targetOscillations" value="25" min="1" style="width: 60px; padding: 5px; border: 1px solid #ccc; border-radius: 4px;">
+                </div>
+            </div>
+        </div>
+
+        <!-- Video Container -->
+        <div class="video-container">
+            <img id="video-feed" src="#" alt="Video Feed - Camera not started">
+        </div>
+
+        <!-- Data Container (Right Side) -->
+        <div class="data-container">
+            <h3>📊 Pendulum Analysis</h3>
+            
+            <div id="status" class="status">Ready to start camera</div>
+            <div id="period">Period: - seconds</div>
+
+            <div class="chart-container">
+                <div>📈 Oscillation Chart<br><small>Chart will appear when tracking starts</small></div>
+                <canvas id="oscillationChart" style="display: none;"></canvas>
+            </div>
+
+            <div id="oscillation-log-container" style="margin-top: 20px;">
+                <h4 style="text-align: center; margin-bottom: 10px; color: #2c3e50;">📋 Oscillation Log</h4>
+                <table id="oscillation-log-table" style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+                    <thead>
+                        <tr>
+                            <th style="border: 1px solid #ddd; padding: 8px; text-align: left; background-color: #f8f9fa; color: #495057;">Target</th>
+                            <th style="border: 1px solid #ddd; padding: 8px; text-align: left; background-color: #f8f9fa; color: #495057;">Actual</th>
+                            <th style="border: 1px solid #ddd; padding: 8px; text-align: left; background-color: #f8f9fa; color: #495057;">Time Taken (s)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Log rows will be added here by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Demo Button -->
+    <button class="demo-toggle" onclick="toggleTrackingMode()">
+        🎯 Toggle Tracking Mode
+    </button>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.1/chart.min.js"></script>
+
+    <script>
+        // Global variables
+        let tracking = false;
+        let pollingInterval = null; // Declare pollingInterval here
+
+        // Oscillation Counting Variables
+        let targetOscillations = 25; // Default, will be updated from input
+        let oscillationBatchStartTime = null;
+        let batchStartExtremeCount = -1; // Using -1 to indicate it's not yet set for the current batch
+
+        // DOM Elements
+        const oscillationLogTableBody = document.querySelector('#oscillation-log-table tbody');
+        const targetOscillationsInput = document.getElementById('targetOscillations');
+
+        // Corrected selectors for buttons:
+        let startBtn = document.querySelector('.controls .start-btn');
+        let trackBtn = document.querySelector('.controls .track-btn');
+        let stopBtn = document.querySelector('.controls .stop-btn');
+        let resetBtn = document.querySelector('.controls .reset-btn');
+        const stopCameraBtn = document.querySelector('.controls .stop-camera-btn'); // Added stop camera button
+        let statusDiv = document.getElementById('status');
+        let periodDiv = document.getElementById('period');
+
+        // Range sliders
+        const hueMin = document.getElementById('hueMin');
+        const hueMax = document.getElementById('hueMax');
+        const satMin = document.getElementById('satMin');
+        const satMax = document.getElementById('satMax');
+        const valMin = document.getElementById('valMin');
+        const valMax = document.getElementById('valMax');
+        const minSize = document.getElementById('minSize');
+
+        // Range value displays
+        const hueMinValue = document.getElementById('hueMinValue');
+        const hueMaxValue = document.getElementById('hueMaxValue');
+        const satMinValue = document.getElementById('satMinValue');
+        const satMaxValue = document.getElementById('satMaxValue');
+        const valMinValue = document.getElementById('valMinValue');
+        const valMaxValue = document.getElementById('valMaxValue');
+        const minSizeValue = document.getElementById('minSizeValue');
+
+        // Chart
+        let oscillationChart = null;
+
+        // Event listener for Target Oscillations Input
+        if (targetOscillationsInput) {
+            targetOscillationsInput.addEventListener('change', function() {
+                targetOscillations = parseInt(this.value) || 25;
+                // Optional: Add behavior if target changes mid-tracking, e.g., update status or reset current batch.
+                // For now, new target applies to the next batch.
+                console.log(`Target oscillations updated to: ${targetOscillations}`);
+                statusDiv.textContent = `Target oscillations set to ${targetOscillations}. New target will apply to the next batch.`;
+            });
+        }
+
+        // Event listeners for range inputs
+        hueMin.addEventListener('input', () => {
+            hueMinValue.textContent = hueMin.value;
+            updateColorSettings();
+        });
+
+        hueMax.addEventListener('input', () => {
+            hueMaxValue.textContent = hueMax.value;
+            updateColorSettings();
+        });
+
+        satMin.addEventListener('input', () => {
+            satMinValue.textContent = satMin.value;
+            updateColorSettings();
+        });
+
+        satMax.addEventListener('input', () => {
+            satMaxValue.textContent = satMax.value;
+            updateColorSettings();
+        });
+
+        valMin.addEventListener('input', () => {
+            valMinValue.textContent = valMin.value;
+            updateColorSettings();
+        });
+
+        valMax.addEventListener('input', () => {
+            valMaxValue.textContent = valMax.value;
+            updateColorSettings();
+        });
+
+        minSize.addEventListener('input', () => {
+            minSizeValue.textContent = minSize.value;
+            updateColorSettings();
+        });
+
+        // Initialize chart
+        function initChart() {
+            const ctx = document.getElementById('oscillationChart').getContext('2d');
+            oscillationChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Pendulum Position (Y)',
+                        data: [],
+                        borderColor: 'rgb(75, 192, 192)',
+                        tension: 0.1,
+                        pointRadius: 0
+                    }]
+                },
+                options: {
+                    animation: false,
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            title: {
+                                display: true,
+                                text: 'Time (s)'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Position (pixels)'
+                            },
+                            reverse: true // Because in canvas, y increases downward
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true
+                        }
+                    }
+                }
+            });
+        }
+
+        // Reset chart
+        function resetChart() {
+            if (oscillationChart) {
+                oscillationChart.data.labels = [];
+                oscillationChart.data.datasets[0].data = [];
+                oscillationChart.update();
+            }
+        }
+
+        // Update color settings
+        function updateColorSettings() {
+            fetch('/api/update_color', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    hueMin: hueMin.value,
+                    hueMax: hueMax.value,
+                    satMin: satMin.value,
+                    satMax: satMax.value,
+                    valMin: valMin.value,
+                    valMax: valMax.value,
+                    minSize: minSize.value
+                }),
+            })
+                .then(response => response.json())
+                .then(data => {
+                    console.log('Color settings updated:', data);
+                })
+                .catch((error) => {
+                    console.error('Error updating color settings:', error);
+                });
+        }
+
+        // Start the camera
+        startBtn.addEventListener('click', () => {
+            fetch('/api/start_camera', {
+                method: 'POST'
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success' && data.message === 'Camera started') { // Check message for specific success
+                        startBtn.disabled = true;
+                        trackBtn.disabled = false;
+                        stopCameraBtn.disabled = false; // Enable Stop Camera button
+                        statusDiv.textContent = "Camera started. Adjust settings and click 'Start Tracking'";
+                        document.getElementById('video-feed').src = '/video_feed'; // Set video feed source
+                        document.getElementById('video-feed').alt = 'Live video feed.';
+
+                        // Initialize chart if needed
+                        if (!oscillationChart) {
+                            initChart();
+                        }
+
+                        // Start polling tracking data for the chart
+                        startDataPolling();
+                    } else {
+                        statusDiv.textContent = data.message || "Could not start camera.";
+                        document.getElementById('video-feed').alt = data.message || "Camera failed to start."; // Update alt text on error
+                    }
+                })
+                .catch(error => {
+                    console.error('Error starting camera:', error);
+                    statusDiv.textContent = 'Error starting camera';
+                    document.getElementById('video-feed').alt = 'Error starting camera';
+                });
+        });
+
+        // Start tracking
+        trackBtn.addEventListener('click', () => {
+            fetch('/api/start_tracking', {
+                method: 'POST'
+            })
+                .then(response => response.json())
+                .then(data => {
+                    tracking = true;
+                    trackBtn.disabled = true;
+                    stopBtn.disabled = false;
+
+                    // Oscillation counting setup for new tracking session
+                    targetOscillations = parseInt(targetOscillationsInput.value) || 25; // Get current target
+                    batchStartExtremeCount = -1; // Reset: will be set upon receiving first data with extremes for this session
+                    oscillationBatchStartTime = new Date().getTime(); // Start time for the first batch
+                    // oscillationLogTableBody.innerHTML = ''; // Optional: Clear log table
+
+                    statusDiv.textContent = `Tracking started. Counting ${targetOscillations} oscillations...`;
+
+                    // Reset chart
+                    resetChart();
+                })
+                .catch(error => {
+                    console.error('Error starting tracking:', error);
+                    statusDiv.textContent = 'Error starting tracking';
+                });
+        });
+
+        // Stop tracking
+        stopBtn.addEventListener('click', () => {
+            fetch('/api/stop_tracking', {
+                method: 'POST'
+            })
+                .then(response => response.json())
+                .then(data => {
+                    tracking = false; // Already here
+                    oscillationBatchStartTime = null; // Stop oscillation counting
+                    batchStartExtremeCount = -1; // Reset batch extreme count state
+                    trackBtn.disabled = false;
+                    stopBtn.disabled = true;
+                    statusDiv.textContent = "Tracking and oscillation counting stopped. Camera still active.";
+                })
+                .catch(error => {
+                    console.error('Error stopping tracking:', error);
+                    statusDiv.textContent = 'Error stopping tracking';
+                });
+        });
+
+        // Reset data
+        resetBtn.addEventListener('click', () => {
+            fetch('/api/reset_tracking', {
+                method: 'POST'
+            })
+                .then(response => response.json())
+                .then(data => {
+                    resetChart();
+                    periodDiv.textContent = "Period: - seconds";
+
+                    // Clear oscillation log table
+                    if (oscillationLogTableBody) {
+                        oscillationLogTableBody.innerHTML = '';
+                    }
+
+                    // Reset oscillation counting variables
+                    oscillationBatchStartTime = null;
+                    batchStartExtremeCount = -1;
+
+                    statusDiv.textContent = "Tracking reset. Oscillation log cleared. Camera still active.";
+                })
+                .catch(error => {
+                    console.error('Error resetting data:', error);
+                    statusDiv.textContent = 'Error resetting data';
+                });
+        });
+
+        // Poll tracking data periodically
+        function startDataPolling() {
+            if (pollingInterval) { // Clear existing interval before starting a new one
+                clearInterval(pollingInterval);
+            }
+            pollingInterval = setInterval(() => { // Assign to the shared pollingInterval
+                fetch('/api/tracking_data')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.positions && data.timestamps && data.positions.length > 0) {
+                            // Update chart
+                            if (oscillationChart) {
+                                const maxPoints = 300;
+                                const startIdx = Math.max(0, data.positions.length - maxPoints);
+
+                                oscillationChart.data.labels = data.timestamps.slice(startIdx);
+                                oscillationChart.data.datasets[0].data = data.positions.slice(startIdx);
+                                oscillationChart.update();
+                            }
+
+                            // Update period display
+                            if (data.period) {
+                                periodDiv.textContent = `Period: ${data.period.toFixed(3)} seconds`;
+                            }
+
+                            // Oscillation Counting Logic
+                            // Add this at the beginning of the data processing for tracking_data
+                            console.log('[OSC_DEBUG] Received tracking_data:', JSON.parse(JSON.stringify(data))); // Deep copy for logging
+                            console.log('[OSC_DEBUG] Tracking status:', tracking);
+                            console.log('[OSC_DEBUG] oscillationBatchStartTime:', oscillationBatchStartTime);
+
+                            if (tracking && oscillationBatchStartTime && data.extreme_points) {
+                                console.log('[OSC_DEBUG] Entered main counting condition. data.extreme_points.length:', data.extreme_points.length);
+                                console.log('[OSC_DEBUG] batchStartExtremeCount (before set):', batchStartExtremeCount);
+
+                                if (batchStartExtremeCount === -1 && data.extreme_points.length > 0) { // Modified condition to only set if length > 0
+                                    batchStartExtremeCount = data.extreme_points.length;
+                                    console.log('[OSC_DEBUG] batchStartExtremeCount (after set to initial):', batchStartExtremeCount);
+                                } else if (batchStartExtremeCount === -1 && data.extreme_points.length === 0) {
+                                     console.log('[OSC_DEBUG] batchStartExtremeCount is -1 but no extreme points yet to set baseline.');
+                                }
+
+
+                                let currentTotalExtremePoints = data.extreme_points.length;
+                                console.log('[OSC_DEBUG] currentTotalExtremePoints:', currentTotalExtremePoints);
+
+                                let oscillationsCountForCurrentBatch = 0;
+                                if (batchStartExtremeCount !== -1) { // Only calculate if baseline is set
+                                   oscillationsCountForCurrentBatch = Math.floor((currentTotalExtremePoints - batchStartExtremeCount) / 2);
+                                   if (oscillationsCountForCurrentBatch < 0) oscillationsCountForCurrentBatch = 0;
+                                }
+                                console.log('[OSC_DEBUG] oscillationsCountForCurrentBatch:', oscillationsCountForCurrentBatch);
+                                console.log('[OSC_DEBUG] targetOscillations:', targetOscillations);
+
+                                if (oscillationsCountForCurrentBatch >= targetOscillations) {
+                                    console.log('[OSC_DEBUG] Condition MET: oscillationsCountForCurrentBatch >= targetOscillations. Logging to table.');
+                                    const timeNow = new Date().getTime();
+                                    const timeTaken = (timeNow - oscillationBatchStartTime) / 1000; // Time for THIS batch
+
+                                    if (oscillationLogTableBody) {
+                                        const newRow = oscillationLogTableBody.insertRow();
+                                        newRow.insertCell(0).textContent = targetOscillations; // Target for the batch that just finished
+                                        newRow.insertCell(1).textContent = oscillationsCountForCurrentBatch;
+                                        newRow.insertCell(2).textContent = timeTaken.toFixed(3);
+                                    }
+
+                                    // Prepare for next batch
+                                    targetOscillations = parseInt(targetOscillationsInput.value) || 25; // Get potentially new target
+                                    oscillationBatchStartTime = timeNow; // Start time for the new batch
+                                    batchStartExtremeCount = currentTotalExtremePoints; // New baseline for the next batch's count
+                                    console.log('[OSC_DEBUG] New batch started. Target:', targetOscillations, 'New batchStartExtremeCount:', batchStartExtremeCount);
+
+                                    statusDiv.textContent = `Batch of ${oscillationsCountForCurrentBatch} completed in ${timeTaken.toFixed(3)}s. Target for next: ${targetOscillations}. Counting...`;
+                                } else {
+                                     console.log('[OSC_DEBUG] Condition NOT MET: oscillationsCountForCurrentBatch < targetOscillations.');
+                                }
+                            } else {
+                                console.log('[OSC_DEBUG] Did NOT enter main counting condition. Reasons:');
+                                if (!tracking) console.log('[OSC_DEBUG] - tracking is false');
+                                if (!oscillationBatchStartTime) console.log('[OSC_DEBUG] - oscillationBatchStartTime is null or 0');
+                                if (!data.extreme_points) console.log('[OSC_DEBUG] - data.extreme_points is missing');
+                                else if (data.extreme_points && data.extreme_points.length === 0 && batchStartExtremeCount === -1) console.log('[OSC_DEBUG] - data.extreme_points is empty and batchStartExtremeCount is -1');
+                            }
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching tracking data:', error);
+                    });
+            }, 100); // Poll every 100ms
+        }
+
+        function toggleTrackingMode() {
+            const container = document.getElementById('mainContainer');
+            const status = document.getElementById('status');
+            const chart = document.querySelector('.chart-container div');
+            const canvas = document.getElementById('oscillationChart');
+            
+            container.classList.toggle('tracking-mode');
+            
+            if (container.classList.contains('tracking-mode')) {
+                status.textContent = 'Tracking pendulum motion...';
+                status.classList.add('tracking');
+                chart.style.display = 'none';
+                canvas.style.display = 'block';
+            } else {
+                status.textContent = 'Ready to start camera';
+                status.classList.remove('tracking');
+                chart.style.display = 'block';
+                canvas.style.display = 'none';
+            }
+        }
+
+        // Update slider values (minimal JS for functionality)
+        document.querySelectorAll('input[type="range"]').forEach(slider => {
+            const valueSpan = document.getElementById(slider.id + 'Value');
+            slider.addEventListener('input', () => {
+                valueSpan.textContent = slider.value;
+            });
+        });
+
+        // Adaptive Color Toggle
+        const adaptiveColorCheckbox = document.getElementById('adaptiveColorCheckbox');
+        if (adaptiveColorCheckbox) { // Ensure element exists before adding listener
+            adaptiveColorCheckbox.addEventListener('change', function() {
+                fetch('/api/toggle_adaptive_color', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled: this.checked })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    // The backend returns: {'status': 'success', 'message': f'Adaptive color tracking: {"enabled" if tracker.adaptive_color else "disabled"}'}
+                    console.log('Adaptive color status:', data.message);
+                    statusDiv.textContent = data.message; // Display the message from backend
+                })
+                .catch(error => {
+                    console.error('Error toggling adaptive color:', error);
+                    statusDiv.textContent = 'Error toggling adaptive color.';
+                });
+            });
+        }
+
+        // Event listener for Stop Camera button
+        if(stopCameraBtn) {
+            stopCameraBtn.addEventListener('click', function() {
+                fetch('/api/stop_camera', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            statusDiv.textContent = data.message || 'Camera stopped successfully.';
+                            document.getElementById('video-feed').src = '#'; // Clear video feed
+                            document.getElementById('video-feed').alt = 'Video feed stopped.';
+
+                            // Manage button states
+                            startBtn.disabled = false;
+                            stopCameraBtn.disabled = true;
+                            trackBtn.disabled = true;
+                            stopBtn.disabled = true; // Stop tracking button
+                            // resetBtn.disabled = true; // Reset button might depend on tracking state too
+
+                            tracking = false; // Ensure tracking state is reset
+
+                            if (pollingInterval) {
+                                clearInterval(pollingInterval);
+                                pollingInterval = null;
+                            }
+                            // If chart exists, potentially clear it or leave as is
+                            // resetChart(); // Optionally reset chart if desired when camera stops
+                        } else {
+                            statusDiv.textContent = data.message || 'Error stopping camera.';
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error stopping camera:', error);
+                        statusDiv.textContent = 'Failed to stop camera.';
+                    });
+            });
+        }
+    </script>
+</body>
+
+</html>
