@@ -12,7 +12,17 @@
   /* Add padding-top if header is shown on login page */
   padding-top: 90px;
 }
+@keyframes fadeSlideUp {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
 
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
 .login-card {
   background: white;
   padding: 2.5rem;
@@ -20,6 +30,10 @@
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
   width: 80%;
   max-width: 400px;
+  opacity: 0;
+      transform: translateY(50px);
+      animation: fadeSlideUp 1s ease-out forwards;
+      animation-delay: 0.1s;
 }
 
 .login-title {
