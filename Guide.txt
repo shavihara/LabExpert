@@ -38,3 +38,6 @@ project-root/
 ├── package.json
 ├── README.md
 └── vite.config.js
+
+
+npm install sqlite3 better-sqlite3 bcryptjs jsonwebtoken express cors multer uuid dotenv nodemailer

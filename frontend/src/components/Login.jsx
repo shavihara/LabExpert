@@ -1,31 +1,39 @@
-import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
-import { findUser, setCurrentUser } from '../utils/localStorage'
-import '../styles/Login.css'
+import { useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
+import { findUser } from '../utils/api';
+import '../styles/Login.css';
 
 function Login() {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
-  const navigate = useNavigate()
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
 
-  const handleSubmit = (e) => {
-    e.preventDefault()
-    setError('')
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
 
     if (!email || !password) {
-      setError('Please fill in all fields')
-      return
+      setError('Please fill in all fields');
+      setLoading(false);
+      return;
     }
 
-    const user = findUser(email, password)
-    if (user) {
-      setCurrentUser(user)
-      navigate('/home')
-    } else {
-      setError('Invalid email or password')
+    try {
+      const user = await findUser(email, password);
+      if (user) {
+        navigate('/home');
+      } else {
+        setError('Invalid email or password');
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Login failed');
+    } finally {
+      setLoading(false);
     }
-  }
+  };
 
   return (
     <div className="login-container">
@@ -45,6 +53,7 @@ function Login() {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="Enter your email"
               className="form-input"
+              disabled={loading}
             />
           </div>
           
@@ -57,11 +66,16 @@ function Login() {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter your password"
               className="form-input"
+              disabled={loading}
             />
           </div>
           
-          <button type="submit" className="login-button">
-            Login
+          <button 
+            type="submit" 
+            className="login-button"
+            disabled={loading}
+          >
+            {loading ? 'Logging in...' : 'Login'}
           </button>
         </form>
         
@@ -76,7 +90,7 @@ function Login() {
         </div>
       </div>
     </div>
-  )
+  );
 }
 
-export default Login
+export default Login;

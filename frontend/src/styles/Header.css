@@ -5,6 +5,7 @@
   left: 0;
   right: 0;
   z-index: 1000;
+  height: 4rem;
   background: linear-gradient(
     135deg,
     rgba(102, 126, 234, 0.95) 0%,
@@ -319,7 +320,7 @@
   transform: rotate(-45deg) translate(6px, -6px);
 }
 
-/* Enhanced Mobile Navigation */
+/* Enhanced Mobile Navigation - FIXED Z-INDEX ISSUE */
 .mobile-nav {
   position: fixed;
   top: 80px;
@@ -335,12 +336,17 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.2);
   transform: translateY(-100%);
   transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  z-index: 999;
+  z-index: -1; /* Changed from 999 to -1 when closed */
   box-shadow: 0 8px 40px rgba(0, 0, 0, 0.15);
+  opacity: 0;
+  visibility: hidden;
 }
 
 .mobile-nav.active {
   transform: translateY(0);
+  z-index: 999; /* Only set high z-index when active */
+  opacity: 1;
+  visibility: visible;
 }
 
 .mobile-nav-list {
@@ -403,6 +409,7 @@
   cursor: pointer;
 }
 
+/* Mobile Overlay - FIXED Z-INDEX ISSUE */
 .mobile-overlay {
   position: fixed;
   top: 0;
@@ -411,7 +418,7 @@
   bottom: 0;
   background: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(4px);
-  z-index: 998;
+  z-index: 998; /* Slightly lower than active mobile nav */
   opacity: 0;
   animation: fadeIn 0.3s ease forwards;
 }
