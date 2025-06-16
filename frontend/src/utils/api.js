@@ -59,15 +59,23 @@ export const getCurrentUser = async () => {
   }
 };
 
-export const updateUserPassword = async (email, newPassword, otp) => {
+export const updateUserPassword = async (email, newPassword, otp, verifyOnly = false) => {
   try {
-    const response = await api.post('/auth/verify-otp', { email, otp, newPassword });
-    return response.data.success;
+    if (verifyOnly) {
+      // Just verify OTP without changing password
+      const response = await api.post('/auth/verify-otp-only', { email, otp });
+      return response.data.success;
+    } else {
+      // Reset password with OTP
+      const response = await api.post('/auth/verify-otp', { email, otp, newPassword });
+      return response.data.success;
+    }
   } catch (error) {
     console.error('Update password error:', error);
     throw error;
   }
 };
+
 
 export const logoutUser = async () => {
   try {

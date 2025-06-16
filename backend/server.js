@@ -242,8 +242,10 @@ app.get('/api/test-email', async (req, res) => {
   }
 });
 
-app.post('/api/auth/verify-otp', async (req, res) => {
-  const { email, otp, newPassword } = req.body;
+// Replace these endpoints in your server.js
+
+app.post('/api/auth/verify-otp-only', async (req, res) => {
+  const { email, otp } = req.body;
   
   console.log('🔐 OTP verification attempt for:', email);
   
@@ -254,18 +256,55 @@ app.post('/api/auth/verify-otp', async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
     
-    const { valid } = await OTPService.verifyOTP(user.id, otp);
+    // Verify OTP without marking as used
+    const { valid } = await OTPService.verifyOTP(user.id, otp, 'password_reset', false);
     if (!valid) {
       console.log('❌ Invalid OTP for user:', email);
       return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
     }
     
+    // Mark OTP as verified (but not used)
+    await OTPService.markOTPAsVerified(user.id, otp, 'password_reset');
+    
+    console.log('✅ OTP verified successfully for:', email);
+    
+    res.json({ success: true, message: 'OTP verified successfully' });
+  } catch (error) {
+    console.error('OTP verification error:', error);
+    res.status(500).json({ success: false, message: 'OTP verification failed' });
+  }
+});
+
+app.post('/api/auth/verify-otp', async (req, res) => {
+  const { email, otp, newPassword } = req.body;
+  
+  console.log('🔐 Password reset attempt for:', email);
+  
+  try {
+    const user = await UserService.findByEmail(email);
+    if (!user) {
+      console.log('❌ User not found for email:', email);
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    
+    // Check if OTP is verified and still valid
+    const isVerified = await OTPService.isOTPVerified(user.id, otp, 'password_reset');
+    if (!isVerified) {
+      console.log('❌ OTP not verified or expired for user:', email);
+      return res.status(400).json({ success: false, message: 'Invalid or expired OTP. Please verify OTP again.' });
+    }
+    
+    // Update password
     await UserService.updatePassword(user.id, newPassword);
+    
+    // Now mark OTP as used
+    await OTPService.verifyOTP(user.id, otp, 'password_reset', true);
+    
     console.log('✅ Password updated successfully for:', email);
     
     res.json({ success: true, message: 'Password reset successfully' });
   } catch (error) {
-    console.error('OTP verification error:', error);
+    console.error('Password reset error:', error);
     res.status(500).json({ success: false, message: 'Password reset failed' });
   }
 });

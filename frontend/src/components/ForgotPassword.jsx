@@ -63,19 +63,36 @@ function ForgotPassword() {
     e.preventDefault();
     setError(''); 
     setSuccess('');
+    setLoading(true);
     
     if (!otp || otp.length !== 6) {
       setError('Please enter a valid 6-digit OTP');
+      setLoading(false);
       return;
     }
     
     if (timeRemaining === 0) {
       setError('OTP has expired. Please request a new one.');
+      setLoading(false);
       return;
     }
     
-    setStep(3);
-    setSuccess('OTP verified! Set your new password.');
+    try {
+      // Verify OTP on backend before proceeding
+      const response = await updateUserPassword(email, '', otp, true); // true = verify only
+      
+      if (response) {
+        setStep(3);
+        setSuccess('OTP verified! Set your new password.');
+      } else {
+        setError('Invalid OTP. Please try again.');
+      }
+    } catch (err) {
+      console.error('Error verifying OTP:', err);
+      setError(err.response?.data?.message || 'Invalid or expired OTP');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handlePasswordReset = async (e) => {
@@ -103,7 +120,7 @@ function ForgotPassword() {
     
     try {
       console.log('Resetting password for:', email);
-      await updateUserPassword(email, newPassword, otp);
+      await updateUserPassword(email, newPassword, otp, false); // false = reset password
       setSuccess('Password reset successfully! Redirecting to login...');
       setTimeout(() => navigate('/login'), 2000);
     } catch (err) {
@@ -131,6 +148,47 @@ function ForgotPassword() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Handle OTP input with better backspace support
+  const handleOtpChange = (index, value, e) => {
+    // Handle backspace
+    if (e.key === 'Backspace' && !value && index > 0) {
+      const prevInput = document.querySelector(`.otp-box:nth-child(${index})`);
+      if (prevInput) {
+        prevInput.focus();
+        const newOtp = otp.split('');
+        newOtp[index - 1] = '';
+        setOtp(newOtp.join(''));
+      }
+      return;
+    }
+
+    // Handle normal input
+    const val = value.replace(/\D/g, '');
+    if (val.length <= 1) {
+      const newOtp = otp.split('');
+      newOtp[index] = val;
+      setOtp(newOtp.join(''));
+      
+      // Move to next input
+      if (val && index < 5) {
+        const nextInput = document.querySelector(`.otp-box:nth-child(${index + 2})`);
+        if (nextInput) nextInput.focus();
+      }
+    }
+  };
+
+  // Handle paste event for OTP
+  const handleOtpPaste = (e) => {
+    e.preventDefault();
+    const pastedData = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    setOtp(pastedData);
+    
+    // Focus last filled input
+    const lastIndex = Math.min(pastedData.length, 6) - 1;
+    const lastInput = document.querySelector(`.otp-box:nth-child(${lastIndex + 1})`);
+    if (lastInput) lastInput.focus();
   };
 
   return (
@@ -184,25 +242,21 @@ function ForgotPassword() {
                     type="text" 
                     className="otp-box" 
                     value={otp[i] || ''} 
-                    onChange={(e) => { 
-                      const val = e.target.value.replace(/\D/g, ''); 
-                      if (val.length <= 1) { 
-                        const newOtp = otp.split(''); 
-                        newOtp[i] = val; 
-                        setOtp(newOtp.join('')); 
-                        if (val && i < 5) {
-                          const nextInput = document.querySelector(`.otp-box:nth-child(${i + 2})`);
-                          if (nextInput) nextInput.focus();
-                        }
-                      } 
-                    }} 
+                    onChange={(e) => handleOtpChange(i, e.target.value, e)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Backspace' && !otp[i] && i > 0) {
+                        e.preventDefault();
+                        handleOtpChange(i, '', e);
+                      }
+                    }}
+                    onPaste={i === 0 ? handleOtpPaste : undefined}
                     maxLength="1" 
                   />
                 ))}
               </div>
             </div>
             <button type="submit" className="forgot-button" disabled={loading || timeRemaining === 0}>
-              Verify OTP
+              {loading ? 'Verifying...' : 'Verify OTP'}
             </button>
             <div className="otp-actions">
               <button 
