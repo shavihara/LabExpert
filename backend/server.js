@@ -11,6 +11,7 @@ const FileService = require('./services/fileService');
 const OTPService = require('./services/otpService');
 const { db } = require('./config/database');
 
+
 dotenv.config();
 
 const app = express();
@@ -308,6 +309,14 @@ app.post('/api/auth/verify-otp', async (req, res) => {
     res.status(500).json({ success: false, message: 'Password reset failed' });
   }
 });
+
+
+//admin
+
+//admin.........................
+
+
+
 
 app.post('/api/auth/logout', authenticate, async (req, res) => {
   try {

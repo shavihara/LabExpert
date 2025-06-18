@@ -10,30 +10,32 @@ function Login() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
+  //const handleSubmit = async (e) => {
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-
-    if (!email || !password) {
-      setError('Please fill in all fields');
-      setLoading(false);
-      return;
-    }
-
-    try {
-      const user = await findUser(email, password);
-      if (user) {
-        navigate('/home');
+  e.preventDefault();
+  setError('');
+  setLoading(true);
+  
+  try {
+    const response = await findUser(email, password);
+    
+    if (response) {
+      // Store user data with role
+      localStorage.setItem('user', JSON.stringify(response));
+      
+      // Navigate based on role
+      if (response.role === 'admin') {
+        navigate('/admin');
       } else {
-        setError('Invalid email or password');
+        navigate('/home');
       }
-    } catch (err) {
-      setError(err.response?.data?.message || 'Login failed');
-    } finally {
-      setLoading(false);
     }
-  };
+  } catch (error) {
+    setError(error.response?.data?.message || 'Login failed');
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <div className="login-container">
