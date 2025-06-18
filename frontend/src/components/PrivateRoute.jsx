@@ -1,18 +1,41 @@
-import { Navigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Navigate, Outlet } from 'react-router-dom';
+import { getCurrentUser } from '../utils/api';
 
-function PrivateRoute({ children, requiredRole = null }) {
-  const token = localStorage.getItem('token');
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
-  
-  if (!token) {
-    return <Navigate to="/login" replace />;
+function PrivateRoute({ requiredRole }) {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const currentUser = await getCurrentUser();
+        console.log('PrivateRoute getCurrentUser:', currentUser); // Debug log
+        setUser(currentUser);
+      } catch (error) {
+        console.error('PrivateRoute error:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchUser();
+  }, []);
+
+  if (loading) {
+    return <div>Loading...</div>;
   }
-  
-  if (requiredRole && user.role !== requiredRole) {
-    return <Navigate to={user.role === 'admin' ? '/admin' : '/home'} replace />;
+
+  if (!user) {
+    console.log('No user found, redirecting to /login'); // Debug log
+    return <Navigate to="/login" />;
   }
-  
-  return children;
+
+  if (requiredRole && user.email !== 'labexpert.us@gmail.com') {
+    console.log('Unauthorized access for:', user.email, 'redirecting to /home'); // Debug log
+    return <Navigate to="/home" />;
+  }
+
+  return <Outlet />;
 }
 
 export default PrivateRoute;

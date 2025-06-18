@@ -54,22 +54,66 @@ transport.verify(function(error, success) {
   }
 });
 
+// Replace your existing login endpoint in server.js with this:
+
 app.post('/api/auth/login', async (req, res) => {
   console.log('📧 Login attempt for:', req.body.email);
   const { email, password } = req.body;
-  try {
-    const user = await UserService.findByEmail(email);
-    if (!user || !await UserService.validatePassword(password, user.password)) {
-      console.log('❌ Invalid credentials for:', email);
-      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+  
+  const maxRetries = 3;
+  let attempt = 0;
+  
+  while (attempt < maxRetries) {
+    try {
+      const user = await UserService.findByEmail(email);
+      if (!user) {
+        console.log('❌ User not found for:', email);
+        return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      }
+
+      const isValidPassword = await UserService.validatePassword(password, user.password);
+      if (!isValidPassword) {
+        console.log('❌ Invalid password for:', email);
+        return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      }
+
+      await UserService.updateLastLogin(user.id);
+      const token = await SessionService.create(user.id, req.body.deviceInfo, req.ip);
+      
+      console.log('✅ Login successful for:', email);
+      res.json({ 
+        success: true, 
+        token, 
+        user: { 
+          id: user.id, 
+          name: user.name, 
+          email: user.email,
+          role: user.role 
+        } 
+      });
+      return; // Exit successfully
+      
+    } catch (error) {
+      if (error.code === 'SQLITE_BUSY' && attempt < maxRetries - 1) {
+        attempt++;
+        console.warn(`SQLITE_BUSY in login, retry ${attempt}/${maxRetries}`);
+        await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
+        continue;
+      }
+      
+      console.error('Login error:', error);
+      if (error.message.includes('database is locked')) {
+        return res.status(503).json({ 
+          success: false, 
+          message: 'System is busy. Please try again in a few seconds.' 
+        });
+      }
+      
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Login failed' 
+      });
     }
-    await UserService.updateLastLogin(user.id);
-    const { token } = await SessionService.create(user.id, req.body.deviceInfo, req.ip);
-    console.log('✅ Login successful for:', email);
-    res.json({ success: true, token, user: { id: user.id, name: user.name, email: user.email } });
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ success: false, message: 'Login failed' });
   }
 });
 

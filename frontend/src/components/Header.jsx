@@ -25,15 +25,21 @@ function Header() {
     setIsMenuOpen(!isMenuOpen)
   }
 
-  // Check if user is logged in (you can modify this logic based on your auth state)
-  const isLoggedIn = localStorage.getItem('currentUser') !== null
+  // Check if user is logged in
+  const isLoggedIn = localStorage.getItem('user') !== null
+
+  const handleLogout = () => {
+    localStorage.removeItem('user')
+    localStorage.removeItem('token')
+    window.location.href = '/login'
+  }
 
   return (
     <header className={`header ${isScrolled ? 'scrolled' : ''}`}>
       <div className="header-container">
         {/* Logo */}
         <div className="logo">
-          <Link to="/" className="logo-link">
+          <Link to="/" className="logo-link" aria-label="Lab Expert Home">
             <div className="logo-icon">
               <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -84,10 +90,7 @@ function Header() {
             </>
           ) : (
             <div className="user-menu">
-              <button className="btn btn-outline" onClick={() => {
-                localStorage.removeItem('currentUser')
-                window.location.href = '/login'
-              }}>
+              <button className="btn btn-outline" onClick={handleLogout} aria-label="Logout">
                 Logout
               </button>
             </div>
@@ -147,10 +150,8 @@ function Header() {
             <li className="mobile-nav-item">
               <button 
                 className="mobile-nav-link logout-btn"
-                onClick={() => {
-                  localStorage.removeItem('currentUser')
-                  window.location.href = '/login'
-                }}
+                onClick={handleLogout}
+                aria-label="Logout"
               >
                 Logout
               </button>

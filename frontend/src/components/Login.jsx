@@ -1,41 +1,65 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { findUser } from '../utils/api';
+import { findUser, getCurrentUser } from '../utils/api';
 import '../styles/Login.css';
 
-function Login() {
+function Login({ setCurrentUser }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  //const handleSubmit = async (e) => {
   const handleSubmit = async (e) => {
-  e.preventDefault();
-  setError('');
-  setLoading(true);
-  
-  try {
-    const response = await findUser(email, password);
-    
-    if (response) {
-      // Store user data with role
-      localStorage.setItem('user', JSON.stringify(response));
-      
-      // Navigate based on role
-      if (response.role === 'admin') {
-        navigate('/admin');
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      const user = await findUser(email, password);
+      console.log('findUser user:', user); // Debug log
+      if (user) {
+        localStorage.setItem('user', JSON.stringify(user));
+        console.log('Stored user:', user); // Debug log
+        console.log('Stored token:', localStorage.getItem('token')); // Debug log
+
+        // Update app state
+        const currentUser = await getCurrentUser();
+        console.log('getCurrentUser response:', currentUser); // Debug log
+        if (currentUser) {
+          setCurrentUser(currentUser);
+
+          // Navigate based on email
+          if (currentUser.email === 'labexpert.us@gmail.com') {
+            console.log('Redirecting to /admin for:', currentUser.email);
+            navigate('/admin', { replace: true });
+          } else {
+            console.log('Redirecting to /home for:', currentUser.email);
+            navigate('/home', { replace: true });
+          }
+        } else {
+          setError('Failed to fetch user data. Please try again.');
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+        }
       } else {
-        navigate('/home');
+        setError('Invalid email or password');
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
       }
+    } catch (error) {
+      console.error('Login error:', error);
+      if (error.message.includes('database is locked')) {
+        setError('System is busy. Please try again in a few seconds.');
+      } else {
+        setError(error.response?.data?.message || 'Login failed. Please try again.');
+      }
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+    } finally {
+      setLoading(false);
     }
-  } catch (error) {
-    setError(error.response?.data?.message || 'Login failed');
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   return (
     <div className="login-container">
@@ -56,6 +80,7 @@ function Login() {
               placeholder="Enter your email"
               className="form-input"
               disabled={loading}
+              aria-label="Email"
             />
           </div>
           
@@ -69,6 +94,7 @@ function Login() {
               placeholder="Enter your password"
               className="form-input"
               disabled={loading}
+              aria-label="Password"
             />
           </div>
           
@@ -76,6 +102,7 @@ function Login() {
             type="submit" 
             className="login-button"
             disabled={loading}
+            aria-label="Login"
           >
             {loading ? 'Logging in...' : 'Login'}
           </button>

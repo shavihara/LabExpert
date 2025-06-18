@@ -1,58 +1,79 @@
-const { v4: uuidv4 } = require('uuid');
-const jwt = require('jsonwebtoken');
 const { db, prepare } = require('../config/database');
 
-class SessionService {
-  static async create(userId, deviceInfo = {}, ipAddress = 'unknown') {
-    const id = uuidv4();
-    const token = jwt.sign({ userId, sessionId: id }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRE || '7d' });
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-    const stmt = prepare(
-      'INSERT INTO sessions (id, user_id, token, device_info, ip_address, expires_at) VALUES (@id, @userId, @token, @deviceInfo, @ipAddress, @expiresAt)'
-    );
-    stmt.run({ id, userId, token, deviceInfo: JSON.stringify(deviceInfo), ipAddress, expiresAt: expiresAt.toISOString() });
-    return { token, sessionId: id };
-  }
+const SessionService = {
+  findByToken: async (token) => {
+    try {
+      if (!token || token === 'undefined') {
+        console.error('Invalid token received in findByToken:', token);
+        return null;
+      }
+      const stmt = prepare(`
+        SELECT s.*, u.name, u.email, u.role 
+        FROM sessions s
+        JOIN users u ON s.user_id = u.id
+        WHERE s.token = ? AND s.is_active = 1 AND s.expires_at > CURRENT_TIMESTAMP
+      `);
+      const session = stmt.get(token);
+      return session || null;
+    } catch (error) {
+      console.error('Error finding session by token:', error);
+      throw error;
+    }
+  },
 
-  static async findByToken(token) {
-    const stmt = prepare(
-      'SELECT s.*, u.name, u.email, u.role, u.is_email_verified FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.token = @token AND s.expires_at > datetime(\'now\') AND s.is_active = 1'
-    );
-    const session = stmt.get({ token });
-    if (session && session.device_info) try { session.device_info = JSON.parse(session.device_info); } catch (e) { session.device_info = {}; }
-    return session;
-  }
+  create: async (userId, ipAddress) => {
+    try {
+      const token = require('crypto').randomBytes(32).toString('hex');
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+      const stmt = prepare(`
+        INSERT INTO sessions (user_id, token, ip_address, expires_at, is_active, last_activity)
+        VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+      `);
+      stmt.run(userId, token, ipAddress, expiresAt.toISOString());
+      return token;
+    } catch (error) {
+      console.error('Error creating session:', error);
+      throw error;
+    }
+  },
 
-  static async invalidate(token) {
-    const stmt = prepare('UPDATE sessions SET is_active = 0 WHERE token = @token');
-    stmt.run({ token });
-  }
+  invalidate: async (token) => {
+    try {
+      const stmt = prepare('UPDATE sessions SET is_active = 0 WHERE token = ?');
+      stmt.run(token);
+    } catch (error) {
+      console.error('Error invalidating session:', error);
+      throw error;
+    }
+  },
 
-  static async updateActivity(token) {
-    const stmt = prepare('UPDATE sessions SET last_activity = CURRENT_TIMESTAMP WHERE token = @token');
-    stmt.run({ token });
-  }
+  updateActivity: async (token) => {
+    try {
+      const stmt = prepare(`
+        UPDATE sessions 
+        SET last_activity = CURRENT_TIMESTAMP 
+        WHERE token = ? AND is_active = 1
+      `);
+      const result = stmt.run(token);
+      return result.changes > 0;
+    } catch (error) {
+      console.error('Error updating session activity:', error);
+      throw error;
+    }
+  },
 
-  static async getActiveSessions() {
-    const stmt = prepare(
-      'SELECT s.*, u.name, u.email FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.expires_at > datetime(\'now\') AND s.is_active = 1 ORDER BY s.last_activity DESC'
-    );
-    const sessions = stmt.all();
-    return sessions.map(session => ({ ...session, device_info: session.device_info ? JSON.parse(session.device_info) : {} }));
+  findByUserId: async (userId) => {
+    try {
+      const stmt = prepare(`
+        SELECT * FROM sessions 
+        WHERE user_id = ? AND is_active = 1 AND s.expires_at > CURRENT_TIMESTAMP
+      `);
+      return stmt.all(userId);
+    } catch (error) {
+      console.error('Error finding sessions by user ID:', error);
+      throw error;
+    }
   }
-
-  static async getUserSessions(userId) {
-    const stmt = prepare(
-      'SELECT * FROM sessions WHERE user_id = @userId AND expires_at > datetime(\'now\') AND is_active = 1 ORDER BY last_activity DESC'
-    );
-    return stmt.all({ userId });
-  }
-
-  static async cleanup() {
-    const stmt = prepare('DELETE FROM sessions WHERE expires_at < datetime(\'now\')');
-    const result = stmt.run();
-    return result.changes;
-  }
-}
+};
 
 module.exports = SessionService;

@@ -1,78 +1,94 @@
-const bcrypt = require('bcryptjs');
-const { v4: uuidv4 } = require('uuid');
 const { db, prepare } = require('../config/database');
+const bcrypt = require('bcryptjs'); // Add this import
 
-class UserService {
-  static async create(userData) {
-    const { name, email, password } = userData;
-    const id = uuidv4();
+const UserService = {
+  findByEmail: async (email) => {
     try {
-      const hashedPassword = await bcrypt.hash(password, 10);
-      const stmt = prepare(
-        `INSERT INTO users (id, name, email, password) VALUES (@id, @name, @email, @password)`
-      );
-      const result = stmt.run({ id, name, email, password: hashedPassword });
-      return this.findById(id);
+      const stmt = prepare('SELECT * FROM users WHERE email = ? AND is_active = 1');
+      return stmt.get(email);
     } catch (error) {
-      console.error('Database error in create:', error);
-      throw new Error('Failed to create user');
+      console.error('Error finding user by email:', error);
+      throw error;
+    }
+  },
+
+  findById: async (id) => {
+    try {
+      const stmt = prepare('SELECT * FROM users WHERE id = ? AND is_active = 1');
+      return stmt.get(id);
+    } catch (error) {
+      console.error('Error finding user by ID:', error);
+      throw error;
+    }
+  },
+
+  // ADD THIS FUNCTION - This is what's missing!
+  validatePassword: async (inputPassword, hashedPassword) => {
+    try {
+      return await bcrypt.compare(inputPassword, hashedPassword);
+    } catch (error) {
+      console.error('Error validating password:', error);
+      return false;
+    }
+  },
+
+  updateLastLogin: async (userId) => {
+    const maxRetries = 5;
+    let attempt = 0;
+
+    while (attempt < maxRetries) {
+      try {
+        await db.transaction(() => {
+          const stmt = prepare('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?');
+          stmt.run(userId);
+        })();
+        return true;
+      } catch (error) {
+        if (error.code === 'SQLITE_BUSY') {
+          attempt++;
+          console.warn(`SQLITE_BUSY in updateLastLogin, retry ${attempt}/${maxRetries}`);
+          await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
+          if (attempt === maxRetries) {
+            console.error('Max retries reached in updateLastLogin:', error);
+            throw error;
+          }
+        } else {
+          console.error('Error updating last login:', error);
+          throw error;
+        }
+      }
+    }
+  },
+
+  create: async (userData) => {
+    try {
+      const { id, name, email, password, role = 'user', is_email_verified = 0, is_active = 1 } = userData;
+      await db.transaction(() => {
+        const stmt = prepare(`
+          INSERT INTO users (id, name, email, password, role, is_email_verified, is_active)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+        stmt.run(id, name, email, password, role, is_email_verified, is_active);
+      })();
+      return true;
+    } catch (error) {
+      console.error('Error creating user:', error);
+      throw error;
+    }
+  },
+
+  updatePassword: async (email, newPassword) => {
+    try {
+      await db.transaction(() => {
+        const stmt = prepare('UPDATE users SET password = ? WHERE email = ?');
+        stmt.run(newPassword, email);
+      })();
+      return true;
+    } catch (error) {
+      console.error('Error updating password:', error);
+      throw error;
     }
   }
-
-  static async findByEmail(email) {
-    const stmt = prepare('SELECT * FROM users WHERE email = @email');
-    return stmt.get({ email });
-  }
-
-  static async findById(id) {
-    const stmt = prepare('SELECT id, name, email, role, profile_picture, is_email_verified, is_active, last_login, created_at FROM users WHERE id = @id');
-    return stmt.get({ id });
-  }
-
-  static async validatePassword(plainPassword, hashedPassword) {
-    return bcrypt.compare(plainPassword, hashedPassword);
-  }
-
-  static async updatePassword(userId, newPassword) {
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-    const stmt = prepare('UPDATE users SET password = @password, updated_at = CURRENT_TIMESTAMP WHERE id = @id');
-    stmt.run({ id: userId, password: hashedPassword });
-  }
-
-  static async updateLastLogin(userId) {
-    const stmt = prepare('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = @id');
-    stmt.run({ id: userId });
-  }
-
-  static async verifyEmail(userId) {
-    const stmt = prepare('UPDATE users SET is_email_verified = 1, updated_at = CURRENT_TIMESTAMP WHERE id = @id');
-    stmt.run({ id: userId });
-  }
-
-  static async updateProfile(userId, updates) {
-    const { name, email } = updates;
-    const params = { id: userId };
-    const fields = [];
-    if (name) { fields.push('name = @name'); params.name = name; }
-    if (email) { fields.push('email = @email, is_email_verified = 0'); params.email = email; }
-    if (fields.length > 0) { fields.push('updated_at = CURRENT_TIMESTAMP'); const stmt = prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = @id`); stmt.run(params); }
-    return this.findById(userId);
-  }
-
-  static async updateProfilePicture(userId, fileId) {
-    const stmt = prepare('UPDATE users SET profile_picture = @fileId, updated_at = CURRENT_TIMESTAMP WHERE id = @id');
-    stmt.run({ id: userId, fileId });
-  }
-
-  static async getAllUsers() {
-    const stmt = prepare('SELECT id, name, email, role, is_email_verified, is_active, last_login, created_at FROM users ORDER BY created_at DESC');
-    return stmt.all();
-  }
-
-  static async getStats() {
-    const stmt = prepare('SELECT COUNT(*) as total_users, SUM(CASE WHEN is_email_verified = 1 THEN 1 ELSE 0 END) as verified_users, SUM(CASE WHEN created_at > datetime(\'now\', \'-7 days\') THEN 1 ELSE 0 END) as recent_signups FROM users');
-    return stmt.get();
-  }
-}
+};
 
 module.exports = UserService;

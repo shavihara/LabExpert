@@ -13,8 +13,14 @@ function AdminPage() {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
 
   useEffect(() => {
+    // Client-side email check
+    if (user.email !== 'labexpert.us@gmail.com') {
+      navigate('/home');
+      return;
+    }
+
     fetchAdminData();
-  }, []);
+  }, [navigate, user.email]);
 
   const fetchAdminData = async () => {
     try {
@@ -37,6 +43,8 @@ function AdminPage() {
 
   const handleLogout = async () => {
     await logoutUser();
+    localStorage.removeItem('user');
+    localStorage.removeItem('token');
     navigate('/login');
   };
 
@@ -56,7 +64,7 @@ function AdminPage() {
           <h1 className="nav-logo">Lab Expert Admin</h1>
           <div className="nav-user">
             <span>👤 {user.name || 'Admin'}</span>
-            <button onClick={handleLogout} className="logout-btn">
+            <button onClick={handleLogout} className="logout-btn" aria-label="Logout">
               Logout
             </button>
           </div>
@@ -69,24 +77,28 @@ function AdminPage() {
             <li 
               className={activeTab === 'dashboard' ? 'active' : ''}
               onClick={() => setActiveTab('dashboard')}
+              aria-label="Dashboard"
             >
               📊 Dashboard
             </li>
             <li 
               className={activeTab === 'users' ? 'active' : ''}
               onClick={() => setActiveTab('users')}
+              aria-label="Users"
             >
               👥 Users
             </li>
             <li 
               className={activeTab === 'sessions' ? 'active' : ''}
               onClick={() => setActiveTab('sessions')}
+              aria-label="Active Sessions"
             >
               🔐 Active Sessions
             </li>
             <li 
               className={activeTab === 'settings' ? 'active' : ''}
               onClick={() => setActiveTab('settings')}
+              aria-label="Settings"
             >
               ⚙️ Settings
             </li>

@@ -11,17 +11,29 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
-    if (token) config.headers.Authorization = `Bearer ${token}`;
+    if (token && token !== 'undefined' && token !== null) {
+      config.headers.Authorization = `Bearer ${token}`;
+    } else {
+      console.warn('Skipping Authorization header due to invalid token:', token, 'for URL:', config.url);
+    }
     return config;
   },
-  (error) => Promise.reject(error)
+  (error) => {
+    console.error('Request interceptor error:', error);
+    return Promise.reject(error);
+  }
 );
 
 export const findUser = async (email, password) => {
   try {
     const response = await api.post('/auth/login', { email, password });
-    if (response.data.success) localStorage.setItem('token', response.data.token);
-    return response.data.user || null;
+    console.log('findUser response:', response.data); // Debug log
+    if (response.data.success) {
+      localStorage.setItem('token', response.data.token);
+      console.log('Stored token:', response.data.token); // Debug log
+      return response.data.user || null;
+    }
+    return null;
   } catch (error) {
     console.error('Login error:', error);
     throw error;
@@ -31,8 +43,12 @@ export const findUser = async (email, password) => {
 export const saveUser = async (userData) => {
   try {
     const response = await api.post('/auth/signup', userData);
-    if (response.data.success) localStorage.setItem('token', response.data.token);
-    return response.data.user || null;
+    console.log('saveUser response:', response.data); // Debug log
+    if (response.data.success) {
+      localStorage.setItem('token', response.data.token);
+      return response.data.user || null;
+    }
+    return null;
   } catch (error) {
     console.error('Signup error:', error);
     throw error;
@@ -51,8 +67,14 @@ export const checkEmailExists = async (email) => {
 
 export const getCurrentUser = async () => {
   try {
+    const token = localStorage.getItem('token');
+    if (!token || token === 'undefined' || token === null) {
+      console.error('Invalid or undefined token in getCurrentUser, skipping request');
+      return null;
+    }
     const response = await api.get('/user/me');
-    return response.data.user;
+    console.log('getCurrentUser response:', response.data); // Debug log
+    return response.data.user || null;
   } catch (error) {
     console.error('Get current user error:', error);
     return null;
@@ -62,11 +84,9 @@ export const getCurrentUser = async () => {
 export const updateUserPassword = async (email, newPassword, otp, verifyOnly = false) => {
   try {
     if (verifyOnly) {
-      // Just verify OTP without changing password
       const response = await api.post('/auth/verify-otp-only', { email, otp });
       return response.data.success;
     } else {
-      // Reset password with OTP
       const response = await api.post('/auth/verify-otp', { email, otp, newPassword });
       return response.data.success;
     }
@@ -75,7 +95,6 @@ export const updateUserPassword = async (email, newPassword, otp, verifyOnly = f
     throw error;
   }
 };
-
 
 export const logoutUser = async () => {
   try {
@@ -88,7 +107,6 @@ export const logoutUser = async () => {
   }
 };
 
-// Fixed: Send forgot password request
 export const sendForgotPasswordOTP = async (email) => {
   try {
     const response = await api.post('/auth/forgot-password', { email });
@@ -110,5 +128,4 @@ export const fileAPI = {
   getFile: (fileId) => `${API_URL}/files/${fileId}`,
 };
 
-// Export the main api instance for direct use
 export { api };

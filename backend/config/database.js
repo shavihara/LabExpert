@@ -1,7 +1,19 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 
-const db = new Database(path.join(__dirname, '../data/lab_expert.db'), { verbose: console.log });
+const db = new Database(path.join(__dirname, '../data/lab_expert.db'), { 
+  verbose: console.log,
+  timeout: 5000,
+  // Add WAL mode for better concurrency
+  fileMustExist: false
+});
+
+// Enable WAL mode for better concurrent access
+db.pragma('journal_mode = WAL');
+db.pragma('synchronous = NORMAL');
+db.pragma('cache_size = 1000000');
+db.pragma('temp_store = memory');
+db.pragma('mmap_size = 268435456'); // 256MB
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
@@ -37,6 +49,7 @@ db.exec(`
     otp_type TEXT NOT NULL,
     expires_at DATETIME NOT NULL,
     is_used INTEGER DEFAULT 0,
+    verified_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id)
   );

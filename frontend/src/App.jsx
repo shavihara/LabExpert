@@ -5,6 +5,8 @@ import Signup from './components/Signup';
 import ForgotPassword from './components/ForgotPassword';
 import Home from './components/Home';
 import Header from './components/Header';
+import AdminPage from './pages/AdminPage';
+import PrivateRoute from './components/PrivateRoute';
 import { getCurrentUser } from './utils/api';
 import './App.css';
 
@@ -14,9 +16,14 @@ function App() {
 
   useEffect(() => {
     const fetchUser = async () => {
-      const user = await getCurrentUser();
-      setCurrentUser(user);
-      setLoading(false);
+      try {
+        const user = await getCurrentUser();
+        setCurrentUser(user);
+      } catch (error) {
+        console.error('Error fetching current user:', error);
+      } finally {
+        setLoading(false);
+      }
     };
     fetchUser();
   }, []);
@@ -27,15 +34,27 @@ function App() {
 
   return (
     <div className="app">
-      {currentUser && <Header />}
+      <Header />
       <Routes>
         <Route path="/" element={<Navigate to="/login" />} />
-        <Route path="/login" element={<Login />} />
+        <Route path="/login" element={<Login setCurrentUser={setCurrentUser} />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route
           path="/home"
-          element={currentUser ? <Home /> : <Navigate to="/login" />}
+          element={
+            <PrivateRoute>
+              <Home />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/admin"
+          element={
+            <PrivateRoute requiredRole="admin">
+              <AdminPage />
+            </PrivateRoute>
+          }
         />
       </Routes>
     </div>
