@@ -1,0 +1,43 @@
+project-root/
+├── backend/
+│   ├── node_modules/
+│   ├── .env
+│   ├── .gitignore
+│   ├── package-lock.json
+│   ├── package.json
+│   └── server.js
+├── frontend/
+│   ├── .vite/
+│   ├── node_modules/
+│   ├── public/
+│   └── src/
+│       ├── assets/
+│       ├── components/
+│       │   ├── ForgotPassword.jsx
+│       │   ├── Header.jsx
+│       │   ├── Login.jsx
+│       │   └── Signup.jsx
+│       ├── pages/
+│       │   └── Home.jsx
+│       ├── styles/
+│       │   ├── ForgotPassword.css
+│       │   ├── Header.css
+│       │   ├── Home.css
+│       │   ├── Login.css
+│       │   └── Signup.css
+│       ├── utils/
+│       ├── App.jsx
+│       ├── index.css
+│       └── main.jsx
+├── .gitignore
+├── eslint.config.js
+├── icon-192x192.png
+├── icon-512x512.png
+├── index.html
+├── package-lock.json
+├── package.json
+├── README.md
+└── vite.config.js
+
+
+npm install sqlite3 better-sqlite3 bcryptjs jsonwebtoken express cors multer uuid dotenv nodemailer
