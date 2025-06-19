@@ -1,19 +1,21 @@
 import { useState, useEffect } from 'react';
-import { Navigate, Outlet } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
 import { getCurrentUser } from '../utils/api';
 
-function PrivateRoute({ requiredRole }) {
+function PrivateRoute({ children, requiredRole }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchUser = async () => {
       try {
+        console.log('🔍 PrivateRoute: Checking user authentication...');
         const currentUser = await getCurrentUser();
-        console.log('PrivateRoute getCurrentUser:', currentUser); // Debug log
+        console.log('✅ PrivateRoute: User data:', currentUser);
         setUser(currentUser);
       } catch (error) {
-        console.error('PrivateRoute error:', error);
+        console.error('❌ PrivateRoute error:', error);
+        setUser(null);
       } finally {
         setLoading(false);
       }
@@ -22,20 +24,34 @@ function PrivateRoute({ requiredRole }) {
   }, []);
 
   if (loading) {
-    return <div>Loading...</div>;
+    return (
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        color: 'white',
+        fontSize: '1.2rem'
+      }}>
+        Loading...
+      </div>
+    );
   }
 
   if (!user) {
-    console.log('No user found, redirecting to /login'); // Debug log
-    return <Navigate to="/login" />;
+    console.log('❌ No user found, redirecting to /login');
+    return <Navigate to="/login" replace />;
   }
 
-  if (requiredRole && user.email !== 'labexpert.us@gmail.com') {
-    console.log('Unauthorized access for:', user.email, 'redirecting to /home'); // Debug log
-    return <Navigate to="/home" />;
+  // Check admin role
+  if (requiredRole === 'admin' && user.email !== 'labexpert.us@gmail.com') {
+    console.log('❌ User is not admin, redirecting to /home');
+    return <Navigate to="/home" replace />;
   }
 
-  return <Outlet />;
+  console.log('✅ PrivateRoute: Rendering children');
+  return children;
 }
 
 export default PrivateRoute;

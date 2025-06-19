@@ -102,25 +102,6 @@ function AdminDashboard() {
     }
   };
 
-  const handleLogout = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      await fetch('http://localhost:5000/api/auth/logout', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-    } catch (error) {
-      console.error('Logout error:', error);
-    } finally {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      navigate('/login');
-    }
-  };
-
   const formatUptime = (seconds) => {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
@@ -152,18 +133,13 @@ function AdminDashboard() {
 
   return (
     <div className="admin-container">
-      {/* Header */}
-      <header className="admin-header">
-        <div className="header-content">
-          <h1 className="admin-title">🏥 Lab Expert Admin</h1>
-          <div className="header-actions">
-            <span className="admin-user">👤 {currentUser.name || 'Admin'}</span>
-            <button onClick={handleLogout} className="logout-btn">
-              🚪 Logout
-            </button>
-          </div>
+      {/* Welcome Section */}
+      <div className="admin-welcome">
+        <div className="welcome-content">
+          <h1 className="welcome-title">🏥 Lab Expert Admin Dashboard</h1>
+          <p className="welcome-subtitle">Monitor system to oversee operations</p>
         </div>
-      </header>
+      </div>
 
       {/* Navigation */}
       <nav className="admin-nav">

@@ -3,6 +3,8 @@ import { useNavigate, Link } from 'react-router-dom';
 import { findUser, getCurrentUser } from '../utils/api';
 import '../styles/Login.css';
 
+
+
 function Login({ setCurrentUser }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

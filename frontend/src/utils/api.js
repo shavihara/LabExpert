@@ -8,6 +8,7 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+// Request Interceptor
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
@@ -24,7 +25,7 @@ api.interceptors.request.use(
   }
 );
 
-// Add response interceptor for better debugging
+// Response Interceptor (for debugging)
 api.interceptors.response.use(
   (response) => {
     console.log('API Response:', response.config.url, response.status);
@@ -35,6 +36,8 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+// AUTH & USER FUNCTIONS
 
 export const findUser = async (email, password) => {
   try {
@@ -58,12 +61,13 @@ export const saveUser = async (userData) => {
     console.log('saveUser response:', response.data);
     if (response.data.success) {
       localStorage.setItem('token', response.data.token);
+      console.log('Stored token:', response.data.token);
       return response.data.user || null;
     }
-    return null;
+    throw new Error(response.data.message || 'Signup failed');
   } catch (error) {
     console.error('Signup error:', error);
-    throw error;
+    throw new Error(error.response?.data?.message || error.message || 'Signup failed. Please try again.');
   }
 };
 
@@ -95,13 +99,10 @@ export const getCurrentUser = async () => {
 
 export const updateUserPassword = async (email, newPassword, otp, verifyOnly = false) => {
   try {
-    if (verifyOnly) {
-      const response = await api.post('/auth/verify-otp-only', { email, otp });
-      return response.data.success;
-    } else {
-      const response = await api.post('/auth/verify-otp', { email, otp, newPassword });
-      return response.data.success;
-    }
+    const endpoint = verifyOnly ? '/auth/verify-otp-only' : '/auth/verify-otp';
+    const payload = verifyOnly ? { email, otp } : { email, otp, newPassword };
+    const response = await api.post(endpoint, payload);
+    return response.data.success;
   } catch (error) {
     console.error('Update password error:', error);
     throw error;
@@ -129,10 +130,12 @@ export const sendForgotPasswordOTP = async (email) => {
   }
 };
 
+// ADDITIONAL APIs
+
 export const userAPI = {
   uploadProfilePicture: async (formData) =>
-    api.post('/user/profile-picture', formData, { 
-      headers: { 'Content-Type': 'multipart/form-data' } 
+    api.post('/user/profile-picture', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
     }),
 };
 

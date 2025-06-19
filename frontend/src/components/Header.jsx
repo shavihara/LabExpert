@@ -28,6 +28,9 @@ function Header() {
   // Check if user is logged in
   const isLoggedIn = localStorage.getItem('user') !== null
 
+  // Check if current page is an auth page
+  const isAuthPage = ['/login', '/signup', '/forgot-password'].includes(location.pathname)
+
   const handleLogout = () => {
     localStorage.removeItem('user')
     localStorage.removeItem('token')
@@ -35,7 +38,7 @@ function Header() {
   }
 
   return (
-    <header className={`header ${isScrolled ? 'scrolled' : ''}`}>
+    <header className={`header ${isScrolled ? 'scrolled' : ''} ${isAuthPage ? 'auth-header' : ''}`}>
       <div className="header-container">
         {/* Logo */}
         <div className="logo">
@@ -51,117 +54,127 @@ function Header() {
           </Link>
         </div>
 
-        {/* Desktop Navigation */}
-        <nav className="desktop-nav">
-          <ul className="nav-list">
-            <li className="nav-item">
-              <Link to="/" className={`nav-link ${location.pathname === '/' ? 'active' : ''}`}>
+        {/* Desktop Navigation - Hide on auth pages */}
+        {!isAuthPage && (
+          <nav className="desktop-nav">
+            <ul className="nav-list">
+              <li className="nav-item">
+                <Link to="/" className={`nav-link ${location.pathname === '/' ? 'active' : ''}`}>
+                  Home
+                </Link>
+              </li>
+              <li className="nav-item">
+                <Link to="/about" className={`nav-link ${location.pathname === '/about' ? 'active' : ''}`}>
+                  About
+                </Link>
+              </li>
+              <li className="nav-item">
+                <Link to="/services" className={`nav-link ${location.pathname === '/services' ? 'active' : ''}`}>
+                  Services
+                </Link>
+              </li>
+              <li className="nav-item">
+                <Link to="/contact" className={`nav-link ${location.pathname === '/contact' ? 'active' : ''}`}>
+                  Contact
+                </Link>
+              </li>
+            </ul>
+          </nav>
+        )}
+
+        {/* Auth Buttons - Hide on auth pages */}
+        {!isAuthPage && (
+          <div className="auth-buttons">
+            {!isLoggedIn ? (
+              <>
+                <Link to="/login" className="btn btn-outline">
+                  Login
+                </Link>
+                <Link to="/signup" className="btn btn-primary">
+                  Sign Up
+                </Link>
+              </>
+            ) : (
+              <div className="user-menu">
+                <button className="btn btn-outline" onClick={handleLogout} aria-label="Logout">
+                  Logout
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Mobile Menu Button - Hide on auth pages */}
+        {!isAuthPage && (
+          <button 
+            className={`mobile-menu-btn ${isMenuOpen ? 'active' : ''}`}
+            onClick={toggleMenu}
+            aria-label="Toggle menu"
+          >
+            <span></span>
+            <span></span>
+            <span></span>
+          </button>
+        )}
+      </div>
+
+      {/* Mobile Navigation - Hide on auth pages */}
+      {!isAuthPage && (
+        <nav className={`mobile-nav ${isMenuOpen ? 'active' : ''}`}>
+          <ul className="mobile-nav-list">
+            <li className="mobile-nav-item">
+              <Link to="/" className={`mobile-nav-link ${location.pathname === '/' ? 'active' : ''}`}>
                 Home
               </Link>
             </li>
-            <li className="nav-item">
-              <Link to="/about" className={`nav-link ${location.pathname === '/about' ? 'active' : ''}`}>
+            <li className="mobile-nav-item">
+              <Link to="/about" className={`mobile-nav-link ${location.pathname === '/about' ? 'active' : ''}`}>
                 About
               </Link>
             </li>
-            <li className="nav-item">
-              <Link to="/services" className={`nav-link ${location.pathname === '/services' ? 'active' : ''}`}>
+            <li className="mobile-nav-item">
+              <Link to="/services" className={`mobile-nav-link ${location.pathname === '/services' ? 'active' : ''}`}>
                 Services
               </Link>
             </li>
-            <li className="nav-item">
-              <Link to="/contact" className={`nav-link ${location.pathname === '/contact' ? 'active' : ''}`}>
+            <li className="mobile-nav-item">
+              <Link to="/contact" className={`mobile-nav-link ${location.pathname === '/contact' ? 'active' : ''}`}>
                 Contact
               </Link>
             </li>
+            <li className="mobile-nav-divider"></li>
+            {!isLoggedIn ? (
+              <>
+                <li className="mobile-nav-item">
+                  <Link to="/login" className="mobile-nav-link">
+                    Login
+                  </Link>
+                </li>
+                <li className="mobile-nav-item">
+                  <Link to="/signup" className="mobile-nav-link">
+                    Sign Up
+                  </Link>
+                </li>
+              </>
+            ) : (
+              <li className="mobile-nav-item">
+                <button 
+                  className="mobile-nav-link logout-btn"
+                  onClick={handleLogout}
+                  aria-label="Logout"
+                >
+                  Logout
+                </button>
+              </li>
+            )}
           </ul>
         </nav>
+      )}
 
-        {/* Auth Buttons */}
-        <div className="auth-buttons">
-          {!isLoggedIn ? (
-            <>
-              <Link to="/login" className="btn btn-outline">
-                Login
-              </Link>
-              <Link to="/signup" className="btn btn-primary">
-                Sign Up
-              </Link>
-            </>
-          ) : (
-            <div className="user-menu">
-              <button className="btn btn-outline" onClick={handleLogout} aria-label="Logout">
-                Logout
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Mobile Menu Button */}
-        <button 
-          className={`mobile-menu-btn ${isMenuOpen ? 'active' : ''}`}
-          onClick={toggleMenu}
-          aria-label="Toggle menu"
-        >
-          <span></span>
-          <span></span>
-          <span></span>
-        </button>
-      </div>
-
-      {/* Mobile Navigation */}
-      <nav className={`mobile-nav ${isMenuOpen ? 'active' : ''}`}>
-        <ul className="mobile-nav-list">
-          <li className="mobile-nav-item">
-            <Link to="/" className={`mobile-nav-link ${location.pathname === '/' ? 'active' : ''}`}>
-              Home
-            </Link>
-          </li>
-          <li className="mobile-nav-item">
-            <Link to="/about" className={`mobile-nav-link ${location.pathname === '/about' ? 'active' : ''}`}>
-              About
-            </Link>
-          </li>
-          <li className="mobile-nav-item">
-            <Link to="/services" className={`mobile-nav-link ${location.pathname === '/services' ? 'active' : ''}`}>
-              Services
-            </Link>
-          </li>
-          <li className="mobile-nav-item">
-            <Link to="/contact" className={`mobile-nav-link ${location.pathname === '/contact' ? 'active' : ''}`}>
-              Contact
-            </Link>
-          </li>
-          <li className="mobile-nav-divider"></li>
-          {!isLoggedIn ? (
-            <>
-              <li className="mobile-nav-item">
-                <Link to="/login" className="mobile-nav-link">
-                  Login
-                </Link>
-              </li>
-              <li className="mobile-nav-item">
-                <Link to="/signup" className="mobile-nav-link">
-                  Sign Up
-                </Link>
-              </li>
-            </>
-          ) : (
-            <li className="mobile-nav-item">
-              <button 
-                className="mobile-nav-link logout-btn"
-                onClick={handleLogout}
-                aria-label="Logout"
-              >
-                Logout
-              </button>
-            </li>
-          )}
-        </ul>
-      </nav>
-
-      {/* Mobile Menu Overlay */}
-      {isMenuOpen && <div className="mobile-overlay" onClick={() => setIsMenuOpen(false)}></div>}
+      {/* Mobile Menu Overlay - Hide on auth pages */}
+      {!isAuthPage && isMenuOpen && (
+        <div className="mobile-overlay" onClick={() => setIsMenuOpen(false)}></div>
+      )}
     </header>
   )
 }

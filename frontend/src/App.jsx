@@ -1,26 +1,29 @@
 import { useState, useEffect } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Login from './components/Login';
 import Signup from './components/Signup';
 import ForgotPassword from './components/ForgotPassword';
 import Home from './components/Home';
 import Header from './components/Header';
-import AdminDashboard from './components/AdminDashboard'; // Changed from AdminPage to AdminDashboard
+import AdminDashboard from './components/AdminDashboard';
 import PrivateRoute from './components/PrivateRoute';
 import { getCurrentUser } from './utils/api';
 import './App.css';
 
-function App() {
+function AppContent() {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const location = useLocation();
 
   useEffect(() => {
     const fetchUser = async () => {
       try {
+        console.log('🎯 App: Fetching current user...');
         const user = await getCurrentUser();
+        console.log('🎯 App: Current user:', user);
         setCurrentUser(user);
       } catch (error) {
-        console.error('Error fetching current user:', error);
+        console.error('❌ App: Error fetching current user:', error);
       } finally {
         setLoading(false);
       }
@@ -29,7 +32,19 @@ function App() {
   }, []);
 
   if (loading) {
-    return <div>Loading...</div>;
+    return (
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        color: 'white',
+        fontSize: '1.5rem'
+      }}>
+        Loading App...
+      </div>
+    );
   }
 
   return (
@@ -59,6 +74,10 @@ function App() {
       </Routes>
     </div>
   );
+}
+
+function App() {
+  return <AppContent />;
 }
 
 export default App;
