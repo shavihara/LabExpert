@@ -9,7 +9,7 @@ const UserService = require('./services/userService');
 const SessionService = require('./services/sessionService');
 const FileService = require('./services/fileService');
 const OTPService = require('./services/otpService');
-const { db } = require('./config/database');
+const { db, prepare } = require('./config/database');// Make sure prepare is imported
 
 
 dotenv.config();
@@ -431,4 +431,134 @@ app.listen(PORT, () => {
   console.log(`📧 Email configured: ${process.env.EMAIL_USER}`);
   console.log('💡 Test email endpoint: GET /api/test-email');
   console.log('💡 Health check: GET /api/health');
+});
+
+
+
+//admin dash board data
+// Add these admin endpoints to your server.js BEFORE app.listen()
+
+// Admin middleware
+const requireAdmin = async (req, res, next) => {
+  try {
+    console.log('🔐 Admin check for:', req.user?.email);
+    if (!req.user || req.user.email !== 'labexpert.us@gmail.com') {
+      console.log('❌ Admin access denied for:', req.user?.email);
+      return res.status(403).json({ success: false, message: 'Admin access required' });
+    }
+    console.log('✅ Admin access granted');
+    next();
+  } catch (error) {
+    console.error('Admin middleware error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// Admin Dashboard Stats
+app.get('/api/admin/dashboard', authenticate, requireAdmin, async (req, res) => {
+  try {
+    console.log('📊 Fetching admin dashboard data...');
+    
+    // Get total users
+    const totalUsersStmt = prepare('SELECT COUNT(*) as count FROM users WHERE is_active = 1');
+    const totalUsers = totalUsersStmt.get().count;
+
+    // Get verified users
+    const verifiedUsersStmt = prepare('SELECT COUNT(*) as count FROM users WHERE is_active = 1 AND is_email_verified = 1');
+    const verifiedUsers = verifiedUsersStmt.get().count;
+
+    // Get recent signups (last 30 days)
+    const recentSignupsStmt = prepare(`
+      SELECT COUNT(*) as count FROM users 
+      WHERE is_active = 1 AND created_at >= datetime('now', '-30 days')
+    `);
+    const recentSignups = recentSignupsStmt.get().count;
+
+    // Get active sessions
+    const activeSessionsStmt = prepare(`
+      SELECT COUNT(*) as count FROM sessions 
+      WHERE is_active = 1 AND expires_at > CURRENT_TIMESTAMP
+    `);
+    const activeSessions = activeSessionsStmt.get().count;
+
+    // Get recent users
+    const recentUsersStmt = prepare(`
+      SELECT name, email, created_at 
+      FROM users 
+      WHERE is_active = 1 
+      ORDER BY created_at DESC 
+      LIMIT 5
+    `);
+    const recentUsers = recentUsersStmt.all();
+
+    // Get active sessions with user details
+    const sessionsStmt = prepare(`
+      SELECT s.ip_address, s.last_activity, u.name, u.email 
+      FROM sessions s
+      JOIN users u ON s.user_id = u.id
+      WHERE s.is_active = 1 AND s.expires_at > CURRENT_TIMESTAMP
+      ORDER BY s.last_activity DESC
+      LIMIT 5
+    `);
+    const activeSessions_list = sessionsStmt.all();
+
+    const dashboardData = {
+      stats: {
+        totalUsers,
+        verifiedUsers,
+        recentSignups,
+        activeSessions
+      },
+      recentUsers,
+      activeSessions_list
+    };
+
+    console.log('✅ Dashboard data:', dashboardData);
+    res.json({ success: true, data: dashboardData });
+  } catch (error) {
+    console.error('❌ Dashboard error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch dashboard data' });
+  }
+});
+
+// Admin Users List
+app.get('/api/admin/users', authenticate, requireAdmin, async (req, res) => {
+  try {
+    console.log('👥 Fetching users list...');
+    
+    const usersStmt = prepare(`
+      SELECT id, name, email, role, is_email_verified, is_active, last_login, created_at
+      FROM users 
+      ORDER BY created_at DESC
+    `);
+    const users = usersStmt.all();
+
+    console.log('✅ Users fetched:', users.length);
+    res.json({ success: true, users });
+  } catch (error) {
+    console.error('❌ Users fetch error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch users' });
+  }
+});
+
+// Admin System Info
+app.get('/api/admin/system', authenticate, requireAdmin, async (req, res) => {
+  try {
+    console.log('⚙️ Fetching system info...');
+    
+    const systemInfo = {
+      database: 'SQLite',
+      version: '1.0.0',
+      uptime: process.uptime(),
+      memoryUsage: process.memoryUsage(),
+      nodeVersion: process.version,
+      platform: process.platform
+    };
+
+    console.log('✅ System info fetched');
+    res.json({ success: true, system: systemInfo });
+  } catch (error) {
+    console.error('❌ System info error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch system info' });
+  }
 });

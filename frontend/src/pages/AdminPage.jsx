@@ -1,186 +1,191 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import AdminDashboard from '../components/AdminDashboard';
-import { api, logoutUser } from '../utils/api';
-import '../styles/AdminPage.css';
+import React from 'react';
+import '../styles/AdminDashboard.css';
 
-function AdminPage() {
-  const [stats, setStats] = useState(null);
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('dashboard');
-  const navigate = useNavigate();
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
-
-  useEffect(() => {
-    // Client-side email check
-    if (user.email !== 'labexpert.us@gmail.com') {
-      navigate('/home');
-      return;
+function AdminDashboard({ stats }) {
+  const statCards = [
+    {
+      title: 'Total Users',
+      value: stats?.totalUsers || 0,
+      icon: '👥',
+      color: '#667eea',
+      trend: '+12%',
+      description: 'Active registered users'
+    },
+    {
+      title: 'Verified Users',
+      value: stats?.verifiedUsers || 0,
+      icon: '✅',
+      color: '#48bb78',
+      trend: '+8%',
+      description: 'Email verified accounts'
+    },
+    {
+      title: 'Recent Signups',
+      value: stats?.recentSignups || 0,
+      icon: '📈',
+      color: '#f59e0b',
+      trend: '+25%',
+      description: 'New users this month'
+    },
+    {
+      title: 'Active Sessions',
+      value: stats?.activeSessions || 0,
+      icon: '🔐',
+      color: '#ef4444',
+      trend: 'Live',
+      description: 'Currently online users'
     }
+  ];
 
-    fetchAdminData();
-  }, [navigate, user.email]);
+  const recentActivity = [
+    { action: 'New user registered', user: 'john.doe@email.com', time: '2 minutes ago', type: 'signup' },
+    { action: 'User logged in', user: 'jane.smith@email.com', time: '5 minutes ago', type: 'login' },
+    { action: 'Password reset', user: 'bob.wilson@email.com', time: '10 minutes ago', type: 'reset' },
+    { action: 'User verified email', user: 'alice.brown@email.com', time: '15 minutes ago', type: 'verify' }
+  ];
 
-  const fetchAdminData = async () => {
-    try {
-      const [statsRes, usersRes] = await Promise.all([
-        api.get('/admin/stats'),
-        api.get('/admin/users')
-      ]);
-      
-      setStats(statsRes.data.stats);
-      setUsers(usersRes.data.users);
-    } catch (error) {
-      console.error('Error fetching admin data:', error);
-      if (error.response?.status === 403) {
-        navigate('/home');
-      }
-    } finally {
-      setLoading(false);
+  const getActivityIcon = (type) => {
+    switch (type) {
+      case 'signup': return '👤';
+      case 'login': return '🔓';
+      case 'reset': return '🔑';
+      case 'verify': return '✅';
+      default: return '📝';
     }
   };
-
-  const handleLogout = async () => {
-    await logoutUser();
-    localStorage.removeItem('user');
-    localStorage.removeItem('token');
-    navigate('/login');
-  };
-
-  if (loading) {
-    return (
-      <div className="loading-container">
-        <div className="spinner"></div>
-        <p>Loading admin dashboard...</p>
-      </div>
-    );
-  }
 
   return (
-    <div className="admin-container">
-      <nav className="admin-nav">
-        <div className="nav-content">
-          <h1 className="nav-logo">Lab Expert Admin</h1>
-          <div className="nav-user">
-            <span>👤 {user.name || 'Admin'}</span>
-            <button onClick={handleLogout} className="logout-btn" aria-label="Logout">
-              Logout
+    <div className="admin-dashboard">
+      <div className="dashboard-header">
+        <h2>Dashboard Overview</h2>
+        <div className="dashboard-actions">
+          <button className="refresh-btn">🔄 Refresh</button>
+          <button className="export-btn">📊 Export Report</button>
+        </div>
+      </div>
+      
+      <div className="stats-grid">
+        {statCards.map((stat, index) => (
+          <div key={index} className="stat-card" style={{ '--accent-color': stat.color }}>
+            <div className="stat-header">
+              <div className="stat-icon">
+                {stat.icon}
+              </div>
+              <div className="stat-trend" style={{ color: stat.color }}>
+                {stat.trend}
+              </div>
+            </div>
+            <div className="stat-content">
+              <h3 className="stat-value">{stat.value.toLocaleString()}</h3>
+              <p className="stat-title">{stat.title}</p>
+              <span className="stat-description">{stat.description}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="dashboard-grid">
+        <div className="dashboard-card recent-activity-card">
+          <h3>Recent Activity</h3>
+          <div className="activity-list">
+            {recentActivity.map((activity, index) => (
+              <div key={index} className="activity-item">
+                <div className="activity-icon">
+                  {getActivityIcon(activity.type)}
+                </div>
+                <div className="activity-content">
+                  <p className="activity-action">{activity.action}</p>
+                  <p className="activity-user">{activity.user}</p>
+                </div>
+                <div className="activity-time">
+                  {activity.time}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="dashboard-card system-health-card">
+          <h3>System Health</h3>
+          <div className="health-indicators">
+            <div className="health-item">
+              <div className="health-status">
+                <span className="health-dot green"></span>
+                <span className="health-label">Database</span>
+              </div>
+              <span className="health-value">99.9%</span>
+            </div>
+            <div className="health-item">
+              <div className="health-status">
+                <span className="health-dot green"></span>
+                <span className="health-label">Email Service</span>
+              </div>
+              <span className="health-value">Active</span>
+            </div>
+            <div className="health-item">
+              <div className="health-status">
+                <span className="health-dot green"></span>
+                <span className="health-label">Server</span>
+              </div>
+              <span className="health-value">Online</span>
+            </div>
+            <div className="health-item">
+              <div className="health-status">
+                <span className="health-dot orange"></span>
+                <span className="health-label">Storage</span>
+              </div>
+              <span className="health-value">78%</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="dashboard-card quick-actions-card">
+          <h3>Quick Actions</h3>
+          <div className="quick-actions">
+            <button className="action-btn primary">
+              👤 Add New User
+            </button>
+            <button className="action-btn secondary">
+              📧 Send Announcement
+            </button>
+            <button className="action-btn secondary">
+              🔧 System Settings
+            </button>
+            <button className="action-btn secondary">
+              📊 Generate Report
             </button>
           </div>
         </div>
-      </nav>
 
-      <div className="admin-layout">
-        <aside className="admin-sidebar">
-          <ul className="sidebar-menu">
-            <li 
-              className={activeTab === 'dashboard' ? 'active' : ''}
-              onClick={() => setActiveTab('dashboard')}
-              aria-label="Dashboard"
-            >
-              📊 Dashboard
-            </li>
-            <li 
-              className={activeTab === 'users' ? 'active' : ''}
-              onClick={() => setActiveTab('users')}
-              aria-label="Users"
-            >
-              👥 Users
-            </li>
-            <li 
-              className={activeTab === 'sessions' ? 'active' : ''}
-              onClick={() => setActiveTab('sessions')}
-              aria-label="Active Sessions"
-            >
-              🔐 Active Sessions
-            </li>
-            <li 
-              className={activeTab === 'settings' ? 'active' : ''}
-              onClick={() => setActiveTab('settings')}
-              aria-label="Settings"
-            >
-              ⚙️ Settings
-            </li>
-          </ul>
-        </aside>
-
-        <main className="admin-content">
-          {activeTab === 'dashboard' && (
-            <AdminDashboard stats={stats} />
-          )}
-          
-          {activeTab === 'users' && (
-            <div className="users-section">
-              <h2>All Users</h2>
-              <div className="users-table-container">
-                <table className="users-table">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Email</th>
-                      <th>Role</th>
-                      <th>Verified</th>
-                      <th>Last Login</th>
-                      <th>Joined</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {users.map((user) => (
-                      <tr key={user.id}>
-                        <td>{user.name}</td>
-                        <td>{user.email}</td>
-                        <td>
-                          <span className={`role-badge ${user.role}`}>
-                            {user.role}
-                          </span>
-                        </td>
-                        <td>
-                          <span className={`status-badge ${user.is_email_verified ? 'verified' : 'unverified'}`}>
-                            {user.is_email_verified ? '✓' : '✗'}
-                          </span>
-                        </td>
-                        <td>{user.last_login ? new Date(user.last_login).toLocaleDateString() : 'Never'}</td>
-                        <td>{new Date(user.created_at).toLocaleDateString()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+        <div className="dashboard-card usage-stats-card">
+          <h3>Usage Statistics</h3>
+          <div className="usage-stats">
+            <div className="usage-item">
+              <span className="usage-label">Daily Active Users</span>
+              <div className="usage-bar">
+                <div className="usage-fill" style={{ width: '85%' }}></div>
               </div>
+              <span className="usage-value">850</span>
             </div>
-          )}
-          
-          {activeTab === 'sessions' && (
-            <div className="sessions-section">
-              <h2>Active Sessions</h2>
-              <div className="sessions-grid">
-                {stats?.sessions?.map((session, index) => (
-                  <div key={index} className="session-card">
-                    <h4>{session.name}</h4>
-                    <p>📧 {session.email}</p>
-                    <p>🌐 {session.ip_address}</p>
-                    <p>🕒 {new Date(session.last_activity).toLocaleString()}</p>
-                  </div>
-                ))}
+            <div className="usage-item">
+              <span className="usage-label">Weekly Signups</span>
+              <div className="usage-bar">
+                <div className="usage-fill" style={{ width: '65%' }}></div>
               </div>
+              <span className="usage-value">156</span>
             </div>
-          )}
-          
-          {activeTab === 'settings' && (
-            <div className="settings-section">
-              <h2>Admin Settings</h2>
-              <div className="settings-card">
-                <h3>System Information</h3>
-                <p>Admin Email: {user.email}</p>
-                <p>Database: SQLite</p>
-                <p>Version: 1.0.0</p>
+            <div className="usage-item">
+              <span className="usage-label">Support Tickets</span>
+              <div className="usage-bar">
+                <div className="usage-fill" style={{ width: '25%' }}></div>
               </div>
+              <span className="usage-value">12</span>
             </div>
-          )}
-        </main>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-export default AdminPage;
+export default AdminDashboard;

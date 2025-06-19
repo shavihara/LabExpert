@@ -77,11 +77,14 @@ const UserService = {
     }
   },
 
-  updatePassword: async (email, newPassword) => {
+  updatePassword: async (userId, newPassword) => {
     try {
+      // Hash the new password before storing it
+      const hashedPassword = await bcrypt.hash(newPassword, 12);
+      
       await db.transaction(() => {
-        const stmt = prepare('UPDATE users SET password = ? WHERE email = ?');
-        stmt.run(newPassword, email);
+        const stmt = prepare('UPDATE users SET password = ? WHERE id = ?');
+        stmt.run(hashedPassword, userId);
       })();
       return true;
     } catch (error) {

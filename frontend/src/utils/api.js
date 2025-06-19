@@ -24,13 +24,25 @@ api.interceptors.request.use(
   }
 );
 
+// Add response interceptor for better debugging
+api.interceptors.response.use(
+  (response) => {
+    console.log('API Response:', response.config.url, response.status);
+    return response;
+  },
+  (error) => {
+    console.error('API Error:', error.config?.url, error.response?.status, error.message);
+    return Promise.reject(error);
+  }
+);
+
 export const findUser = async (email, password) => {
   try {
     const response = await api.post('/auth/login', { email, password });
-    console.log('findUser response:', response.data); // Debug log
+    console.log('findUser response:', response.data);
     if (response.data.success) {
       localStorage.setItem('token', response.data.token);
-      console.log('Stored token:', response.data.token); // Debug log
+      console.log('Stored token:', response.data.token);
       return response.data.user || null;
     }
     return null;
@@ -43,7 +55,7 @@ export const findUser = async (email, password) => {
 export const saveUser = async (userData) => {
   try {
     const response = await api.post('/auth/signup', userData);
-    console.log('saveUser response:', response.data); // Debug log
+    console.log('saveUser response:', response.data);
     if (response.data.success) {
       localStorage.setItem('token', response.data.token);
       return response.data.user || null;
@@ -73,7 +85,7 @@ export const getCurrentUser = async () => {
       return null;
     }
     const response = await api.get('/user/me');
-    console.log('getCurrentUser response:', response.data); // Debug log
+    console.log('getCurrentUser response:', response.data);
     return response.data.user || null;
   } catch (error) {
     console.error('Get current user error:', error);

@@ -5,7 +5,7 @@ import Signup from './components/Signup';
 import ForgotPassword from './components/ForgotPassword';
 import Home from './components/Home';
 import Header from './components/Header';
-import AdminPage from './pages/AdminPage';
+import AdminDashboard from './components/AdminDashboard'; // Changed from AdminPage to AdminDashboard
 import PrivateRoute from './components/PrivateRoute';
 import { getCurrentUser } from './utils/api';
 import './App.css';
@@ -52,7 +52,7 @@ function App() {
           path="/admin"
           element={
             <PrivateRoute requiredRole="admin">
-              <AdminPage />
+              <AdminDashboard />
             </PrivateRoute>
           }
         />
