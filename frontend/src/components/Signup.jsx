@@ -1,54 +1,67 @@
-import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
-import { saveUser, checkEmailExists } from '../utils/localStorage'
-import '../styles/Signup.css'
+import { useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
+import { saveUser, checkEmailExists } from '../utils/api';
+import '../styles/Signup.css';
 
 function Signup() {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     password: '',
-    confirmPassword: ''
-  })
-  const [error, setError] = useState('')
-  const navigate = useNavigate()
+    confirmPassword: '',
+  });
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
 
   const handleChange = (e) => {
     setFormData({
       ...formData,
-      [e.target.name]: e.target.value
-    })
-  }
+      [e.target.name]: e.target.value,
+    });
+  };
 
-  const handleSubmit = (e) => {
-    e.preventDefault()
-    setError('')
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
 
-    const { name, email, password, confirmPassword } = formData
+    const { name, email, password, confirmPassword } = formData;
 
     if (!name || !email || !password || !confirmPassword) {
-      setError('Please fill in all fields')
-      return
+      setError('Please fill in all fields');
+      setLoading(false);
+      return;
     }
 
     if (password !== confirmPassword) {
-      setError('Passwords do not match')
-      return
+      setError('Passwords do not match');
+      setLoading(false);
+      return;
     }
 
     if (password.length < 6) {
-      setError('Password must be at least 6 characters')
-      return
+      setError('Password must be at least 6 characters');
+      setLoading(false);
+      return;
     }
 
-    if (checkEmailExists(email)) {
-      setError('Email already exists')
-      return
-    }
+    try {
+      const emailExists = await checkEmailExists(email);
+      if (emailExists) {
+        setError('Email already exists');
+        setLoading(false);
+        return;
+      }
 
-    saveUser({ name, email, password })
-    navigate('/login')
-  }
+      await saveUser({ name, email, password });
+      navigate('/login');
+    } catch (err) {
+      setError(err.response?.data?.message || 'Registration failed');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="signup-container">
@@ -69,6 +82,7 @@ function Signup() {
               onChange={handleChange}
               placeholder="Enter your full name"
               className="form-input"
+              disabled={loading}
             />
           </div>
           
@@ -82,6 +96,7 @@ function Signup() {
               onChange={handleChange}
               placeholder="Enter your email"
               className="form-input"
+              disabled={loading}
             />
           </div>
           
@@ -95,6 +110,7 @@ function Signup() {
               onChange={handleChange}
               placeholder="Create a password"
               className="form-input"
+              disabled={loading}
             />
           </div>
           
@@ -108,11 +124,16 @@ function Signup() {
               onChange={handleChange}
               placeholder="Confirm your password"
               className="form-input"
+              disabled={loading}
             />
           </div>
           
-          <button type="submit" className="signup-button">
-            Sign Up
+          <button 
+            type="submit" 
+            className="signup-button"
+            disabled={loading}
+          >
+            {loading ? 'Creating account...' : 'Sign Up'}
           </button>
         </form>
         
@@ -124,7 +145,7 @@ function Signup() {
         </div>
       </div>
     </div>
-  )
+  );
 }
 
-export default Signup
+export default Signup;
