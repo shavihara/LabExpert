@@ -1,0 +1,96 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+
+const char* ssid = "DT";
+const char* password = "11111111";
+
+const int sensorPin = 4;  // MH LDR D0 output to GPIO4
+
+volatile unsigned long lastBreakStart = 0;
+volatile unsigned long lastBreakEnd = 0;
+volatile unsigned long lastHalfCycleStart = 0;
+volatile bool beamBroken = false;
+
+int breakCount = 0;
+
+void IRAM_ATTR onBeamBreak() {
+  unsigned long now = micros();
+
+  // Beam was HIGH -> FALLING -> beam break started
+  if (digitalRead(sensorPin) == LOW) {
+    lastBreakStart = now;
+  }
+
+  // Beam went back to HIGH -> beam break ended
+  if (digitalRead(sensorPin) == HIGH) {
+    lastBreakEnd = now;
+    beamBroken = true;
+  }
+}
+
+void sendOscillationTime(float ms) {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin("http://192.168.137.1:5000/oscillation");  // Change to your server if needed
+    http.addHeader("Content-Type", "application/json");
+
+    String json = "{\"time_ms\": " + String(ms, 2) + "}";
+    int code = http.POST(json);
+
+    if (code > 0) {
+      Serial.println("✔ Data sent to PC");
+    } else {
+      Serial.printf("✘ HTTP error code: %d\n", code);
+    }
+
+    http.end();
+  } else {
+    Serial.println("✘ Not connected to Wi-Fi");
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+
+  pinMode(sensorPin, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(sensorPin), onBeamBreak, CHANGE);
+
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi");
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("\nConnected to WiFi.");
+  Serial.print("IP: ");
+  Serial.println(WiFi.localIP());
+}
+
+void loop() {
+  if (beamBroken) {
+    beamBroken = false;
+
+    breakCount++;
+
+    if (breakCount % 2 == 0) {  // Every 2 beam breaks = 1 oscillation
+      unsigned long halfCycleTime = lastBreakStart - lastHalfCycleStart;
+      lastHalfCycleStart = lastBreakStart;
+
+      unsigned long blockTime = lastBreakEnd - lastBreakStart;
+
+      // Final oscillation time with beam break correction
+      float oscTimeMs = 2.0 * (halfCycleTime + blockTime / 2.0) / 1000.0;
+
+      Serial.print("Oscillation ");
+      Serial.print(breakCount / 2);
+      Serial.print(": ");
+      Serial.print(oscTimeMs);
+      Serial.println(" ms");
+
+      sendOscillationTime(oscTimeMs);
+    }
+  }
+}
