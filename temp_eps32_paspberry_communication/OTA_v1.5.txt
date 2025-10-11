@@ -1,0 +1,210 @@
+#include <WiFi.h>
+#include <WebServer.h>
+#include <Update.h>
+#include <Wire.h>
+#include <ArduinoJson.h>
+#include <EEPROM.h>
+
+// GPIO pin setup
+#define WIFI_LED 2
+#define SENSOR_LED 15
+
+// EEPROM sensor addresses & constants
+#define EEPROM_SENSOR_ADDR 0x50  // example 24C02 EEPROM I2C address (adjust if needed)
+#define EEPROM_SIZE 32
+
+// Wi-Fi credentials - change as needed
+const char* ssid = "DT";
+const char* password = "11111111";
+
+// Web server on port 80
+WebServer server(80);
+
+// Sensor info variables
+String sensorType = "UNKNOWN";
+String sensorID = "N/A";
+
+// WiFi and sensor LED timers
+unsigned long previousWifiLedMillis = 0;
+unsigned long previousSensorLedMillis = 0;
+const unsigned long ledInterval = 3000; // 3 seconds
+bool wifiLedState = false;
+bool sensorLedState = false;
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  Serial.println("OTA Manager Starting...");
+
+  // Setup LEDs as outputs, start ON (LED ON = LOW for built-in LEDs)
+  pinMode(WIFI_LED, OUTPUT);
+  digitalWrite(WIFI_LED, HIGH); // off (assuming active low LED)
+  pinMode(SENSOR_LED, OUTPUT);
+  digitalWrite(SENSOR_LED, HIGH); // off
+
+  // Init I2C for EEPROM
+  Wire.begin(21, 22); // SDA, SCL
+
+  // Try to detect EEPROM sensor
+  if (!detectSensor()) {
+    Serial.println("Sensor not detected, rebooting to OTA partition...");
+    delay(2000);
+    esp_restart();
+  }
+
+  // Connect to Wi-Fi
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  Serial.printf("Connecting to WiFi SSID: %s\n", ssid);
+
+  // Setup web server routes
+  setupRoutes();
+  server.begin();
+  Serial.println("HTTP Server started");
+
+  // LEDs initial state handled in loop()
+}
+
+void loop() {
+  server.handleClient();
+
+  handleWifiLed();
+  handleSensorLed();
+
+  // Check Wi-Fi connection status and reconnect if needed
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi disconnected, attempting reconnect...");
+    WiFi.disconnect();
+    WiFi.begin(ssid, password);
+    delay(5000);
+  }
+}
+
+// Detect sensor by reading EEPROM data
+bool detectSensor() {
+  Wire.beginTransmission(EEPROM_SENSOR_ADDR);
+  if (Wire.endTransmission() != 0) {
+    Serial.println("EEPROM sensor not found on I2C bus");
+    return false;
+  }
+
+  // Read first few bytes of EEPROM to identify sensor
+  Wire.beginTransmission(EEPROM_SENSOR_ADDR);
+  Wire.write(0x00); // EEPROM memory address to read from
+  if (Wire.endTransmission(false) != 0) { // restart condition
+    Serial.println("Failed to set EEPROM read address");
+    return false;
+  }
+
+  Wire.requestFrom(EEPROM_SENSOR_ADDR, EEPROM_SIZE);
+  if (Wire.available() < EEPROM_SIZE) {
+    Serial.println("Not enough data in EEPROM");
+    return false;
+  }
+
+  char buffer[EEPROM_SIZE + 1];
+  for (int i = 0; i < EEPROM_SIZE; i++) {
+    buffer[i] = Wire.read();
+  }
+  buffer[EEPROM_SIZE] = '\0';
+
+  String eepromData = String(buffer);
+  Serial.printf("EEPROM data: %s\n", eepromData.c_str());
+
+  // Simple heuristic: check for known sensor types in EEPROM string
+  if (eepromData.indexOf("OSI") >= 0) {
+    sensorType = "OSI";
+  } else if (eepromData.indexOf("TOF") >= 0) {
+    sensorType = "TOF";
+  } else {
+    sensorType = "UNKNOWN";
+  }
+
+  sensorID = eepromData.substring(0, 8); // first 8 chars as ID, adjust if needed
+  Serial.printf("Sensor Type: %s, ID: %s\n", sensorType.c_str(), sensorID.c_str());
+
+  return (sensorType != "UNKNOWN");
+}
+
+// Wi-Fi LED blinker
+void handleWifiLed() {
+  if (WiFi.status() == WL_CONNECTED) {
+    unsigned long currentMillis = millis();
+    if (currentMillis - previousWifiLedMillis >= ledInterval) {
+      previousWifiLedMillis = currentMillis;
+      wifiLedState = !wifiLedState;
+      digitalWrite(WIFI_LED, wifiLedState ? LOW : HIGH); // Blink LED
+    }
+  } else {
+    digitalWrite(WIFI_LED, LOW); // Solid ON when disconnected (active low)
+  }
+}
+
+// Sensor LED blinker
+void handleSensorLed() {
+  unsigned long currentMillis = millis();
+  if (sensorType != "UNKNOWN") {
+    if (currentMillis - previousSensorLedMillis >= ledInterval) {
+      previousSensorLedMillis = currentMillis;
+      sensorLedState = !sensorLedState;
+      digitalWrite(SENSOR_LED, sensorLedState ? LOW : HIGH); // Blink LED
+    }
+  } else {
+    digitalWrite(SENSOR_LED, LOW); // Solid ON when sensor disconnected
+  }
+}
+
+// Setup OTA web server routes
+void setupRoutes() {
+  // Root: OTA upload page
+  server.on("/", HTTP_GET, []() {
+    String html =
+      "<h1>ESP32 OTA Manager</h1>"
+      "<p>Sensor: " + sensorType + " (ID: " + sensorID + ")</p>"
+      "<form method='POST' action='/update' enctype='multipart/form-data'>"
+      "<input type='file' name='update'>"
+      "<input type='submit' value='Upload Firmware'>"
+      "</form>"
+      "<hr>"
+      "<p><a href='/info'>Sensor Info (JSON)</a></p>";
+    server.send(200, "text/html", html);
+  });
+
+  // OTA upload handler
+  server.on("/update", HTTP_POST, []() {
+    server.send(200, "text/plain", Update.hasError() ? "FAIL" : "OK");
+    delay(100);
+    if (!Update.hasError()) {
+      Serial.println("Update Success! Rebooting...");
+      ESP.restart();
+    }
+  }, []() {
+    HTTPUpload& upload = server.upload();
+    if (upload.status == UPLOAD_FILE_START) {
+      Serial.printf("Update Start: %s\n", upload.filename.c_str());
+      if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH, esp_ota_get_next_update_partition(NULL)->address)) {
+        Update.printError(Serial);
+      }
+    } else if (upload.status == UPLOAD_FILE_WRITE) {
+      if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+        Update.printError(Serial);
+      }
+    } else if (upload.status == UPLOAD_FILE_END) {
+      if (Update.end(true)) {
+        Serial.printf("Update Success: %u bytes\n", upload.totalSize);
+      } else {
+        Update.printError(Serial);
+      }
+    }
+  });
+
+  // Sensor info JSON
+  server.on("/info", HTTP_GET, []() {
+    DynamicJsonDocument doc(256);
+    doc["sensor_type"] = sensorType;
+    doc["sensor_id"] = sensorID;
+    String jsonResp;
+    serializeJson(doc, jsonResp);
+    server.send(200, "application/json", jsonResp);
+  });
+}

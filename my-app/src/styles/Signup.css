@@ -1,6 +1,6 @@
 /* Fixed Signup.css */
 .signup-form {
-  gap: 0.5rem;
+  gap: 0.3rem;
 }
 
 .signup-container {
@@ -12,7 +12,7 @@
   margin: 0;
   padding: 0;
   /* Remove the margin-top: 3rem that was causing the gap */
-  margin-top: -80px; /* Pull up to overlap with header */
+  margin-top: -75px; /* Pull up to overlap with header */
   padding-top: 80px; /* Add padding to account for header height */
   position: relative;
 }
@@ -31,7 +31,7 @@
 .signup-card {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(20px);
-  padding: 2rem;
+  padding: 1.5rem;
   border-radius: 1.5rem;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -55,21 +55,21 @@
   text-align: center;
   color: #4a5568;
   font-size: 1.2rem;
-  margin: 0 0 1.5rem 0;
+  margin: 0 0 0.5rem 0;
   font-weight: 400;
 }
 
 .signup-form {
   display: flex;
   flex-direction: column;
-  gap: 1.2rem;
+  gap: 0rem;
   margin: 0;
 }
 
 .form-group {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.4rem;
   margin: 0;
 }
 
@@ -111,7 +111,7 @@
   font-weight: 700;
   cursor: pointer;
   transition: all 0.3s ease;
-  margin: 0.5rem 0 0 0;
+  margin: 0.2rem 0 0 0;
 }
 
 .signup-button:hover {
@@ -148,7 +148,7 @@
 }
 
 .signup-links {
-  margin: 1.5rem 0 0 0;
+  margin: 0.5rem 0 0 0;
   text-align: center;
   padding-top: 1rem;
   border-top: 1px solid #e5e7eb;
@@ -156,6 +156,7 @@
 
 .login-text {
   color: #6b7280;
+  padding:0;
   margin: 0;
 }
 
