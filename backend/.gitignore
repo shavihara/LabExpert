@@ -1,6 +1,0 @@
-node_modules
-data/lab_expert.db
-data/lab_expert.db-shm
-data/lab_expert.db-wal
-uploads
-.env
