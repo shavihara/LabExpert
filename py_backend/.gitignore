@@ -17,6 +17,7 @@ __pycache__/
 # -------------------------
 temp/
 tmp/
+data/
 tempmain.py
 main_v1.3_terminal.py
 main_sensor.cpp
