@@ -22,25 +22,27 @@ class ESP32ConnectionError(Exception):
 
 class PhysicsDataProcessor:
     """
-    Processes sensor data using multi-stage smoothing and calculates acceleration
-    via linear regression (best-fit line) on the velocity-time data for high accuracy.
+    Processes sensor data using a hybrid approach:
+    - Multi-stage smoothing for clean, real-time Displacement (s-t) and Velocity (v-t) graphs.
+    - Linear regression (best-fit) on v-t data for a highly accurate and stable Acceleration (a-t) value.
     """
 
     def __init__(self, window_size=21):
+        # --- For Real-Time Smoothing ---
         self.smoothing_window = window_size
         self.raw_displacement_buffer = deque(maxlen=window_size)
         self.velocity_buffer = deque(maxlen=window_size)
-        
-        # --- Buffers to store the entire history for regression ---
+
+        # --- For Best-Fit Acceleration Calculation ---
         self.time_history = []
         self.velocity_history = []
-        
+
         # --- State Variables ---
         self.last_smoothed_displacement = None
         self.last_timestamp = None
 
     def reset(self):
-        """Reset all data buffers and state variables."""
+        """Reset all data buffers and state variables for a new experiment."""
         self.raw_displacement_buffer.clear()
         self.velocity_buffer.clear()
         self.time_history = []
@@ -60,11 +62,10 @@ class PhysicsDataProcessor:
         for all (time, velocity) data points collected so far.
         """
         n = len(self.time_history)
-        # We need at least two points to calculate a line
-        if n < 2:
+        if n < 5:  # Start calculating after a few points for stability
             return 0.0
 
-        # Using the formula for the slope of a simple linear regression
+        # Formula for the slope (m) of a simple linear regression line:
         # m = (NΣ(xy) - ΣxΣy) / (NΣ(x²) - (Σx)²)
         x = self.time_history
         y = self.velocity_history
@@ -82,10 +83,9 @@ class PhysicsDataProcessor:
 
         return numerator / denominator
 
-
     def process_reading(self, distance_mm, timestamp_ms):
         """
-        Process raw sensor reading, using best-fit for acceleration.
+        Process raw sensor reading with the hybrid approach.
         """
         # Filter out obvious sensor error readings
         if distance_mm == 65535:
@@ -98,45 +98,45 @@ class PhysicsDataProcessor:
         timestamp_s = timestamp_ms / 1000.0
         displacement_m = distance_mm / 1000.0
 
-        # --- Stage 1: Smooth Displacement ---
+        # --- Stage 1: Calculate and Smooth Displacement (for the s-t graph) ---
         self.raw_displacement_buffer.append(displacement_m)
         smoothed_displacement = self._smooth_value(self.raw_displacement_buffer)
 
-        # --- Initialize variables ---
+        # --- Initialize smoothed_velocity for this reading ---
         smoothed_velocity = 0.0
         
         if self.last_timestamp is not None and self.last_smoothed_displacement is not None:
             delta_t = timestamp_s - self.last_timestamp
-
             if delta_t > 0:
-                # --- Stage 2: Calculate and Smooth Velocity ---
-                velocity_ms = (smoothed_displacement - self.last_smoothed_displacement) / delta_t
-                self.velocity_buffer.append(velocity_ms)
+                # --- Stage 2: Calculate and Smooth Velocity (for the v-t graph) ---
+                instant_velocity = (smoothed_displacement - self.last_smoothed_displacement) / delta_t
+                self.velocity_buffer.append(instant_velocity)
                 smoothed_velocity = self._smooth_value(self.velocity_buffer)
 
-        # --- Stage 3: Calculate Best-Fit Acceleration ---
-        # Add the latest data point to our history for the regression calculation
-        if self.last_timestamp is not None: # Avoid adding the very first point before we have velocity
+        # --- Update history for the best-fit calculation ---
+        # We add the SMOOTHED velocity to the history to ensure the best-fit line is also clean.
+        if self.last_timestamp is not None:
              self.time_history.append(timestamp_s)
              self.velocity_history.append(smoothed_velocity)
 
+        # --- Stage 3: Calculate Best-Fit Acceleration (for the a-t graph) ---
         best_fit_acceleration = self._calculate_best_fit_acceleration()
 
-
-        # Update state for the next iteration
+        # Update state for the next iteration's calculations
         self.last_smoothed_displacement = smoothed_displacement
         self.last_timestamp = timestamp_s
 
+        # Return the final values for plotting
         return {
             "time": round(timestamp_s, 3),
-            "displacement": round(smoothed_displacement, 4),
-            "velocity": round(smoothed_velocity, 3),
-            "acceleration": round(best_fit_acceleration, 3), # Return the new best-fit value
+            "displacement": round(smoothed_displacement, 4), # From smoothing
+            "velocity": round(smoothed_velocity, 3),         # From smoothing
+            "acceleration": round(best_fit_acceleration, 3), # From best-fit line
             "raw_distance_mm": distance_mm,
-            "sample_quality": "good_best_fit"
+            "sample_quality": "good_hybrid_processing"
         }
 
-# Instantiate the final processor
+# Instantiate the final, improved processor
 physics_processor = PhysicsDataProcessor(window_size=21)
 
 # --- The rest of the file remains the same ---
@@ -146,7 +146,7 @@ async def check_esp32_connection():
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{ESP32_BASE_URL}/status",
-                                   timeout=aiohttp.ClientTimeout(total=5)) as response:
+                                   timeout=aiohttp.ClientTimeout(total=5))as response:
                 if response.status == 200:
                     data = await response.json()
                     return {
@@ -282,7 +282,7 @@ async def live_distance_generator():
                     }
                     return
 
-                logger.info("Connected to ESP32 SSE stream - Best-fit processor active")
+                logger.info("Connected to ESP32 SSE stream - Hybrid processor active")
 
                 buffer = ""
 
