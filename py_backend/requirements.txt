@@ -11,3 +11,5 @@ bcrypt
 psutil
 aiohttp
 sse-starlette
+numpy
+scipy
