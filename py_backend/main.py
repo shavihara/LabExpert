@@ -28,7 +28,8 @@ from sensor_service import (
     check_esp32_connection,
     configure_experiment,
     start_experiment,
-    stop_experiment
+    stop_experiment,
+    analyze_data_with_best_fit # <-- IMPORT THE NEW FUNCTION
 )
 from enum import Enum
 import socket
@@ -44,7 +45,7 @@ from services.oscillation_service import (
 )
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO) # Changed to INFO for less console spam
 logger = logging.getLogger(__name__)
 
 # Load .env config
@@ -80,8 +81,8 @@ app.add_middleware(
         f"http://{LOCAL_IP}:5173",
         f"http://{LOCAL_IP}:3000",
         "http://192.168.137.1:3000",
-        "http://192.168.1.198:3000",  # Your specific phone IP
-        "http://192.168.1.*:3000",  # Allow any device on network
+        "http://192.168.1.198:3000",
+        "http://192.168.1.*:3000",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -128,15 +129,18 @@ class OTPVerifyRequest(BaseModel):
 
 
 class ExperimentConfig(BaseModel):
-    frequency: int  # Sampling frequency in Hz
-    duration: int  # Duration in seconds
-    mode: str = "distance"  # measurement mode
+    frequency: int
+    duration: int
+    mode: str = "distance"
 
 
 class ExperimentData(BaseModel):
     data: list
     metadata: dict = {}
 
+# This new model will be used for the analysis endpoint
+class AnalysisRequest(BaseModel):
+    data: list
 
 # ------------------ Auth ------------------
 security = HTTPBearer()
@@ -184,7 +188,6 @@ async def get_current_user_sensor(authorization: str = Header(None), token: str 
 
 @app.get("/")
 async def root():
-    """Root endpoint to verify server is running"""
     return {
         "success": True,
         "message": "Lab Expert API is running",
@@ -305,7 +308,6 @@ async def upload_profile(file: UploadFile = File(...), current_user=Depends(get_
 # ------------------ Admin Routes ------------------
 
 def require_admin(user):
-    """Allow only admin email to access admin routes"""
     if user.get("email") != "labexpert.us@gmail.com":
         raise HTTPException(403, "Forbidden: Admins only")
 
@@ -360,14 +362,12 @@ async def admin_system(current_user=Depends(get_current_user)):
 
 @app.get("/api/sensor/status")
 async def sensor_status(current_user=Depends(get_current_user)):
-    """Check ESP32 connection status"""
     status = await check_esp32_connection()
     return {"success": True, "status": status}
 
 
 @app.post("/api/sensor/configure")
 async def configure_sensor(config: ExperimentConfig, current_user=Depends(get_current_user)):
-    """Configure experiment parameters"""
     result = await configure_experiment(config.frequency, config.duration, config.mode)
     if result["success"]:
         return {"success": True, "config": result["config"]}
@@ -376,7 +376,6 @@ async def configure_sensor(config: ExperimentConfig, current_user=Depends(get_cu
 
 @app.post("/api/sensor/start")
 async def start_sensor(current_user=Depends(get_current_user)):
-    """Start experiment"""
     result = await start_experiment()
     if result["success"]:
         return {"success": True}
@@ -385,7 +384,6 @@ async def start_sensor(current_user=Depends(get_current_user)):
 
 @app.post("/api/sensor/stop")
 async def stop_sensor(current_user=Depends(get_current_user)):
-    """Stop experiment"""
     result = await stop_experiment()
     if result["success"]:
         return {"success": True}
@@ -394,28 +392,21 @@ async def stop_sensor(current_user=Depends(get_current_user)):
 
 @app.get("/api/sensor/stream")
 async def stream_sensor_data(token: str = Query(None)):
-    """SSE endpoint for live sensor data - uses query param for auth"""
     if not token:
         raise HTTPException(status_code=401, detail="No token provided")
-
-    # Validate token
     session = SessionService.find_by_token(token)
     if not session:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
-
     user = UserService.find_by_id(session['user_id'])
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
-
     SessionService.update_activity(token)
-
     logger.debug("Starting SSE stream for authenticated user")
     return EventSourceResponse(live_distance_generator())
 
 
 @app.get("/api/sensor/displacement")
 async def collect_displacement_endpoint(current_user=Depends(get_current_user)):
-    """Collect displacement data"""
     result = await collect_displacement()
     if result["success"]:
         return {"success": True, "data": result["data"]}
@@ -427,7 +418,6 @@ async def collect_oscillations_endpoint(
         n: int = Query(3, ge=1, le=10),
         current_user=Depends(get_current_user)
 ):
-    """Collect oscillation data"""
     result = await collect_oscillations(n)
     if result["success"]:
         return {"success": True, "results": result["results"]}
@@ -436,15 +426,12 @@ async def collect_oscillations_endpoint(
 
 @app.post("/api/sensor/upload_firmware")
 async def handle_upload_firmware(current_user=Depends(get_current_user)):
-    """Upload firmware to ESP32"""
     device_id = await get_device_id()
     if not device_id:
         raise HTTPException(500, "Failed to get device ID")
-
     bin_path = Path("bin") / f"{device_id}.bin"
     if not bin_path.exists():
         raise HTTPException(404, f"Firmware file '{bin_path}' not found")
-
     success = await upload_firmware(bin_path)
     if success:
         return {"success": True, "message": "Firmware uploaded successfully"}
@@ -454,28 +441,36 @@ async def handle_upload_firmware(current_user=Depends(get_current_user)):
 
 @app.post("/api/sensor/save_data")
 async def save_experiment_data(data: ExperimentData, current_user=Depends(get_current_user)):
-    """Save experiment data to user profile"""
     try:
-        # TODO: Implement actual database storage
-        # For now, just acknowledge receipt
         logger.info(f"Saving experiment data for user {current_user['id']}")
+        # In a real app, you would save data.data and data.metadata to the database
         return {"success": True, "message": "Data saved to profile"}
     except Exception as e:
         logger.error(f"Failed to save experiment data: {e}")
         raise HTTPException(500, f"Failed to save data: {str(e)}")
+
+# -----> NEW ENDPOINT FOR BEST-FIT ANALYSIS <-----
+@app.post("/api/sensor/analyze")
+async def analyze_data(request: AnalysisRequest, current_user=Depends(get_current_user)):
+    try:
+        logger.info(f"Analyzing data for user {current_user['id']}")
+        analyzed_data = analyze_data_with_best_fit(request.data)
+        return {"success": True, "data": analyzed_data}
+    except Exception as e:
+        logger.error(f"Failed to analyze data: {e}", exc_info=True)
+        raise HTTPException(500, f"Failed to analyze data: {str(e)}")
+# ---------------------------------------------
     
 # ------------------ OSI Sensor Routes ------------------
 
 @app.get("/api/osi/status")
 async def osi_status(current_user=Depends(get_current_user)):
-    """Check OSI sensor connection status"""
     status = await check_osi_connection()
     return {"success": True, "status": status}
 
 
 @app.post("/api/osi/configure")
 async def configure_osi(config: ExperimentConfig, current_user=Depends(get_current_user)):
-    """Configure OSI experiment parameters"""
     result = await configure_osi_experiment(config.frequency, config.duration)
     if result["success"]:
         return {"success": True, "config": result["config"]}
@@ -484,7 +479,6 @@ async def configure_osi(config: ExperimentConfig, current_user=Depends(get_curre
 
 @app.post("/api/osi/start")
 async def start_osi(current_user=Depends(get_current_user)):
-    """Start OSI counting"""
     result = await start_osi_experiment()
     if result["success"]:
         return {"success": True}
@@ -493,7 +487,6 @@ async def start_osi(current_user=Depends(get_current_user)):
 
 @app.post("/api/osi/stop")
 async def stop_osi(current_user=Depends(get_current_user)):
-    """Stop OSI counting"""
     result = await stop_osi_experiment()
     if result["success"]:
         return {"success": True}
@@ -502,7 +495,6 @@ async def stop_osi(current_user=Depends(get_current_user)):
 
 @app.post("/api/osi/reset")
 async def reset_osi(current_user=Depends(get_current_user)):
-    """Reset OSI counter"""
     result = await reset_osi_count()
     if result["success"]:
         return {"success": True}
@@ -511,27 +503,21 @@ async def reset_osi(current_user=Depends(get_current_user)):
 
 @app.get("/api/osi/stream")
 async def stream_osi_data(token: str = Query(None)):
-    """SSE endpoint for live OSI count data"""
     if not token:
         raise HTTPException(status_code=401, detail="No token provided")
-
     session = SessionService.find_by_token(token)
     if not session:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
-
     user = UserService.find_by_id(session['user_id'])
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
-
     SessionService.update_activity(token)
-
     logger.debug("Starting OSI SSE stream")
     return EventSourceResponse(live_oscillation_generator())
 
 
 @app.get("/api/osi/data")
 async def get_osi_data_endpoint(current_user=Depends(get_current_user)):
-    """Get all collected OSI data"""
     result = await get_osi_data()
     if result["success"]:
         return {"success": True, "data": result["data"]}
@@ -540,7 +526,6 @@ async def get_osi_data_endpoint(current_user=Depends(get_current_user)):
 
 @app.post("/api/osi/save_data")
 async def save_osi_data(data: ExperimentData, current_user=Depends(get_current_user)):
-    """Save OSI experiment data to user profile"""
     try:
         logger.info(f"Saving OSI data for user {current_user['id']}")
         return {"success": True, "message": "Data saved to profile"}
@@ -566,14 +551,11 @@ async def select_experiment(
         request: ExperimentSelectRequest,
         current_user=Depends(get_current_user)
 ):
-    """Select experiment and upload appropriate firmware"""
     try:
-        # Get device ID
         device_id = await get_device_id()
         if not device_id:
             raise HTTPException(500, "Failed to get device ID from ESP32")
 
-        # Determine firmware file based on experiment type
         firmware_map = {
             ExperimentType.DISTANCE: f"{device_id}.bin",
             ExperimentType.OSCILLATION: f"{device_id}_OSC.bin",
@@ -591,13 +573,11 @@ async def select_experiment(
                 f"Firmware file '{firmware_file}' not found. Please compile and place in bin/ folder"
             )
 
-        # Upload firmware via OTA
         logger.info(f"Uploading firmware: {firmware_file}")
         success = await upload_firmware(bin_path)
 
         if success:
             logger.info("Firmware upload successful")
-            # Check if ESP32 is back online
             status = await check_esp32_connection()
             if status["connected"]:
                 return {
@@ -621,15 +601,12 @@ async def select_experiment(
 
 @app.get("/api/sensor/available_experiments")
 async def get_available_experiments(current_user=Depends(get_current_user)):
-    """Get list of available experiments based on compiled firmwares"""
     device_id = await get_device_id()
     if not device_id:
         return {"success": False, "experiments": []}
 
     bin_folder = Path("bin")
     available = []
-
-    # Check which firmware files exist
     experiments = [
         {"type": "distance", "file": f"{device_id}.bin", "name": "Distance Measurement"},
         {"type": "oscillation", "file": f"{device_id}_OSC.bin", "name": "Oscillation Timing"},
@@ -651,7 +628,7 @@ async def get_available_experiments(current_user=Depends(get_current_user)):
 yag = None
 try:
     yag = yagmail.SMTP(os.getenv("EMAIL_USER"), os.getenv("EMAIL_PASS"))
-    yag.send(to=os.getenv("EMAIL_USER"), subject="LAB EXPERT ONLINE!", contents="Email config OK")
+    # yag.send(to=os.getenv("EMAIL_USER"), subject="LAB EXPERT ONLINE!", contents="Email config OK")
     print("✅ Email server ready")
 except Exception as e:
     print(f"❌ Email config error: {e}")
@@ -672,10 +649,9 @@ async def startup_event():
 if __name__ == "__main__":
     import uvicorn
 
-    # CRITICAL: Bind to 0.0.0.0 to accept connections from network
     uvicorn.run(
         app,
-        host="0.0.0.0",  # Listen on all network interfaces
+        host="0.0.0.0",
         port=int(os.getenv("PORT", 5000)),
         log_level="info"
     )

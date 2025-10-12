@@ -21,8 +21,7 @@ class ESP32ConnectionError(Exception):
 class PhysicsDataProcessor:
     """
     Provides real-time, multi-stage smoothed data for live plotting.
-    This gives a responsive, real-time view of the experiment, which will be
-    corrected by a final analysis step.
+    This ensures the s-t graph is visually clean and as real as possible during the experiment.
     """
 
     def __init__(self, window_size=21):
@@ -35,6 +34,7 @@ class PhysicsDataProcessor:
         self.last_timestamp = None
 
     def reset(self):
+        """Reset all data buffers and state variables."""
         self.raw_displacement_buffer.clear()
         self.velocity_buffer.clear()
         self.acceleration_buffer.clear()
@@ -43,11 +43,15 @@ class PhysicsDataProcessor:
         self.last_timestamp = None
 
     def _smooth_value(self, buffer):
+        """Helper function to calculate the average of a buffer."""
         if not buffer:
             return 0.0
         return sum(buffer) / len(buffer)
 
     def process_reading(self, distance_mm, timestamp_ms):
+        """
+        Process raw sensor reading for live, smoothed data. This is for the live graphs.
+        """
         if distance_mm == 65535:
             if self.last_smoothed_displacement is not None:
                 distance_mm = self.last_smoothed_displacement * 1000
@@ -92,52 +96,50 @@ class PhysicsDataProcessor:
 
 def analyze_data_with_best_fit(all_data_points: list):
     """
-    Performs a scientifically accurate post-experiment analysis using
-    2nd-degree polynomial regression on the collected displacement-time data.
-    This generates a new, theoretically perfect dataset.
+    Performs a post-experiment analysis.
+    This version PRESERVES the original displacement data and only recalculates
+    velocity and acceleration based on the best-fit line.
     """
     if not all_data_points or len(all_data_points) < 5:
         return []
 
-    time_history = np.array([p['time'] for p in all_data_points])
-    # IMPORTANT: Use the smoothed displacement from the live data as the basis for the fit.
-    displacement_history = np.array([p['displacement'] for p in all_data_points])
+    time_history = [p['time'] for p in all_data_points]
+    velocity_history = [p['velocity'] for p in all_data_points]
     
-    # --- SCIENTIFICALLY ACCURATE ANALYSIS ---
-    try:
-        # Perform a 2nd-degree polynomial fit (parabola) on the s-t data.
-        # This finds the best coefficients for the equation: s(t) = c2*t^2 + c1*t + c0
-        coeffs = np.polyfit(time_history, displacement_history, 2)
-        c2, c1, c0 = coeffs
-    except np.linalg.LinAlgError:
-        # Fallback if the data is not suitable for a fit (e.g., all points are the same)
+    n = len(time_history)
+    
+    x = time_history
+    y = velocity_history
+    
+    sum_x = sum(x)
+    sum_y = sum(y)
+    sum_xy = sum([xi * yi for xi, yi in zip(x, y)])
+    sum_x_sq = sum([xi**2 for xi in x])
+
+    denominator = n * sum_x_sq - sum_x**2
+    if denominator == 0:
         return all_data_points
 
-    # From the kinematic equation s(t) = s₀ + ut + ½at²
-    # We can derive our physical constants from the polynomial coefficients:
-    # c0 = s₀ (initial displacement)
-    # c1 = u  (initial velocity)
-    # c2 = ½a  => a = 2 * c2 (constant acceleration)
-    
-    initial_displacement_fit = c0
-    initial_velocity_fit = c1
-    acceleration_fit = 2 * c2
+    # Best-fit constant acceleration 'a' is the slope
+    acceleration = (n * sum_xy - sum_x * sum_y) / denominator
+    # Best-fit initial velocity 'u' is the y-intercept
+    initial_velocity = (sum_y - acceleration * sum_x) / n
 
-    # --- GENERATE NEW, THEORETICALLY PERFECT DATASET ---
+    # Generate the new, analyzed dataset
     analyzed_data = []
-    for time_t in time_history:
-        # Recalculate all values based on the derived constants
+    for point in all_data_points:
+        time_t = point['time']
         
-        # s(t) = s₀ + ut + ½at²
-        best_fit_displacement = (0.5 * acceleration_fit * (time_t ** 2)) + (initial_velocity_fit * time_t) + initial_displacement_fit
-        # v(t) = u + at
-        best_fit_velocity = initial_velocity_fit + acceleration_fit * time_t
+        # Calculate the theoretical velocity based on the best-fit line
+        best_fit_velocity = initial_velocity + acceleration * time_t
         
         analyzed_data.append({
-            "time": time_t,
-            "displacement": round(best_fit_displacement, 4),
-            "velocity": round(best_fit_velocity, 3),
-            "acceleration": round(acceleration_fit, 3), # This is now a constant value
+            "time": point['time'],
+            # --- CRITICAL: Keep the original, real displacement data ---
+            "displacement": point['displacement'],
+            # --------------------------------------------------------
+            "velocity": round(best_fit_velocity, 4),
+            "acceleration": round(acceleration, 4),
         })
         
     return analyzed_data
@@ -145,7 +147,7 @@ def analyze_data_with_best_fit(all_data_points: list):
 # Instantiate the live processor
 physics_processor = PhysicsDataProcessor(window_size=21)
 
-# --- The rest of the file (API call handlers) remains the same ---
+# --- The rest of the file remains the same ---
 async def check_esp32_connection():
     try:
         async with aiohttp.ClientSession() as session:
