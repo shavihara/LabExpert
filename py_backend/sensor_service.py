@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 import logging
 from collections import deque
-import numpy as np
+import numpy as np # Note: This was in the original file, so keeping it.
 
 logger = logging.getLogger(__name__)
 
@@ -21,83 +21,132 @@ class ESP32ConnectionError(Exception):
 
 
 class PhysicsDataProcessor:
-    """Process raw sensor data and compute physics quantities"""
+    """
+    Processes sensor data using a hybrid approach:
+    - Multi-stage smoothing for clean, real-time Displacement (s-t) and Velocity (v-t) graphs.
+    - Linear regression (best-fit) on v-t data for a highly accurate and stable Acceleration (a-t) value.
+    """
 
-    def __init__(self, smoothing_window=5):
-        self.smoothing_window = smoothing_window
-        self.raw_buffer = deque(maxlen=smoothing_window)
-        self.last_displacement = None
-        self.last_velocity = None
+    def __init__(self, window_size=21):
+        # --- For Real-Time Smoothing ---
+        self.smoothing_window = window_size
+        self.raw_displacement_buffer = deque(maxlen=window_size)
+        self.velocity_buffer = deque(maxlen=window_size)
+
+        # --- For Best-Fit Acceleration Calculation ---
+        self.time_history = []
+        self.velocity_history = []
+
+        # --- State Variables ---
+        self.last_smoothed_displacement = None
         self.last_timestamp = None
 
     def reset(self):
-        """Reset processor state"""
-        self.raw_buffer.clear()
-        self.last_displacement = None
-        self.last_velocity = None
+        """Reset all data buffers and state variables for a new experiment."""
+        self.raw_displacement_buffer.clear()
+        self.velocity_buffer.clear()
+        self.time_history = []
+        self.velocity_history = []
+        self.last_smoothed_displacement = None
         self.last_timestamp = None
 
-    def smooth_displacement(self, displacement):
-        """Apply moving average smoothing to reduce sensor noise"""
-        self.raw_buffer.append(displacement)
-        if len(self.raw_buffer) >= 3:
-            return sum(self.raw_buffer) / len(self.raw_buffer)
-        return displacement
+    def _smooth_value(self, buffer):
+        """Helper function to calculate the average of a buffer."""
+        if not buffer:
+            return 0.0
+        return sum(buffer) / len(buffer)
+
+    def _calculate_best_fit_acceleration(self):
+        """
+        Calculates acceleration by finding the slope of the best-fit line
+        for all (time, velocity) data points collected so far.
+        """
+        n = len(self.time_history)
+        if n < 5:  # Start calculating after a few points for stability
+            return 0.0
+
+        # Formula for the slope (m) of a simple linear regression line:
+        # m = (NΣ(xy) - ΣxΣy) / (NΣ(x²) - (Σx)²)
+        x = self.time_history
+        y = self.velocity_history
+
+        sum_x = sum(x)
+        sum_y = sum(y)
+        sum_xy = sum([xi * yi for xi, yi in zip(x, y)])
+        sum_x_sq = sum([xi**2 for xi in x])
+
+        numerator = n * sum_xy - sum_x * sum_y
+        denominator = n * sum_x_sq - sum_x**2
+
+        if denominator == 0:
+            return 0.0 # Avoid division by zero
+
+        return numerator / denominator
 
     def process_reading(self, distance_mm, timestamp_ms):
         """
-        Process raw sensor reading and compute physics quantities
+        Process raw sensor reading with the hybrid approach.
         """
-        # Filter out error readings
+        # Filter out obvious sensor error readings
         if distance_mm == 65535:
-            logger.warning(f"Sensor error reading at {timestamp_ms}ms - using last valid value")
-            if self.last_displacement is not None:
-                distance_mm = self.last_displacement * 1000
+            if self.last_smoothed_displacement is not None:
+                distance_mm = self.last_smoothed_displacement * 1000
             else:
                 return None
 
-        # Convert to SI units
+        # --- Convert to SI units ---
         timestamp_s = timestamp_ms / 1000.0
         displacement_m = distance_mm / 1000.0
 
-        # Apply smoothing
-        smoothed_displacement = self.smooth_displacement(displacement_m)
+        # --- Stage 1: Calculate and Smooth Displacement (for the s-t graph) ---
+        self.raw_displacement_buffer.append(displacement_m)
+        smoothed_displacement = self._smooth_value(self.raw_displacement_buffer)
 
-        velocity_ms = 0.0
-        acceleration_ms2 = 0.0
-
-        if self.last_timestamp is not None and self.last_displacement is not None:
+        # --- Initialize smoothed_velocity for this reading ---
+        smoothed_velocity = 0.0
+        
+        if self.last_timestamp is not None and self.last_smoothed_displacement is not None:
             delta_t = timestamp_s - self.last_timestamp
-
             if delta_t > 0:
-                velocity_ms = (smoothed_displacement - self.last_displacement) / delta_t
+                # --- Stage 2: Calculate and Smooth Velocity (for the v-t graph) ---
+                instant_velocity = (smoothed_displacement - self.last_smoothed_displacement) / delta_t
+                self.velocity_buffer.append(instant_velocity)
+                smoothed_velocity = self._smooth_value(self.velocity_buffer)
 
-                if self.last_velocity is not None:
-                    acceleration_ms2 = (velocity_ms - self.last_velocity) / delta_t
+        # --- Update history for the best-fit calculation ---
+        # We add the SMOOTHED velocity to the history to ensure the best-fit line is also clean.
+        if self.last_timestamp is not None:
+             self.time_history.append(timestamp_s)
+             self.velocity_history.append(smoothed_velocity)
 
-        self.last_displacement = smoothed_displacement
-        self.last_velocity = velocity_ms
+        # --- Stage 3: Calculate Best-Fit Acceleration (for the a-t graph) ---
+        best_fit_acceleration = self._calculate_best_fit_acceleration()
+
+        # Update state for the next iteration's calculations
+        self.last_smoothed_displacement = smoothed_displacement
         self.last_timestamp = timestamp_s
 
+        # Return the final values for plotting
         return {
             "time": round(timestamp_s, 3),
-            "displacement": round(smoothed_displacement, 4),
-            "velocity": round(velocity_ms, 3),
-            "acceleration": round(acceleration_ms2, 3),
+            "displacement": round(smoothed_displacement, 4), # From smoothing
+            "velocity": round(smoothed_velocity, 3),         # From smoothing
+            "acceleration": round(best_fit_acceleration, 3), # From best-fit line
             "raw_distance_mm": distance_mm,
-            "sample_quality": "good" if distance_mm != 65535 else "interpolated"
+            "sample_quality": "good_hybrid_processing"
         }
 
+# Instantiate the final, improved processor
+physics_processor = PhysicsDataProcessor(window_size=21)
 
-physics_processor = PhysicsDataProcessor(smoothing_window=5)
-
-
+# --- The rest of the file remains the same ---
+# (I am including it all below for a complete copy-paste solution.)
 async def check_esp32_connection():
     """Check if ESP32 is reachable and get device info"""
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{ESP32_BASE_URL}/status",
-                                   timeout=aiohttp.ClientTimeout(total=5)) as response:
+                                   timeout=aiohttp.ClientTimeout(total=5))as response:
                 if response.status == 200:
                     data = await response.json()
                     return {
@@ -233,7 +282,7 @@ async def live_distance_generator():
                     }
                     return
 
-                logger.info("Connected to ESP32 SSE stream - Physics processor active")
+                logger.info("Connected to ESP32 SSE stream - Hybrid processor active")
 
                 buffer = ""
 
