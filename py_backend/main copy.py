@@ -1,15 +1,7 @@
 # main.py
 # Lab Expert Backend API
-import aiohttp
-import asyncio
-import time
-import json
 from datetime import datetime
-import logging
-from collections import deque
-import numpy as np
-from datetime import datetime
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Query, Request, Header, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Query, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse
@@ -24,20 +16,20 @@ from services.file_service import FileService
 import platform
 import psutil
 import time
-from sse_starlette.sse import EventSourceResponse # type: ignore  # Kept for OSI if needed, but TOF uses WS now
+from sse_starlette.sse import EventSourceResponse # type: ignore
 import logging
 from pathlib import Path
 from sensor_service import (
     get_device_id,
     upload_firmware,
-    live_distance_generator,  # Now adapted for WS broadcast
+    live_distance_generator,
     collect_displacement,
     collect_oscillations,
     check_esp32_connection,
     configure_experiment,
     start_experiment,
     stop_experiment,
-    analyze_data_with_best_fit
+    analyze_data_with_best_fit # <-- IMPORT THE NEW FUNCTION
 )
 from enum import Enum
 import socket
@@ -53,7 +45,7 @@ from services.oscillation_service import (
 )
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO) # Changed to INFO for less console spam
 logger = logging.getLogger(__name__)
 
 # Load .env config
@@ -61,9 +53,6 @@ load_dotenv()
 
 app = FastAPI()
 
-# Add this at the top with other constants
-ESP32_IP = "192.168.137.15"  # Add this line
-ESP32_WS_URL = f"ws://{ESP32_IP}/ws"  # Add this line
 
 # Get local IP address
 def get_local_ip():
@@ -81,7 +70,7 @@ LOCAL_IP = get_local_ip()
 logger.info(f"🌐 Local IP Address: {LOCAL_IP}")
 
 # ------------------ CORS ------------------
-# UPDATED: Allow WS upgrades
+# UPDATED: Allow requests from network IP
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -195,128 +184,6 @@ async def get_current_user_sensor(authorization: str = Header(None), token: str 
     return user
 
 
-# ------------------ WebSocket Manager for TOF Streaming ------------------
-# NEW: Manages WS connections and broadcasts processed sensor data
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections: list[WebSocket] = []
-
-    async def connect(self, websocket: WebSocket, token: str):
-        # Authenticate via token query param
-        session = SessionService.find_by_token(token)
-        if not session:
-            await websocket.close(code=1008, reason="Invalid token")
-            return
-        user = UserService.find_by_id(session['user_id'])
-        if not user:
-            await websocket.close(code=1008, reason="User not found")
-            return
-        
-        await websocket.accept()
-        self.active_connections.append(websocket)
-        logger.info(f"WS Client connected: {user['email']}")
-
-    def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
-        logger.info("WS Client disconnected")
-
-    async def broadcast(self, data: dict):
-        disconnected = []
-        for connection in self.active_connections:
-            try:
-                await connection.send_json(data)
-            except Exception:
-                disconnected.append(connection)
-        for conn in disconnected:
-            self.active_connections.remove(conn)
-
-manager = ConnectionManager()
-
-
-# Add this at the top with other constants
-ESP32_IP = "192.168.137.15"  # Add this line
-ESP32_WS_URL = f"ws://{ESP32_IP}/ws"  # Add this line
-
-# ... your existing code ...
-
-@app.websocket("/ws/sensor")
-async def websocket_sensor(websocket: WebSocket, token: str = Query(...)):
-    await manager.connect(websocket, token)
-    try:
-        from sensor_service import physics_processor
-        physics_processor.reset()
-        
-        logger.info("Attempting to connect to ESP32 WebSocket...")
-        
-        # Try to connect to ESP32 WebSocket
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.ws_connect(ESP32_WS_URL, timeout=aiohttp.ClientTimeout(total=10)) as esp32_ws:
-                    logger.info("Connected to ESP32 WebSocket")
-                    
-                    # Send connection success message
-                    await manager.broadcast({
-                        "event": "connected", 
-                        "data": {"message": "Connected to ESP32 sensor"}
-                    })
-                    
-                    # Forward messages from ESP32 to client
-                    async for msg in esp32_ws:
-                        if msg.type == aiohttp.WSMsgType.TEXT:
-                            try:
-                                data = json.loads(msg.data)
-                                logger.info(f"Received from ESP32: {data}")  # CHANGED to info for debugging
-                                
-                                # Process the data through physics processor
-                                if "distance" in data and "timestamp" in data:
-                                    # Convert timestamp to seconds for processor
-                                    timestamp_ms = data["timestamp"]
-                                    processed = physics_processor.process_reading(
-                                        data["distance"], 
-                                        timestamp_ms  # Already in ms
-                                    )
-                                    if processed:
-                                        logger.info(f"Sending processed data: {processed}")  # DEBUG
-                                        await manager.broadcast(processed)
-                                else:
-                                    # Forward other messages as-is
-                                    await manager.broadcast(data)
-                                    
-                            except json.JSONDecodeError as e:
-                                logger.error(f"Invalid JSON from ESP32: {msg.data} - {e}")
-                                await manager.broadcast({
-                                    "event": "error", 
-                                    "data": {"error": "Invalid data from sensor"}
-                                })
-                                
-                        elif msg.type == aiohttp.WSMsgType.ERROR:
-                            logger.error("ESP32 WebSocket error")
-                            await manager.broadcast({
-                                "event": "error", 
-                                "data": {"error": "ESP32 connection error"}
-                            })
-                            break
-                        elif msg.type == aiohttp.WSMsgType.CLOSED:
-                            logger.info("ESP32 WebSocket closed")
-                            break
-                            
-        except Exception as e:
-            logger.error(f"Failed to connect to ESP32 WebSocket: {e}")
-            await manager.broadcast({
-                "event": "error", 
-                "data": {"error": f"Cannot connect to ESP32: {str(e)}"}
-            })
-            
-    except WebSocketDisconnect:
-        logger.info("Client WebSocket disconnected")
-        manager.disconnect(websocket)
-    except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-        await manager.broadcast({
-            "event": "error", 
-            "data": {"error": str(e)}
-        })
-        manager.disconnect(websocket)
 # ------------------ Routes ------------------
 
 @app.get("/")
@@ -523,8 +390,19 @@ async def stop_sensor(current_user=Depends(get_current_user)):
     raise HTTPException(500, result.get("error", "Failed to stop experiment"))
 
 
-# UPDATED: /stream now WS endpoint - connect via ws://localhost:5000/ws/sensor?token=...
-# (SSE kept for OSI if needed; remove if focusing solely on TOF)
+@app.get("/api/sensor/stream")
+async def stream_sensor_data(token: str = Query(None)):
+    if not token:
+        raise HTTPException(status_code=401, detail="No token provided")
+    session = SessionService.find_by_token(token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    user = UserService.find_by_id(session['user_id'])
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    SessionService.update_activity(token)
+    logger.debug("Starting SSE stream for authenticated user")
+    return EventSourceResponse(live_distance_generator())
 
 
 @app.get("/api/sensor/displacement")
@@ -583,7 +461,7 @@ async def analyze_data(request: AnalysisRequest, current_user=Depends(get_curren
         raise HTTPException(500, f"Failed to analyze data: {str(e)}")
 # ---------------------------------------------
     
-# ------------------ OSI Sensor Routes ------------------ (Unchanged, uses HTTP/SSE for now)
+# ------------------ OSI Sensor Routes ------------------
 
 @app.get("/api/osi/status")
 async def osi_status(current_user=Depends(get_current_user)):
@@ -732,7 +610,7 @@ async def get_available_experiments(current_user=Depends(get_current_user)):
     experiments = [
         {"type": "distance", "file": f"{device_id}.bin", "name": "Distance Measurement"},
         {"type": "oscillation", "file": f"{device_id}_OSC.bin", "name": "Oscillation Timing"},
-        {"type": "displacement", "file": f"{device_id}.bin", "name": "Displacement Analysis"}
+        {"type": "displacement", "file": f"{device_id}_ESP8266.bin", "name": "Displacement Analysis"}
     ]
 
     for exp in experiments:
@@ -760,11 +638,10 @@ except Exception as e:
 @app.on_event("startup")
 async def startup_event():
     logger.info("=" * 60)
-    logger.info("🚀 Lab Expert API Starting... (WebSocket Enabled for TOF)")
+    logger.info("🚀 Lab Expert API Starting...")
     logger.info(f"🌐 Local Network IP: {LOCAL_IP}")
     logger.info(f"📱 Access from phone: http://{LOCAL_IP}:5000")
     logger.info(f"💻 Access from PC: http://localhost:5000")
-    logger.info(f"🔌 WS Endpoint: ws://{LOCAL_IP}:5000/ws/sensor?token=...")
     logger.info("=" * 60)
 
 

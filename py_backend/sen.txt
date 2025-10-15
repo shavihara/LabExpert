@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 ESP32_IP = "192.168.137.15"
 ESP32_BASE_URL = f"http://{ESP32_IP}"
 REQUEST_TIMEOUT = 10
-MAX_ESP32_SAMPLES = 1000
+MAX_ESP32_SAMPLES = 2000
 
 
 class ESP32ConnectionError(Exception):
@@ -19,7 +19,13 @@ class ESP32ConnectionError(Exception):
 
 
 class PhysicsDataProcessor:
-    def __init__(self, window_size=3):
+    """
+    Provides minimal real-time smoothing for live plotting.
+    FIXED: Rejects invalid readings instead of replacing them.
+    Uses lighter smoothing to preserve physics accuracy.
+    """
+
+    def __init__(self, window_size=5):  # FIXED: Reduced from 21 to 5
         self.smoothing_window = window_size
         self.raw_displacement_buffer = deque(maxlen=window_size)
         self.velocity_buffer = deque(maxlen=window_size)
@@ -48,6 +54,7 @@ class PhysicsDataProcessor:
     def process_reading(self, distance_mm, timestamp_ms):
         self.total_count += 1
         
+        # FIXED: Reject invalid readings completely instead of replacing
         if distance_mm == 65535:
             self.error_count += 1
             logger.warning(f"Invalid reading rejected (error {self.error_count}/{self.total_count})")
@@ -90,12 +97,19 @@ class PhysicsDataProcessor:
         }
     
     def get_error_rate(self):
+        """Returns the percentage of readings that were errors"""
         if self.total_count == 0:
             return 0.0
         return (self.error_count / self.total_count) * 100.0
 
 
 def analyze_data_with_best_fit(all_data_points: list):
+    """
+    Performs scientifically accurate post-experiment analysis using
+    2nd-degree polynomial regression on the collected displacement-time data.
+    
+    FIXED: Now uses less-smoothed live data as the basis for better accuracy.
+    """
     if not all_data_points or len(all_data_points) < 5:
         logger.warning("Insufficient data for polynomial fit")
         return []
@@ -103,14 +117,17 @@ def analyze_data_with_best_fit(all_data_points: list):
     time_history = np.array([p['time'] for p in all_data_points])
     displacement_history = np.array([p['displacement'] for p in all_data_points])
     
+    # Check for data quality
     if len(np.unique(displacement_history)) < 3:
         logger.warning("Displacement data lacks variation - may be mostly errors")
         return all_data_points
     
     try:
+        # Perform 2nd-degree polynomial fit: s(t) = c2*t^2 + c1*t + c0
         coeffs = np.polyfit(time_history, displacement_history, 2)
         c2, c1, c0 = coeffs
         
+        # Calculate R² to assess fit quality
         predicted = np.polyval(coeffs, time_history)
         residuals = displacement_history - predicted
         ss_res = np.sum(residuals**2)
@@ -119,6 +136,7 @@ def analyze_data_with_best_fit(all_data_points: list):
         
         logger.info(f"Polynomial fit: a={2*c2:.4f} m/s², u={c1:.4f} m/s, s₀={c0:.4f} m, R²={r_squared:.4f}")
         
+        # Warn if fit is poor
         if r_squared < 0.85:
             logger.warning(f"Poor fit quality (R²={r_squared:.4f}). Data may have issues.")
         
@@ -126,29 +144,35 @@ def analyze_data_with_best_fit(all_data_points: list):
         logger.error("Polynomial fit failed - returning original data")
         return all_data_points
 
+    # Derive physical constants from polynomial coefficients
+    # s(t) = s₀ + ut + ½at² → c0 = s₀, c1 = u, c2 = ½a
     initial_displacement_fit = c0
     initial_velocity_fit = c1
     acceleration_fit = 2 * c2
 
+    # Generate theoretically perfect dataset based on best-fit physics
     analyzed_data = []
     for time_t in time_history:
+        # s(t) = s₀ + ut + ½at²
         best_fit_displacement = (0.5 * acceleration_fit * (time_t ** 2)) + \
                                (initial_velocity_fit * time_t) + \
                                initial_displacement_fit
+        # v(t) = u + at
         best_fit_velocity = initial_velocity_fit + acceleration_fit * time_t
         
         analyzed_data.append({
             "time": time_t,
             "displacement": round(best_fit_displacement, 4),
             "velocity": round(best_fit_velocity, 3),
-            "acceleration": round(acceleration_fit, 3),
+            "acceleration": round(acceleration_fit, 3),  # Constant value
             "fit_quality": round(r_squared, 4)
         })
         
     return analyzed_data
 
 
-physics_processor = PhysicsDataProcessor(window_size=3)
+# Instantiate with reduced smoothing
+physics_processor = PhysicsDataProcessor(window_size=5)  # FIXED: Reduced from 21
 
 
 async def check_esp32_connection():
@@ -200,80 +224,36 @@ async def configure_experiment(frequency: int, duration: int, mode: str = "dista
             logger.error(error_msg)
             return {"success": False, "error": error_msg}
         
-        if frequency > 50:
-            logger.warning(f"Frequency {frequency}Hz exceeds recommended max: 50Hz")
+        # FIXED: Validate frequency is realistic
+        if frequency > 25:
+            logger.warning(f"Frequency {frequency}Hz may be too high. Recommended max: 25Hz")
             
-        # Create configuration
-        config_data = {
-            "frequency": frequency, 
-            "duration": duration, 
-            "mode": mode,
-            "averagingSamples": 1
-        }
-        
-        logger.info(f"Sending configuration to ESP32: {config_data}")
+        config = {"frequency": frequency, "duration": duration, "mode": mode}
         physics_processor.reset()
         
         async with aiohttp.ClientSession() as session:
-            # Send as form data with 'plain' parameter
-            form_data = aiohttp.FormData()
-            form_data.add_field('plain', json.dumps(config_data))
-            
             async with session.post(
                 f"{ESP32_BASE_URL}/configure", 
-                data=form_data,
+                json=config, 
                 timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
             ) as response:
-                
-                response_text = await response.text()
-                logger.info(f"ESP32 response status: {response.status}")
-                logger.info(f"ESP32 response body: {response_text}")
-                
                 if response.status == 200:
-                    try:
-                        response_data = json.loads(response_text)
-                        logger.info(f"Experiment configured successfully: {response_data}")
-                        return {
-                            "success": True, 
-                            "config": config_data, 
-                            "esp32_response": response_data,
-                            "required_samples": required_samples, 
-                            "max_samples": MAX_ESP32_SAMPLES
-                        }
-                    except json.JSONDecodeError:
-                        logger.info(f"Experiment configured successfully (no JSON response)")
-                        return {
-                            "success": True, 
-                            "config": config_data, 
-                            "required_samples": required_samples, 
-                            "max_samples": MAX_ESP32_SAMPLES
-                        }
+                    logger.info(f"Experiment configured: {config} (requires {required_samples} samples)")
+                    return {
+                        "success": True, 
+                        "config": config, 
+                        "required_samples": required_samples, 
+                        "max_samples": MAX_ESP32_SAMPLES
+                    }
                 elif response.status == 400:
-                    try:
-                        error_data = json.loads(response_text)
-                        logger.error(f"Configuration rejected by ESP32: {error_data}")
-                        return {"success": False, "error": error_data.get("error", "Configuration rejected")}
-                    except json.JSONDecodeError:
-                        logger.error(f"ESP32 returned invalid JSON: {response_text}")
-                        return {"success": False, "error": f"Invalid response: {response_text}"}
-                else:
-                    # Even if we get 501, if the configuration was parsed successfully, we can proceed
-                    if "Parsed JSON" in open_serial_output:  # This would need actual serial monitoring
-                        logger.warning(f"ESP32 returned status {response.status} but configuration was parsed: {response_text}")
-                        return {
-                            "success": True, 
-                            "config": config_data, 
-                            "required_samples": required_samples, 
-                            "max_samples": MAX_ESP32_SAMPLES,
-                            "warning": f"ESP32 returned {response.status} but configuration was accepted"
-                        }
-                    else:
-                        logger.error(f"ESP32 returned status {response.status}: {response_text}")
-                        return {"success": False, "error": f"Status {response.status}: {response_text}"}
-                    
+                    error_data = await response.json()
+                    logger.error(f"Configuration rejected by ESP32: {error_data}")
+                    return {"success": False, "error": error_data.get("error", "Configuration rejected")}
+                return {"success": False, "error": f"Status {response.status}"}
     except Exception as e:
-        logger.error(f"Failed to configure experiment: {e}", exc_info=True)
+        logger.error(f"Failed to configure experiment: {e}")
         return {"success": False, "error": str(e)}
+
 
 async def start_experiment():
     try:
@@ -286,10 +266,7 @@ async def start_experiment():
                 if response.status == 200:
                     logger.info("Experiment started successfully")
                     return {"success": True}
-                else:
-                    error_text = await response.text()
-                    logger.error(f"Start failed with status {response.status}: {error_text}")
-                    return {"success": False, "error": f"Status {response.status}: {error_text}"}
+                return {"success": False, "error": f"Status {response.status}"}
     except Exception as e:
         logger.error(f"Failed to start experiment: {e}")
         return {"success": False, "error": str(e)}
@@ -305,10 +282,7 @@ async def stop_experiment():
                 if response.status == 200:
                     logger.info("Experiment stopped successfully")
                     return {"success": True}
-                else:
-                    error_text = await response.text()
-                    logger.error(f"Stop failed with status {response.status}: {error_text}")
-                    return {"success": False, "error": f"Status {response.status}: {error_text}"}
+                return {"success": False, "error": f"Status {response.status}"}
     except Exception as e:
         logger.error(f"Failed to stop experiment: {e}")
         return {"success": False, "error": str(e)}
@@ -316,21 +290,94 @@ async def stop_experiment():
 
 async def live_distance_generator():
     try:
-        logger.info("Starting WebSocket-compatible sensor data stream")
-        
-        while True:
-            await asyncio.sleep(0.02)
-            
-            yield {
-                "event": "info",
-                "data": {"message": "WebSocket stream ready - connect to ESP32 directly"}
-            }
-            
+        connector = aiohttp.TCPConnector(force_close=False, limit=1)
+        async with aiohttp.ClientSession(connector=connector) as session:
+            logger.info(f"Connecting to ESP32 SSE stream at {ESP32_BASE_URL}/stream")
+            async with session.get(
+                f"{ESP32_BASE_URL}/stream", 
+                timeout=aiohttp.ClientTimeout(total=0, sock_read=300)
+            ) as response:
+                if response.status != 200:
+                    logger.error(f"ESP32 stream returned status {response.status}")
+                    yield {
+                        "event": "error", 
+                        "data": json.dumps({"error": f"ESP32 returned status {response.status}"})
+                    }
+                    return
+                    
+                logger.info("Connected to ESP32 SSE stream - Light smoothing processor active")
+                buffer = ""
+                
+                async for chunk in response.content.iter_any():
+                    try:
+                        text = chunk.decode('utf-8')
+                        buffer += text
+                        
+                        while '\n\n' in buffer:
+                            message, buffer = buffer.split('\n\n', 1)
+                            
+                            for line in message.split('\n'):
+                                line = line.strip()
+                                if not line or line.startswith(':'):
+                                    continue
+                                    
+                                if line.startswith('data: '):
+                                    data_str = line[6:]
+                                    try:
+                                        raw_data = json.loads(data_str)
+                                        
+                                        if "distance" not in raw_data:
+                                            continue
+                                        
+                                        # Process reading (will return None if invalid)
+                                        processed_data = physics_processor.process_reading(
+                                            distance_mm=raw_data["distance"],
+                                            timestamp_ms=raw_data["timestamp"]
+                                        )
+                                        
+                                        # FIXED: Skip invalid readings instead of sending them
+                                        if processed_data is None:
+                                            continue
+                                        
+                                        processed_data["sample"] = raw_data.get("sample", 0)
+                                        
+                                        logger.info(
+                                            f"Sample {processed_data['sample']}: "
+                                            f"t={processed_data['time']}s, "
+                                            f"s={processed_data['displacement']}m, "
+                                            f"v={processed_data['velocity']}m/s, "
+                                            f"a={processed_data['acceleration']}m/s² "
+                                            f"[{processed_data['sample_quality']}]"
+                                        )
+                                        
+                                        yield {"event": "message", "data": json.dumps(processed_data)}
+                                        
+                                    except json.JSONDecodeError as e:
+                                        logger.error(f"Invalid JSON from ESP32: {data_str} - {e}")
+                        
+                        if len(buffer) > 10000:
+                            logger.warning("Buffer overflow, clearing")
+                            buffer = ""
+                            
+                    except UnicodeDecodeError as e:
+                        logger.error(f"Unicode decode error: {e}")
+                        continue
+                    except Exception as e:
+                        logger.error(f"Error processing chunk: {e}", exc_info=True)
+                        continue
+                
+                # Log error statistics at end of stream
+                error_rate = physics_processor.get_error_rate()
+                logger.info(f"Stream ended. Error rate: {error_rate:.1f}%")
+                
     except asyncio.CancelledError:
-        logger.info("WebSocket stream cancelled")
+        logger.info("SSE stream cancelled by client")
+    except asyncio.TimeoutError:
+        logger.error("ESP32 stream timeout")
+        yield {"event": "error", "data": json.dumps({"error": "Stream timeout"})}
     except Exception as e:
-        logger.error(f"WebSocket stream error: {e}")
-        yield {"event": "error", "data": {"error": str(e)}}
+        logger.error(f"Stream error: {e}", exc_info=True)
+        yield {"event": "error", "data": json.dumps({"error": str(e)})}
 
 
 async def collect_displacement():
