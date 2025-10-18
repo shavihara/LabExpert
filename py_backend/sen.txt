@@ -1,499 +1,781 @@
+# main.py
+# Lab Expert Backend API
 import aiohttp
 import asyncio
+import time
 import json
 from datetime import datetime
 import logging
 from collections import deque
 import numpy as np
+from datetime import datetime
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Query, Request, Header, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, EmailStr
+import yagmail
+from dotenv import load_dotenv
+import os
+from services.user_service import UserService
+from services.session_service import SessionService
+from services.otp_service import OTPService
+from services.file_service import FileService
+import platform
+import psutil
+import time
+from sse_starlette.sse import EventSourceResponse # type: ignore  # Kept for OSI if needed, but TOF uses WS now
+import logging
+from pathlib import Path
+from sensor_service import (
+    get_device_id,
+    upload_firmware,
+    live_distance_generator,  # Now adapted for WS broadcast
+    collect_displacement,
+    collect_oscillations,
+    check_esp32_connection,
+    configure_experiment,
+    start_experiment,
+    stop_experiment,
+    analyze_data_with_best_fit
+)
+from enum import Enum
+import socket
 
+from services.oscillation_service import (
+    check_osi_connection,
+    configure_osi_experiment,
+    start_osi_experiment,
+    stop_osi_experiment,
+    reset_osi_count,
+    live_oscillation_generator,
+    get_osi_data
+)
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-ESP32_IP = "192.168.137.15"
-ESP32_BASE_URL = f"http://{ESP32_IP}"
-REQUEST_TIMEOUT = 10
-MAX_ESP32_SAMPLES = 2000
+# Load .env config
+load_dotenv()
+
+app = FastAPI()
+
+# Add this at the top with other constants
+ESP32_IP = "192.168.137.15"  # Add this line
+ESP32_WS_URL = f"ws://{ESP32_IP}/ws"  # Add this line
+
+# Get local IP address
+def get_local_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        return local_ip
+    except Exception:
+        return "127.0.0.1"
 
 
-class ESP32ConnectionError(Exception):
-    pass
+LOCAL_IP = get_local_ip()
+logger.info(f"🌐 Local IP Address: {LOCAL_IP}")
+
+# ------------------ CORS ------------------
+# UPDATED: Allow WS upgrades
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        f"http://{LOCAL_IP}:5173",
+        f"http://{LOCAL_IP}:3000",
+        "http://192.168.137.1:3000",
+        "http://192.168.1.198:3000",
+        "http://192.168.1.*:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
-class PhysicsDataProcessor:
-    """
-    Provides minimal real-time smoothing for live plotting.
-    FIXED: Rejects invalid readings instead of replacing them.
-    Uses lighter smoothing to preserve physics accuracy.
-    """
-
-    def __init__(self, window_size=5):  # FIXED: Reduced from 21 to 5
-        self.smoothing_window = window_size
-        self.raw_displacement_buffer = deque(maxlen=window_size)
-        self.velocity_buffer = deque(maxlen=window_size)
-        self.acceleration_buffer = deque(maxlen=window_size)
-        self.last_smoothed_displacement = None
-        self.last_velocity = None
-        self.last_timestamp = None
-        self.error_count = 0
-        self.total_count = 0
-
-    def reset(self):
-        self.raw_displacement_buffer.clear()
-        self.velocity_buffer.clear()
-        self.acceleration_buffer.clear()
-        self.last_smoothed_displacement = None
-        self.last_velocity = None
-        self.last_timestamp = None
-        self.error_count = 0
-        self.total_count = 0
-
-    def _smooth_value(self, buffer):
-        if not buffer:
-            return 0.0
-        return sum(buffer) / len(buffer)
-
-    def process_reading(self, distance_mm, timestamp_ms):
-        self.total_count += 1
-        
-        # FIXED: Reject invalid readings completely instead of replacing
-        if distance_mm == 65535:
-            self.error_count += 1
-            logger.warning(f"Invalid reading rejected (error {self.error_count}/{self.total_count})")
-            return None
-
-        timestamp_s = timestamp_ms / 1000.0
-        displacement_m = distance_mm / 1000.0
-
-        self.raw_displacement_buffer.append(displacement_m)
-        smoothed_displacement = self._smooth_value(self.raw_displacement_buffer)
-
-        velocity_ms = 0.0
-        acceleration_ms2 = 0.0
-        smoothed_velocity = 0.0
-        smoothed_acceleration = 0.0
-
-        if self.last_timestamp is not None and self.last_smoothed_displacement is not None:
-            delta_t = timestamp_s - self.last_timestamp
-            if delta_t > 0:
-                velocity_ms = (smoothed_displacement - self.last_smoothed_displacement) / delta_t
-                self.velocity_buffer.append(velocity_ms)
-                smoothed_velocity = self._smooth_value(self.velocity_buffer)
-
-                if self.last_velocity is not None:
-                    acceleration_ms2 = (smoothed_velocity - self.last_velocity) / delta_t
-                    self.acceleration_buffer.append(acceleration_ms2)
-                    smoothed_acceleration = self._smooth_value(self.acceleration_buffer)
-
-        self.last_smoothed_displacement = smoothed_displacement
-        self.last_velocity = smoothed_velocity
-        self.last_timestamp = timestamp_s
-
-        return {
-            "time": round(timestamp_s, 3),
-            "displacement": round(smoothed_displacement, 4),
-            "velocity": round(smoothed_velocity, 3),
-            "acceleration": round(smoothed_acceleration, 3),
-            "raw_distance_mm": distance_mm,
-            "sample_quality": "live_smoothed"
+# Global exception handler to ensure CORS headers on errors
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Uncaught exception for request {request.url}: {str(exc)}", exc_info=True)
+    origin = request.headers.get("origin", "http://localhost:5173")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal Server Error: {str(exc)}"},
+        headers={
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
         }
-    
-    def get_error_rate(self):
-        """Returns the percentage of readings that were errors"""
-        if self.total_count == 0:
-            return 0.0
-        return (self.error_count / self.total_count) * 100.0
+    )
 
 
-def analyze_data_with_best_fit(all_data_points: list):
-    """
-    Performs scientifically accurate post-experiment analysis using
-    2nd-degree polynomial regression on the collected displacement-time data.
-    
-    FIXED: Now uses less-smoothed live data as the basis for better accuracy.
-    """
-    if not all_data_points or len(all_data_points) < 5:
-        logger.warning("Insufficient data for polynomial fit")
-        return []
+# ------------------ Models ------------------
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
 
-    time_history = np.array([p['time'] for p in all_data_points])
-    displacement_history = np.array([p['displacement'] for p in all_data_points])
-    
-    # Check for data quality
-    if len(np.unique(displacement_history)) < 3:
-        logger.warning("Displacement data lacks variation - may be mostly errors")
-        return all_data_points
-    
+
+class SignupRequest(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class OTPVerifyRequest(BaseModel):
+    otp: str
+    email: EmailStr
+
+
+class ExperimentConfig(BaseModel):
+    frequency: int
+    duration: int
+    mode: str = "distance"
+
+
+class ExperimentData(BaseModel):
+    data: list
+    metadata: dict = {}
+
+# This new model will be used for the analysis endpoint
+class AnalysisRequest(BaseModel):
+    data: list
+
+# ------------------ Auth ------------------
+security = HTTPBearer()
+
+
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials
+    if not token:
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+
+    session = SessionService.find_by_token(token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    user = UserService.find_by_id(session['user_id'])
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    SessionService.update_activity(token)
+    return user
+
+
+async def get_current_user_sensor(authorization: str = Header(None), token: str = Query(None)):
+    token_to_use = authorization or token
+    if not token_to_use:
+        raise HTTPException(status_code=401, detail="No token provided")
+
+    if token_to_use.startswith("Bearer "):
+        token_to_use = token_to_use.split(" ")[1]
+
+    logger.debug(f"Token used for sensor: {token_to_use}")
+    session = SessionService.find_by_token(token_to_use)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    user = UserService.find_by_id(session['user_id'])
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    SessionService.update_activity(token_to_use)
+    return user
+
+
+# ------------------ WebSocket Manager for TOF Streaming ------------------
+# NEW: Manages WS connections and broadcasts processed sensor data
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: list[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket, token: str):
+        # Authenticate via token query param
+        session = SessionService.find_by_token(token)
+        if not session:
+            await websocket.close(code=1008, reason="Invalid token")
+            return
+        user = UserService.find_by_id(session['user_id'])
+        if not user:
+            await websocket.close(code=1008, reason="User not found")
+            return
+        
+        await websocket.accept()
+        self.active_connections.append(websocket)
+        logger.info(f"WS Client connected: {user['email']}")
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.remove(websocket)
+        logger.info("WS Client disconnected")
+
+    async def broadcast(self, data: dict):
+        disconnected = []
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(data)
+            except Exception:
+                disconnected.append(connection)
+        for conn in disconnected:
+            self.active_connections.remove(conn)
+
+manager = ConnectionManager()
+
+
+
+# Add this at the top with other constants
+ESP32_IP = "192.168.137.15"  # Add this line
+ESP32_WS_URL = f"ws://{ESP32_IP}/ws"  # Add this line
+
+# ... your existing code ...
+
+@app.websocket("/ws/sensor")
+async def websocket_sensor(websocket: WebSocket, token: str = Query(...)):
+    await manager.connect(websocket, token)
     try:
-        # Perform 2nd-degree polynomial fit: s(t) = c2*t^2 + c1*t + c0
-        coeffs = np.polyfit(time_history, displacement_history, 2)
-        c2, c1, c0 = coeffs
-        
-        # Calculate R² to assess fit quality
-        predicted = np.polyval(coeffs, time_history)
-        residuals = displacement_history - predicted
-        ss_res = np.sum(residuals**2)
-        ss_tot = np.sum((displacement_history - np.mean(displacement_history))**2)
-        r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
-        
-        logger.info(f"Polynomial fit: a={2*c2:.4f} m/s², u={c1:.4f} m/s, s₀={c0:.4f} m, R²={r_squared:.4f}")
-        
-        # Warn if fit is poor
-        if r_squared < 0.85:
-            logger.warning(f"Poor fit quality (R²={r_squared:.4f}). Data may have issues.")
-        
-    except np.linalg.LinAlgError:
-        logger.error("Polynomial fit failed - returning original data")
-        return all_data_points
-
-    # Derive physical constants from polynomial coefficients
-    # s(t) = s₀ + ut + ½at² → c0 = s₀, c1 = u, c2 = ½a
-    initial_displacement_fit = c0
-    initial_velocity_fit = c1
-    acceleration_fit = 2 * c2
-
-    # Generate theoretically perfect dataset based on best-fit physics
-    analyzed_data = []
-    for time_t in time_history:
-        # s(t) = s₀ + ut + ½at²
-        best_fit_displacement = (0.5 * acceleration_fit * (time_t ** 2)) + \
-                               (initial_velocity_fit * time_t) + \
-                               initial_displacement_fit
-        # v(t) = u + at
-        best_fit_velocity = initial_velocity_fit + acceleration_fit * time_t
-        
-        analyzed_data.append({
-            "time": time_t,
-            "displacement": round(best_fit_displacement, 4),
-            "velocity": round(best_fit_velocity, 3),
-            "acceleration": round(acceleration_fit, 3),  # Constant value
-            "fit_quality": round(r_squared, 4)
-        })
-        
-    return analyzed_data
-
-
-# Instantiate with reduced smoothing
-physics_processor = PhysicsDataProcessor(window_size=5)  # FIXED: Reduced from 21
-
-
-async def check_esp32_connection():
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{ESP32_BASE_URL}/status", timeout=aiohttp.ClientTimeout(total=5)) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return {
-                        "connected": True, 
-                        "device_info": data, 
-                        "ready": data.get("ready", True), 
-                        "max_samples": data.get("max_samples", MAX_ESP32_SAMPLES)
-                    }
-                return {"connected": False, "ready": False}
-    except Exception as e:
-        logger.error(f"ESP32 connection check failed: {e}")
-        return {"connected": False, "ready": False, "error": str(e)}
-
-
-async def get_device_id():
-    try:
-        logger.info(f"Attempting to get device ID from {ESP32_BASE_URL}/id")
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"{ESP32_BASE_URL}/id", timeout=aiohttp.ClientTimeout(total=5)) as response:
-                logger.info(f"Response status: {response.status}")
-                if response.status == 200:
-                    data = await response.json()
-                    device_id = data.get("id")
-                    logger.info(f"Device ID received: {device_id}")
-                    return device_id
-                else:
-                    logger.error(f"Bad status code: {response.status}")
-                    return None
-    except Exception as e:
-        logger.error(f"Failed to get device ID: {e}", exc_info=True)
-        return None
-
-
-async def configure_experiment(frequency: int, duration: int, mode: str = "distance"):
-    try:
-        required_samples = frequency * duration
-        if required_samples > MAX_ESP32_SAMPLES:
-            error_msg = (
-                f"Configuration exceeds ESP32 buffer capacity. "
-                f"Max samples: {MAX_ESP32_SAMPLES}, Required: {required_samples}. "
-                f"Reduce frequency or duration."
-            )
-            logger.error(error_msg)
-            return {"success": False, "error": error_msg}
-        
-        # FIXED: Validate frequency is realistic
-        if frequency > 25:
-            logger.warning(f"Frequency {frequency}Hz may be too high. Recommended max: 25Hz")
-            
-        config = {"frequency": frequency, "duration": duration, "mode": mode}
+        from sensor_service import physics_processor
         physics_processor.reset()
         
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{ESP32_BASE_URL}/configure", 
-                json=config, 
-                timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
-            ) as response:
-                if response.status == 200:
-                    logger.info(f"Experiment configured: {config} (requires {required_samples} samples)")
-                    return {
-                        "success": True, 
-                        "config": config, 
-                        "required_samples": required_samples, 
-                        "max_samples": MAX_ESP32_SAMPLES
-                    }
-                elif response.status == 400:
-                    error_data = await response.json()
-                    logger.error(f"Configuration rejected by ESP32: {error_data}")
-                    return {"success": False, "error": error_data.get("error", "Configuration rejected")}
-                return {"success": False, "error": f"Status {response.status}"}
-    except Exception as e:
-        logger.error(f"Failed to configure experiment: {e}")
-        return {"success": False, "error": str(e)}
-
-
-async def start_experiment():
-    try:
-        physics_processor.reset()
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                f"{ESP32_BASE_URL}/start", 
-                timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
-            ) as response:
-                if response.status == 200:
-                    logger.info("Experiment started successfully")
-                    return {"success": True}
-                return {"success": False, "error": f"Status {response.status}"}
-    except Exception as e:
-        logger.error(f"Failed to start experiment: {e}")
-        return {"success": False, "error": str(e)}
-
-
-async def stop_experiment():
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                f"{ESP32_BASE_URL}/stop", 
-                timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
-            ) as response:
-                if response.status == 200:
-                    logger.info("Experiment stopped successfully")
-                    return {"success": True}
-                return {"success": False, "error": f"Status {response.status}"}
-    except Exception as e:
-        logger.error(f"Failed to stop experiment: {e}")
-        return {"success": False, "error": str(e)}
-
-
-async def live_distance_generator():
-    try:
-        connector = aiohttp.TCPConnector(force_close=False, limit=1)
-        async with aiohttp.ClientSession(connector=connector) as session:
-            logger.info(f"Connecting to ESP32 SSE stream at {ESP32_BASE_URL}/stream")
-            async with session.get(
-                f"{ESP32_BASE_URL}/stream", 
-                timeout=aiohttp.ClientTimeout(total=0, sock_read=300)
-            ) as response:
-                if response.status != 200:
-                    logger.error(f"ESP32 stream returned status {response.status}")
-                    yield {
-                        "event": "error", 
-                        "data": json.dumps({"error": f"ESP32 returned status {response.status}"})
-                    }
-                    return
+        logger.info("Attempting to connect to ESP32 WebSocket...")
+        
+        # Try to connect to ESP32 WebSocket
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.ws_connect(ESP32_WS_URL, timeout=aiohttp.ClientTimeout(total=10)) as esp32_ws:
+                    logger.info("Connected to ESP32 WebSocket")
                     
-                logger.info("Connected to ESP32 SSE stream - Light smoothing processor active")
-                buffer = ""
-                
-                async for chunk in response.content.iter_any():
-                    try:
-                        text = chunk.decode('utf-8')
-                        buffer += text
-                        
-                        while '\n\n' in buffer:
-                            message, buffer = buffer.split('\n\n', 1)
-                            
-                            for line in message.split('\n'):
-                                line = line.strip()
-                                if not line or line.startswith(':'):
-                                    continue
+                    # Send connection success message
+                    await manager.broadcast({
+                        "event": "connected", 
+                        "data": {"message": "Connected to ESP32 sensor"}
+                    })
+                    
+                    # Forward messages from ESP32 to client
+                    async for msg in esp32_ws:
+                        if msg.type == aiohttp.WSMsgType.TEXT:
+                            try:
+                                data = json.loads(msg.data)
+                                logger.info(f"Received from ESP32: {data}")  # CHANGED to info for debugging
+                                
+                                # Process the data through physics processor
+                                if "distance" in data and "timestamp" in data:
+                                    # Convert timestamp to seconds for processor
+                                    timestamp_ms = data["timestamp"]
+                                    processed = physics_processor.process_reading(
+                                        data["distance"], 
+                                        timestamp_ms  # Already in ms
+                                    )
+                                    if processed:
+                                        logger.info(f"Sending processed data: {processed}")  # DEBUG
+                                        await manager.broadcast(processed)
+                                else:
+                                    # Forward other messages as-is
+                                    await manager.broadcast(data)
                                     
-                                if line.startswith('data: '):
-                                    data_str = line[6:]
-                                    try:
-                                        raw_data = json.loads(data_str)
-                                        
-                                        if "distance" not in raw_data:
-                                            continue
-                                        
-                                        # Process reading (will return None if invalid)
-                                        processed_data = physics_processor.process_reading(
-                                            distance_mm=raw_data["distance"],
-                                            timestamp_ms=raw_data["timestamp"]
-                                        )
-                                        
-                                        # FIXED: Skip invalid readings instead of sending them
-                                        if processed_data is None:
-                                            continue
-                                        
-                                        processed_data["sample"] = raw_data.get("sample", 0)
-                                        
-                                        logger.info(
-                                            f"Sample {processed_data['sample']}: "
-                                            f"t={processed_data['time']}s, "
-                                            f"s={processed_data['displacement']}m, "
-                                            f"v={processed_data['velocity']}m/s, "
-                                            f"a={processed_data['acceleration']}m/s² "
-                                            f"[{processed_data['sample_quality']}]"
-                                        )
-                                        
-                                        yield {"event": "message", "data": json.dumps(processed_data)}
-                                        
-                                    except json.JSONDecodeError as e:
-                                        logger.error(f"Invalid JSON from ESP32: {data_str} - {e}")
-                        
-                        if len(buffer) > 10000:
-                            logger.warning("Buffer overflow, clearing")
-                            buffer = ""
-                            
-                    except UnicodeDecodeError as e:
-                        logger.error(f"Unicode decode error: {e}")
-                        continue
-                    except Exception as e:
-                        logger.error(f"Error processing chunk: {e}", exc_info=True)
-                        continue
-                
-                # Log error statistics at end of stream
-                error_rate = physics_processor.get_error_rate()
-                logger.info(f"Stream ended. Error rate: {error_rate:.1f}%")
-                
-    except asyncio.CancelledError:
-        logger.info("SSE stream cancelled by client")
-    except asyncio.TimeoutError:
-        logger.error("ESP32 stream timeout")
-        yield {"event": "error", "data": json.dumps({"error": "Stream timeout"})}
-    except Exception as e:
-        logger.error(f"Stream error: {e}", exc_info=True)
-        yield {"event": "error", "data": json.dumps({"error": str(e)})}
-
-
-async def collect_displacement():
-    try:
-        start_result = await start_experiment()
-        if not start_result["success"]:
-            return {"success": False, "error": "Failed to start collection"}
-        
-        max_polls = 120
-        poll_count = 0
-        
-        async with aiohttp.ClientSession() as session:
-            while poll_count < max_polls:
-                async with session.get(
-                    f"{ESP32_BASE_URL}/status", 
-                    timeout=aiohttp.ClientTimeout(total=5)
-                ) as response:
-                    if response.status == 200:
-                        status = await response.json()
-                        if status.get("ready"):
+                            except json.JSONDecodeError as e:
+                                logger.error(f"Invalid JSON from ESP32: {msg.data} - {e}")
+                                await manager.broadcast({
+                                    "event": "error", 
+                                    "data": {"error": "Invalid data from sensor"}
+                                })
+                                
+                        elif msg.type == aiohttp.WSMsgType.ERROR:
+                            logger.error("ESP32 WebSocket error")
+                            await manager.broadcast({
+                                "event": "error", 
+                                "data": {"error": "ESP32 connection error"}
+                            })
                             break
-                await asyncio.sleep(0.5)
-                poll_count += 1
+                        elif msg.type == aiohttp.WSMsgType.CLOSED:
+                            logger.info("ESP32 WebSocket closed")
+                            break
+                            
+        except Exception as e:
+            logger.error(f"Failed to connect to ESP32 WebSocket: {e}")
+            await manager.broadcast({
+                "event": "error", 
+                "data": {"error": f"Cannot connect to ESP32: {str(e)}"}
+            })
             
-            async with session.get(
-                f"{ESP32_BASE_URL}/data", 
-                timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return {"success": True, "data": data}
-                return {"success": False, "error": f"Status {response.status}"}
+    except WebSocketDisconnect:
+        logger.info("Client WebSocket disconnected")
+        manager.disconnect(websocket)
     except Exception as e:
-        logger.error(f"Failed to collect displacement: {e}")
-        return {"success": False, "error": str(e)}
+        logger.error(f"WebSocket error: {e}")
+        await manager.broadcast({
+            "event": "error", 
+            "data": {"error": str(e)}
+        })
+        manager.disconnect(websocket)
+# ------------------ Routes ------------------
+
+@app.get("/")
+async def root():
+    return {
+        "success": True,
+        "message": "Lab Expert API is running",
+        "local_ip": LOCAL_IP,
+        "access_urls": [
+            f"http://localhost:5000",
+            f"http://{LOCAL_IP}:5000"
+        ]
+    }
 
 
-async def collect_oscillations(n: int = 3):
-    results = []
+@app.get("/api/user/me")
+async def get_me(current_user=Depends(get_current_user)):
+    return {"success": True, "user": current_user}
+
+
+@app.post("/api/auth/login")
+async def login(req: LoginRequest):
+    user = UserService.find_by_email(req.email)
+    if not user or not UserService.validate_password(req.password, user['password']):
+        raise HTTPException(401, "Invalid credentials")
+
+    UserService.update_last_login(user['id'])
+    token = SessionService.create(user['id'], "127.0.0.1")
+
+    return {
+        "success": True,
+        "token": token,
+        "user": {
+            "id": user['id'],
+            "name": user['name'],
+            "email": user['email'],
+            "role": user['role'],
+        },
+    }
+
+
+@app.post("/api/auth/signup")
+async def signup(req: SignupRequest):
+    existing = UserService.find_by_email(req.email)
+    if existing:
+        raise HTTPException(400, "Email already exists")
+
+    user = UserService.create(
+        {"name": req.name, "email": req.email, "password": req.password}
+    )
+    token = SessionService.create(user['id'], "127.0.0.1")
+
+    return {
+        "success": True,
+        "token": token,
+        "user": {"id": user['id'], "name": req.name, "email": req.email},
+    }
+
+
+@app.get("/api/auth/check-email")
+async def check_email(email: EmailStr = Query(...)):
+    user = UserService.find_by_email(email)
+    return {"exists": bool(user)}
+
+
+@app.get("/api/auth/setup-otp")
+async def setup_otp(current_user=Depends(get_current_user)):
+    secret = OTPService.generate_secret(current_user['id'])
+    qr_path = OTPService.get_qr_code(current_user['email'], secret)
+    return {"success": True, "qr_url": qr_path}
+
+
+@app.post("/api/auth/verify-otp")
+async def verify_otp(req: OTPVerifyRequest):
+    logger.debug(f"Received verify-otp request: {req.dict()}")
     try:
-        async with aiohttp.ClientSession() as session:
-            for i in range(n):
-                async with session.get(
-                    f"{ESP32_BASE_URL}/start_oscillation", 
-                    timeout=aiohttp.ClientTimeout(total=5)
-                ) as response:
-                    if response.status != 200:
-                        results.append({"error": f"Failed to start oscillation {i + 1}"})
-                        continue
-                
-                await asyncio.sleep(3)
-                
-                async with session.get(
-                    f"{ESP32_BASE_URL}/oscillation_data", 
-                    timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
-                ) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        results.append({"set": i + 1, "data": data})
-                    else:
-                        results.append({"error": f"Failed to get oscillation {i + 1} data"})
-        
-        return {"success": True, "results": results}
+        user = UserService.find_by_email(req.email)
+        if not user:
+            logger.error(f"User not found for email: {req.email}")
+            raise HTTPException(status_code=404, detail="User not found")
+
+        if OTPService.verify_otp(user['id'], req.otp, purpose="password_reset"):
+            logger.info(f"OTP verified successfully for user: {req.email}")
+            return {"success": True}
+        logger.warning(f"Invalid OTP for user: {req.email}")
+        raise HTTPException(status_code=400, detail="Invalid OTP")
     except Exception as e:
-        logger.error(f"Failed to collect oscillations: {e}")
-        return {"success": False, "error": str(e)}
+        logger.error(f"Error in verify-otp: {str(e)}", exc_info=True)
+        raise
 
 
-async def upload_firmware(bin_path):
+@app.post("/api/auth/forgot-password")
+async def forgot_password(req: ForgotPasswordRequest):
+    user = UserService.find_by_email(req.email)
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    otp = OTPService.create_otp(user['id'], "password_reset")
     try:
+        yag.send(to=req.email, subject="Reset Password", contents=f"Your OTP: {otp}")
+    except Exception as e:
+        raise HTTPException(500, f"Email send failed: {str(e)}")
+
+    return {"success": True, "message": "OTP sent"}
+
+
+@app.get("/api/health")
+def health():
+    return {
+        "success": True,
+        "message": "Lab Expert API is running",
+        "local_ip": LOCAL_IP
+    }
+
+
+@app.post("/api/files/profile-picture")
+async def upload_profile(file: UploadFile = File(...), current_user=Depends(get_current_user)):
+    saved = FileService.save_profile_picture(file, current_user['id'])
+    return {"success": True, "file": saved}
+
+
+# ------------------ Admin Routes ------------------
+
+def require_admin(user):
+    if user.get("email") != "labexpert.us@gmail.com":
+        raise HTTPException(403, "Forbidden: Admins only")
+
+
+@app.get("/api/admin/dashboard")
+async def admin_dashboard(current_user=Depends(get_current_user)):
+    require_admin(current_user)
+
+    data = {
+        "stats": {
+            "totalUsers": UserService.count_all(),
+            "verifiedUsers": UserService.count_verified(),
+            "recentSignups": UserService.count_recent(),
+            "activeSessions": SessionService.count_active(),
+        },
+        "recentUsers": UserService.get_recent(5),
+        "activeSessions_list": SessionService.get_active(5),
+    }
+    return {"success": True, "data": data}
+
+
+@app.get("/api/admin/users")
+async def admin_users(current_user=Depends(get_current_user)):
+    require_admin(current_user)
+    users = UserService.get_all()
+    return {"success": True, "users": users}
+
+
+@app.get("/api/admin/system")
+async def admin_system(current_user=Depends(get_current_user)):
+    require_admin(current_user)
+
+    uptime = time.time() - psutil.boot_time()
+    memory = psutil.virtual_memory()
+
+    system_info = {
+        "database": "SQLite",
+        "version": "1.0.0",
+        "nodeVersion": "N/A",
+        "platform": platform.system(),
+        "uptime": uptime,
+        "memoryUsage": {
+            "rss": memory.used,
+            "heapUsed": memory.active if hasattr(memory, "active") else memory.used,
+            "heapTotal": memory.total,
+        },
+    }
+    return {"success": True, "system": system_info}
+
+
+# ------------------ Sensor Routes ------------------
+
+@app.get("/api/sensor/status")
+async def sensor_status(current_user=Depends(get_current_user)):
+    status = await check_esp32_connection()
+    return {"success": True, "status": status}
+
+
+@app.post("/api/sensor/configure")
+async def configure_sensor(config: ExperimentConfig, current_user=Depends(get_current_user)):
+    result = await configure_experiment(config.frequency, config.duration, config.mode)
+    if result["success"]:
+        return {"success": True, "config": result["config"]}
+    raise HTTPException(500, result.get("error", "Configuration failed"))
+
+
+@app.post("/api/sensor/start")
+async def start_sensor(current_user=Depends(get_current_user)):
+    result = await start_experiment()
+    if result["success"]:
+        return {"success": True}
+    raise HTTPException(500, result.get("error", "Failed to start experiment"))
+
+
+@app.post("/api/sensor/stop")
+async def stop_sensor(current_user=Depends(get_current_user)):
+    result = await stop_experiment()
+    if result["success"]:
+        return {"success": True}
+    raise HTTPException(500, result.get("error", "Failed to stop experiment"))
+
+
+# UPDATED: /stream now WS endpoint - connect via ws://localhost:5000/ws/sensor?token=...
+# (SSE kept for OSI if needed; remove if focusing solely on TOF)
+
+
+@app.get("/api/sensor/displacement")
+async def collect_displacement_endpoint(current_user=Depends(get_current_user)):
+    result = await collect_displacement()
+    if result["success"]:
+        return {"success": True, "data": result["data"]}
+    raise HTTPException(500, result.get("error", "Failed to collect displacement"))
+
+
+@app.get("/api/sensor/oscillations")
+async def collect_oscillations_endpoint(
+        n: int = Query(3, ge=1, le=10),
+        current_user=Depends(get_current_user)
+):
+    result = await collect_oscillations(n)
+    if result["success"]:
+        return {"success": True, "results": result["results"]}
+    raise HTTPException(500, result.get("error", "Failed to collect oscillations"))
+
+
+@app.post("/api/sensor/upload_firmware")
+async def handle_upload_firmware(current_user=Depends(get_current_user)):
+    device_id = await get_device_id()
+    if not device_id:
+        raise HTTPException(500, "Failed to get device ID")
+    bin_path = Path("bin") / f"{device_id}.bin"
+    if not bin_path.exists():
+        raise HTTPException(404, f"Firmware file '{bin_path}' not found")
+    success = await upload_firmware(bin_path)
+    if success:
+        return {"success": True, "message": "Firmware uploaded successfully"}
+    else:
+        raise HTTPException(500, "Firmware upload failed")
+
+
+@app.post("/api/sensor/save_data")
+async def save_experiment_data(data: ExperimentData, current_user=Depends(get_current_user)):
+    try:
+        logger.info(f"Saving experiment data for user {current_user['id']}")
+        # In a real app, you would save data.data and data.metadata to the database
+        return {"success": True, "message": "Data saved to profile"}
+    except Exception as e:
+        logger.error(f"Failed to save experiment data: {e}")
+        raise HTTPException(500, f"Failed to save data: {str(e)}")
+
+# -----> NEW ENDPOINT FOR BEST-FIT ANALYSIS <-----
+@app.post("/api/sensor/analyze")
+async def analyze_data(request: AnalysisRequest, current_user=Depends(get_current_user)):
+    try:
+        logger.info(f"Analyzing data for user {current_user['id']}")
+        analyzed_data = analyze_data_with_best_fit(request.data)
+        return {"success": True, "data": analyzed_data}
+    except Exception as e:
+        logger.error(f"Failed to analyze data: {e}", exc_info=True)
+        raise HTTPException(500, f"Failed to analyze data: {str(e)}")
+# ---------------------------------------------
+    
+# ------------------ OSI Sensor Routes ------------------ (Unchanged, uses HTTP/SSE for now)
+
+@app.get("/api/osi/status")
+async def osi_status(current_user=Depends(get_current_user)):
+    status = await check_osi_connection()
+    return {"success": True, "status": status}
+
+
+@app.post("/api/osi/configure")
+async def configure_osi(config: ExperimentConfig, current_user=Depends(get_current_user)):
+    result = await configure_osi_experiment(config.frequency, config.duration)
+    if result["success"]:
+        return {"success": True, "config": result["config"]}
+    raise HTTPException(500, result.get("error", "Configuration failed"))
+
+
+@app.post("/api/osi/start")
+async def start_osi(current_user=Depends(get_current_user)):
+    result = await start_osi_experiment()
+    if result["success"]:
+        return {"success": True}
+    raise HTTPException(500, result.get("error", "Failed to start"))
+
+
+@app.post("/api/osi/stop")
+async def stop_osi(current_user=Depends(get_current_user)):
+    result = await stop_osi_experiment()
+    if result["success"]:
+        return {"success": True}
+    raise HTTPException(500, result.get("error", "Failed to stop"))
+
+
+@app.post("/api/osi/reset")
+async def reset_osi(current_user=Depends(get_current_user)):
+    result = await reset_osi_count()
+    if result["success"]:
+        return {"success": True}
+    raise HTTPException(500, result.get("error", "Failed to reset"))
+
+
+@app.get("/api/osi/stream")
+async def stream_osi_data(token: str = Query(None)):
+    if not token:
+        raise HTTPException(status_code=401, detail="No token provided")
+    session = SessionService.find_by_token(token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    user = UserService.find_by_id(session['user_id'])
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    SessionService.update_activity(token)
+    logger.debug("Starting OSI SSE stream")
+    return EventSourceResponse(live_oscillation_generator())
+
+
+@app.get("/api/osi/data")
+async def get_osi_data_endpoint(current_user=Depends(get_current_user)):
+    result = await get_osi_data()
+    if result["success"]:
+        return {"success": True, "data": result["data"]}
+    raise HTTPException(500, result.get("error", "Failed to get data"))
+
+
+@app.post("/api/osi/save_data")
+async def save_osi_data(data: ExperimentData, current_user=Depends(get_current_user)):
+    try:
+        logger.info(f"Saving OSI data for user {current_user['id']}")
+        return {"success": True, "message": "Data saved to profile"}
+    except Exception as e:
+        logger.error(f"Failed to save OSI data: {e}")
+        raise HTTPException(500, f"Failed to save data: {str(e)}")
+
+
+# -----------------------------------------------------EXPERIMENT SELECTION---------------------------------------------------------
+
+class ExperimentType(Enum):
+    DISTANCE = "distance"
+    OSCILLATION = "oscillation"
+    DISPLACEMENT = "displacement"
+
+
+class ExperimentSelectRequest(BaseModel):
+    experiment_type: ExperimentType
+
+
+@app.post("/api/sensor/select_experiment")
+async def select_experiment(
+        request: ExperimentSelectRequest,
+        current_user=Depends(get_current_user)
+):
+    try:
+        device_id = await get_device_id()
+        if not device_id:
+            raise HTTPException(500, "Failed to get device ID from ESP32")
+
+        firmware_map = {
+            ExperimentType.DISTANCE: f"{device_id}.bin",
+            ExperimentType.OSCILLATION: f"{device_id}_OSC.bin",
+            ExperimentType.DISPLACEMENT: f"{device_id}.bin"
+        }
+
+        firmware_file = firmware_map.get(request.experiment_type)
+        if not firmware_file:
+            raise HTTPException(400, f"Unknown experiment type: {request.experiment_type}")
+
+        bin_path = Path("bin") / firmware_file
         if not bin_path.exists():
-            logger.error(f"Firmware file not found: {bin_path}")
-            return False
-        
-        file_size = bin_path.stat().st_size
-        logger.info(f"Uploading firmware: {bin_path.name} ({file_size:,} bytes)")
-        
-        if file_size > 1500000:
-            logger.warning(f"Firmware size is large: {file_size:,} bytes - may not fit in partition")
-        
-        async with aiohttp.ClientSession() as session:
-            with open(bin_path, 'rb') as f:
-                data = aiohttp.FormData()
-                data.add_field(
-                    'update', 
-                    f, 
-                    filename=bin_path.name, 
-                    content_type='application/octet-stream'
-                )
-                
-                logger.info(f"Sending POST to {ESP32_BASE_URL}/update")
-                async with session.post(
-                    f"{ESP32_BASE_URL}/update", 
-                    data=data, 
-                    timeout=aiohttp.ClientTimeout(total=90)
-                ) as response:
-                    logger.info(f"Upload HTTP status: {response.status}")
-                    
-                    if response.status == 200:
-                        text = await response.text()
-                        logger.info(f"ESP32 response: '{text}'")
-                        
-                        if text.strip() == "OK":
-                            logger.info("Upload successful! Waiting for ESP32 to reboot...")
-                            await asyncio.sleep(15)
-                            return True
-                        else:
-                            logger.error(f"Upload reported failure: {text}")
-                            return False
-                    else:
-                        logger.error(f"Bad HTTP status: {response.status}")
-                        return False
-                        
-    except asyncio.TimeoutError:
-        logger.error("Upload timed out - ESP32 may have crashed during write")
-        return False
+            raise HTTPException(
+                404,
+                f"Firmware file '{firmware_file}' not found. Please compile and place in bin/ folder"
+            )
+
+        logger.info(f"Uploading firmware: {firmware_file}")
+        success = await upload_firmware(bin_path)
+
+        if success:
+            logger.info("Firmware upload successful")
+            status = await check_esp32_connection()
+            if status["connected"]:
+                return {
+                    "success": True,
+                    "message": f"Firmware uploaded successfully. ESP32 ready for {request.experiment_type.value} experiment",
+                    "firmware": firmware_file
+                }
+            else:
+                return {
+                    "success": True,
+                    "message": "Firmware uploaded but ESP32 not responding yet. Please wait...",
+                    "firmware": firmware_file
+                }
+        else:
+            raise HTTPException(500, "Firmware upload failed")
+
     except Exception as e:
-        logger.error(f"Firmware upload exception: {e}", exc_info=True)
-        return False
+        logger.error(f"Experiment selection failed: {e}")
+        raise HTTPException(500, f"Failed to select experiment: {str(e)}")
+
+
+@app.get("/api/sensor/available_experiments")
+async def get_available_experiments(current_user=Depends(get_current_user)):
+    device_id = await get_device_id()
+    if not device_id:
+        return {"success": False, "experiments": []}
+
+    bin_folder = Path("bin")
+    available = []
+    experiments = [
+        {"type": "distance", "file": f"{device_id}.bin", "name": "Distance Measurement"},
+        {"type": "oscillation", "file": f"{device_id}_OSC.bin", "name": "Oscillation Timing"},
+        {"type": "displacement", "file": f"{device_id}.bin", "name": "Displacement Analysis"}
+    ]
+
+    for exp in experiments:
+        if (bin_folder / exp["file"]).exists():
+            available.append({
+                "type": exp["type"],
+                "name": exp["name"],
+                "firmware": exp["file"]
+            })
+
+    return {"success": True, "experiments": available}
+
+
+# ------------------ Email Setup ------------------
+yag = None
+try:
+    yag = yagmail.SMTP(os.getenv("EMAIL_USER"), os.getenv("EMAIL_PASS"))
+    # yag.send(to=os.getenv("EMAIL_USER"), subject="LAB EXPERT ONLINE!", contents="Email config OK")
+    print("✅ Email server ready")
+except Exception as e:
+    print(f"❌ Email config error: {e}")
+
+
+# ------------------ Startup Event ------------------
+@app.on_event("startup")
+async def startup_event():
+    logger.info("=" * 60)
+    logger.info("🚀 Lab Expert API Starting... (WebSocket Enabled for TOF)")
+    logger.info(f"🌐 Local Network IP: {LOCAL_IP}")
+    logger.info(f"📱 Access from phone: http://{LOCAL_IP}:5000")
+    logger.info(f"💻 Access from PC: http://localhost:5000")
+    logger.info(f"🔌 WS Endpoint: ws://{LOCAL_IP}:5000/ws/sensor?token=...")
+    logger.info("=" * 60)
+
+
+# ------------------ Run ------------------
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", 5000)),
+        log_level="info"
+    )

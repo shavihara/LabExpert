@@ -21,6 +21,7 @@ tempmain.py
 main_v1.3_terminal.py
 main_sensor.cpp
 data/
+Binn/CH341SER
 
 # -------------------------
 # Environment & secret files
@@ -40,3 +41,4 @@ Thumbs.db
 .vscode/
 .idea/
 Datasheet/
+.trae/
