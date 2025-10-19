@@ -10,6 +10,13 @@ logger = logging.getLogger(__name__)
 
 ESP32_IP = "192.168.137.15"
 ESP32_BASE_URL = f"http://{ESP32_IP}"
+
+def set_esp32_ip(ip_address: str):
+    """Dynamically set the ESP32 IP address for device communication"""
+    global ESP32_IP, ESP32_BASE_URL
+    ESP32_IP = ip_address
+    ESP32_BASE_URL = f"http://{ip_address}"
+    logger.info(f"ESP32 IP dynamically set to: {ip_address}")
 REQUEST_TIMEOUT = 10
 MAX_ESP32_SAMPLES = 1000
 

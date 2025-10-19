@@ -11,7 +11,7 @@ import ExperimentInterface from './pages/ExperimentInterface';
 import OSIInterface from './components/OSIInterface';
 import ExperimentRouter from './ExperimentRouter';
 import PrivateRoute from './components/PrivateRoute';
-import { getCurrentUser } from './utils/api';
+import { getCurrentUser, bootstrapDevAuth } from './utils/api';
 import { ThemeProvider } from './context/ThemeContext';
 import './App.css';
 
@@ -21,19 +21,28 @@ function AppContent() {
   const location = useLocation();
 
   useEffect(() => {
-    const fetchUser = async () => {
+    const initAuth = async () => {
       try {
+        // In development, bootstrap a dev token if none exists
+        if (import.meta.env.DEV) {
+          const token = localStorage.getItem('token');
+          if (!token || token === 'undefined' || token === null) {
+            console.log('🧪 Dev mode: bootstrapping auth...');
+            await bootstrapDevAuth();
+          }
+        }
+
         console.log('🎯 App: Fetching current user...');
         const user = await getCurrentUser();
         console.log('🎯 App: Current user:', user);
         setCurrentUser(user);
       } catch (error) {
-        console.error('❌ App: Error fetching current user:', error);
+        console.error('❌ App: Error initializing auth:', error);
       } finally {
         setLoading(false);
       }
     };
-    fetchUser();
+    initAuth();
   }, []);
 
   if (loading) {

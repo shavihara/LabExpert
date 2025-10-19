@@ -6,7 +6,12 @@
 #include <EEPROM.h>
 #include "esp_partition.h"
 #include "esp_ota_ops.h"
-
+#include <WebSocketsClient.h>
+#include <vector>
+// Forward declarations
+static bool hexToBytes(const String& hex, std::vector<uint8_t>& out);
+static String getDeviceIDFromMAC();
+void webSocketEvent(WStype_t type, uint8_t *payload, size_t length);
 // GPIO pin setup
 #define WIFI_LED 2
 #define SENSOR_LED 15
@@ -16,7 +21,7 @@
 #define EEPROM_SIZE 3 // Only read 3 bytes for sensor type
 
 // Wi-Fi credentials
-const char *ssid = "DT";
+const char *ssid = "LabExpert_1.0";
 const char *password = "11111111";
 IPAddress local_IP(192, 168, 137, 15);
 IPAddress gateway(192, 168, 137, 1);
@@ -24,8 +29,20 @@ IPAddress subnet(255, 255, 255, 0);
 
 // Web server
 WebServer server(80);
+WebSocketsClient webSocket;
+String deviceID = "ESP32";
+const char* backendHost = "192.168.137.1"; // Backend server IP - Connect to hotspot interface
+const uint16_t backendPort = 5000;
 
-// Sensor info
+// OTA state
+bool otaInProgress = false;
+size_t otaExpectedSize = 0;
+size_t otaWritten = 0;
+
+// Sensor check state
+unsigned long lastSensorCheck = 0;
+const unsigned long sensorCheckInterval = 2000;
+String lastSensorTypeReported = "UNKNOWN";
 String sensorType = "UNKNOWN";
 String sensorID = "N/A";
 
@@ -219,7 +236,7 @@ void setupRoutes()
 
   server.on("/info", HTTP_GET, []()
             {
-    DynamicJsonDocument doc(256);
+    JsonDocument doc;  // NEW
     doc["sensor_type"] = sensorType;
     doc["sensor_id"] = sensorID;
     String jsonResp;
@@ -228,11 +245,86 @@ void setupRoutes()
 
   server.on("/id", HTTP_GET, []()
             {
-    DynamicJsonDocument doc(256);
+    JsonDocument doc;
     doc["id"] = sensorType; // Use sensorType as ID for firmware selection
     String json;
     serializeJson(doc, json);
     server.send(200, "application/json", json); });
+
+  // OTA push endpoints for backend
+  server.on("/ota/begin", HTTP_POST, []() {
+    String body = server.arg("plain");
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, body);
+    if (err) {
+      server.send(400, "application/json", "{\"success\":false,\"error\":\"bad_json\"}");
+      return;
+    }
+    size_t size = doc["size"] | 0;
+    const esp_partition_t *next = esp_ota_get_next_update_partition(NULL);
+    if (!Update.begin(size)) {
+      String e; Update.printError(Serial);
+      server.send(500, "application/json", "{\"success\":false}");
+      return;
+    }
+    otaInProgress = true;
+    otaExpectedSize = size;
+    otaWritten = 0;
+    Serial.printf("OTA begin: size=%u, partition=%s\n", (unsigned)size, next? next->label : "?");
+    server.send(200, "application/json", "{\"success\":true}");
+  });
+
+  server.on("/ota/write", HTTP_POST, []() {
+    String body = server.arg("plain");
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, body);
+    if (err) {
+      server.send(400, "application/json", "{\"success\":false,\"error\":\"bad_json\"}");
+      return;
+    }
+    size_t offset = doc["offset"] | 0;
+    size_t size = doc["size"] | 0;
+    String hex = doc["data"] | "";
+    std::vector<uint8_t> bytes;
+    if (!hexToBytes(hex, bytes)) {
+      server.send(400, "application/json", "{\"success\":false,\"error\":\"bad_hex\"}");
+      return;
+    }
+    if (bytes.size() != size) {
+      server.send(400, "application/json", "{\"success\":false,\"error\":\"size_mismatch\"}");
+      return;
+    }
+    if (!otaInProgress) {
+      server.send(400, "application/json", "{\"success\":false,\"error\":\"not_in_progress\"}");
+      return;
+    }
+    size_t written = Update.write(bytes.data(), bytes.size());
+    if (written != bytes.size()) {
+      Update.printError(Serial);
+      server.send(500, "application/json", "{\"success\":false}");
+      return;
+    }
+    otaWritten += written;
+    server.send(200, "application/json", "{\"success\":true}");
+  });
+
+  server.on("/ota/end", HTTP_POST, []() {
+    if (!otaInProgress) {
+      server.send(400, "application/json", "{\"success\":false,\"error\":\"not_in_progress\"}");
+      return;
+    }
+    bool ok = Update.end(true);
+    if (ok) {
+      Serial.printf("OTA success: %u/%u bytes\n", (unsigned)otaWritten, (unsigned)otaExpectedSize);
+      server.send(200, "application/json", "{\"success\":true}");
+      delay(200);
+      ESP.restart();
+    } else {
+      Update.printError(Serial);
+      server.send(500, "application/json", "{\"success\":false}");
+    }
+    otaInProgress = false;
+  });
 }
 
 // ========== Setup ==========
@@ -275,10 +367,6 @@ void setup()
   eraseInactivePartition();
 
   WiFi.mode(WIFI_STA);
-  if (!WiFi.config(local_IP, gateway, subnet))
-  {
-    Serial.println("✘ Failed to configure static IP");
-  }
   WiFi.begin(ssid, password);
   Serial.printf("Connecting to WiFi SSID: %s\n", ssid);
   while (WiFi.status() != WL_CONNECTED)
@@ -288,6 +376,12 @@ void setup()
   }
   Serial.print("\n✓ Connected to WiFi, IP: ");
   Serial.println(WiFi.localIP());
+
+  deviceID = getDeviceIDFromMAC();
+  Serial.printf("DeviceID: %s\n", deviceID.c_str());
+  webSocket.begin(backendHost, backendPort, String("/ws/device?device_id=") + deviceID);
+  webSocket.onEvent(webSocketEvent);
+  webSocket.setReconnectInterval(5000);
 
   setupRoutes();
   server.begin();
@@ -300,6 +394,7 @@ void loop()
   server.handleClient();
   handleWifiLed();
   handleSensorLed();
+  webSocket.loop();
 
   if (WiFi.status() != WL_CONNECTED)
   {
@@ -307,5 +402,80 @@ void loop()
     WiFi.disconnect();
     WiFi.begin(ssid, password);
     delay(5000);
+  }
+
+  // Periodic sensor presence check
+  if (millis() - lastSensorCheck >= sensorCheckInterval) {
+    lastSensorCheck = millis();
+    String prev = sensorType;
+    bool ok = detectSensor();
+    if (!ok) sensorType = "UNKNOWN";
+    if (sensorType != prev) {
+      JsonDocument doc;
+      doc["type"] = "sensor_id";
+      doc["sensor_id"] = sensorType;
+      doc["device_id"] = deviceID;
+      doc["ip"] = WiFi.localIP().toString();
+      String msg; serializeJson(doc, msg);
+      webSocket.sendTXT(msg);
+      if (sensorType == "UNKNOWN") {
+        Serial.println("Sensor unplug detected; erasing inactive OTA partition");
+        eraseInactivePartition();
+      }
+    }
+  }
+}
+
+// ========== Utils ==========
+static bool hexToBytes(const String& hex, std::vector<uint8_t>& out) {
+  if (hex.length() % 2 != 0) return false;
+  out.clear();
+  out.reserve(hex.length()/2);
+  auto toNib = [](char c)->int {
+    if (c>='0' && c<='9') return c-'0';
+    if (c>='a' && c<='f') return 10 + (c-'a');
+    if (c>='A' && c<='F') return 10 + (c-'A');
+    return -1;
+  };
+  for (size_t i=0;i<hex.length();i+=2) {
+    int n1 = toNib(hex[i]);
+    int n2 = toNib(hex[i+1]);
+    if (n1<0 || n2<0) return false;
+    out.push_back((uint8_t)((n1<<4)|n2));
+  }
+  return true;
+}
+
+static String getDeviceIDFromMAC() {
+  String mac = WiFi.macAddress(); // "AA:BB:CC:DD:EE:FF"
+  mac.replace(":", "");
+  if (mac.length() >= 5) return mac.substring(mac.length()-5);
+  return mac;
+}
+
+// WebSocket event handler
+void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
+  switch (type) {
+    case WStype_CONNECTED: {
+      Serial.println("WS connected to backend");
+      JsonDocument doc;
+      doc["type"] = "sensor_id";
+      doc["sensor_id"] = sensorType;
+      doc["device_id"] = deviceID;
+      doc["ip"] = WiFi.localIP().toString();
+      String msg; serializeJson(doc, msg);
+      webSocket.sendTXT(msg);
+      break;
+    }
+    case WStype_TEXT: {
+      Serial.printf("WS message: %.*s\n", (int)length, (const char*)payload);
+      // OTA is pushed via HTTP by backend; we just log WS commands here.
+      break;
+    }
+    case WStype_DISCONNECTED:
+      Serial.println("WS disconnected");
+      break;
+    default:
+      break;
   }
 }

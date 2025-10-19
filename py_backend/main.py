@@ -1,5 +1,6 @@
 # main.py
 # Lab Expert Backend API
+from typing import Optional
 import aiohttp
 import asyncio
 import time
@@ -12,7 +13,7 @@ from datetime import datetime
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Query, Request, Header, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel, EmailStr
 import yagmail
 from dotenv import load_dotenv
@@ -41,7 +42,10 @@ from sensor_service import (
 )
 from enum import Enum
 import socket
-
+from session_manager import SessionManager
+from ws_client import ClientWebSocketManager
+from ws_device import DeviceWebSocketManager
+from ota_manager import OTAManager
 from services.oscillation_service import (
     check_osi_connection,
     configure_osi_experiment,
@@ -61,9 +65,20 @@ load_dotenv()
 
 app = FastAPI()
 
+# Initialize WebSocket/session managers
+session_manager = SessionManager()
+ota_manager = OTAManager()
+client_ws_manager = ClientWebSocketManager(session_manager)
+ClientWebSocketManager.set_instance(client_ws_manager)
+device_ws_manager = DeviceWebSocketManager(session_manager, ota_manager)
+DeviceWebSocketManager.set_instance(device_ws_manager)
+
 # Add this at the top with other constants
 ESP32_IP = "192.168.137.15"  # Add this line
 ESP32_WS_URL = f"ws://{ESP32_IP}/ws"  # Add this line
+
+# Feature flag to enable/disable sensor WS bridge
+ENABLE_SENSOR_WS = os.getenv("ENABLE_SENSOR_WS", "false").lower() in ("true", "1", "yes")
 
 # Get local IP address
 def get_local_ip():
@@ -87,9 +102,15 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+        "http://localhost:5175",
+        "http://127.0.0.1:5175",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         f"http://{LOCAL_IP}:5173",
+        f"http://{LOCAL_IP}:5174",
+        f"http://{LOCAL_IP}:5175",
         f"http://{LOCAL_IP}:3000",
         "http://192.168.137.1:3000",
         "http://192.168.1.198:3000",
@@ -232,93 +253,116 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-
-# Add this at the top with other constants
-ESP32_IP = "192.168.137.15"  # Add this line
-ESP32_WS_URL = f"ws://{ESP32_IP}/ws"  # Add this line
-
-# ... your existing code ...
-
 @app.websocket("/ws/sensor")
 async def websocket_sensor(websocket: WebSocket, token: str = Query(...)):
+    # Accept and short-circuit when disabled to avoid noisy errors in dev
     await manager.connect(websocket, token)
+    if not ENABLE_SENSOR_WS:
+        try:
+            await websocket.send_json({
+                "event": "error",
+                "data": {"error": "Sensor WS bridge disabled (set ENABLE_SENSOR_WS=true to enable)"}
+            })
+        except Exception:
+            # ignore send errors
+            pass
+        await websocket.close(code=1001, reason="Sensor WS disabled")
+        return
+
     try:
         from sensor_service import physics_processor
         physics_processor.reset()
-        
         logger.info("Attempting to connect to ESP32 WebSocket...")
-        
-        # Try to connect to ESP32 WebSocket
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.ws_connect(ESP32_WS_URL, timeout=aiohttp.ClientTimeout(total=10)) as esp32_ws:
                     logger.info("Connected to ESP32 WebSocket")
-                    
-                    # Send connection success message
                     await manager.broadcast({
-                        "event": "connected", 
+                        "event": "connected",
                         "data": {"message": "Connected to ESP32 sensor"}
                     })
-                    
-                    # Forward messages from ESP32 to client
                     async for msg in esp32_ws:
                         if msg.type == aiohttp.WSMsgType.TEXT:
                             try:
                                 data = json.loads(msg.data)
-                                logger.info(f"Received from ESP32: {data}")  # CHANGED to info for debugging
-                                
-                                # Process the data through physics processor
+                                logger.info(f"Received from ESP32: {data}")
                                 if "distance" in data and "timestamp" in data:
-                                    # Convert timestamp to seconds for processor
                                     timestamp_ms = data["timestamp"]
                                     processed = physics_processor.process_reading(
-                                        data["distance"], 
-                                        timestamp_ms  # Already in ms
+                                        data["distance"],
+                                        timestamp_ms
                                     )
                                     if processed:
-                                        logger.info(f"Sending processed data: {processed}")  # DEBUG
+                                        logger.info(f"Sending processed data: {processed}")
                                         await manager.broadcast(processed)
                                 else:
-                                    # Forward other messages as-is
                                     await manager.broadcast(data)
-                                    
                             except json.JSONDecodeError as e:
                                 logger.error(f"Invalid JSON from ESP32: {msg.data} - {e}")
                                 await manager.broadcast({
-                                    "event": "error", 
+                                    "event": "error",
                                     "data": {"error": "Invalid data from sensor"}
                                 })
-                                
                         elif msg.type == aiohttp.WSMsgType.ERROR:
                             logger.error("ESP32 WebSocket error")
                             await manager.broadcast({
-                                "event": "error", 
+                                "event": "error",
                                 "data": {"error": "ESP32 connection error"}
                             })
                             break
                         elif msg.type == aiohttp.WSMsgType.CLOSED:
                             logger.info("ESP32 WebSocket closed")
                             break
-                            
         except Exception as e:
             logger.error(f"Failed to connect to ESP32 WebSocket: {e}")
             await manager.broadcast({
-                "event": "error", 
+                "event": "error",
                 "data": {"error": f"Cannot connect to ESP32: {str(e)}"}
             })
-            
     except WebSocketDisconnect:
         logger.info("Client WebSocket disconnected")
         manager.disconnect(websocket)
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
         await manager.broadcast({
-            "event": "error", 
+            "event": "error",
             "data": {"error": str(e)}
         })
         manager.disconnect(websocket)
-# ------------------ Routes ------------------
 
+@app.websocket("/ws/client")
+async def websocket_client(websocket: WebSocket, token: str = Query(...)):
+    # Authenticate via token
+    session = SessionService.find_by_token(token)
+    if not session:
+        await websocket.close(code=1008, reason="Invalid token")
+        return
+    user_id = session['user_id']
+    await client_ws_manager.connect(websocket, user_id)
+    try:
+        while True:
+            data = await websocket.receive_json()
+            await client_ws_manager.handle_client_message(websocket, user_id, data)
+            # Keep session alive
+            SessionService.update_activity(token)
+    except WebSocketDisconnect:
+        await client_ws_manager.disconnect(user_id)
+    except Exception as e:
+        logger.error(f"WS client error for user {user_id}: {e}")
+        await client_ws_manager.disconnect(user_id)
+@app.websocket("/ws/device")
+async def websocket_device(websocket: WebSocket, device_id: str = Query(...)):
+    # Register and accept device connection
+    await device_ws_manager.connect(websocket, device_id)
+    try:
+        while True:
+            data = await websocket.receive_json()
+            await device_ws_manager.handle_device_message(websocket, device_id, data)
+    except WebSocketDisconnect:
+        await device_ws_manager.disconnect(device_id)
+    except Exception as e:
+        logger.error(f"WS device error for {device_id}: {e}")
+        await device_ws_manager.disconnect(device_id)
 @app.get("/")
 async def root():
     return {
@@ -546,11 +590,20 @@ async def collect_oscillations_endpoint(
     raise HTTPException(500, result.get("error", "Failed to collect oscillations"))
 
 
+class UploadFirmwareRequest(BaseModel):
+    device_id: Optional[str] = None
+
 @app.post("/api/sensor/upload_firmware")
-async def handle_upload_firmware(current_user=Depends(get_current_user)):
-    device_id = await get_device_id()
+async def handle_upload_firmware(
+        request: UploadFirmwareRequest = None,
+        current_user=Depends(get_current_user)
+):
+    # Use provided device_id or try to discover one
+    device_id = request.device_id if request else None
     if not device_id:
-        raise HTTPException(500, "Failed to get device ID")
+        device_id = await get_device_id()
+        if not device_id:
+            raise HTTPException(500, "Failed to get device ID. Please provide device_id parameter.")
     bin_path = Path("bin") / f"{device_id}.bin"
     if not bin_path.exists():
         raise HTTPException(404, f"Firmware file '{bin_path}' not found")
@@ -666,6 +719,7 @@ class ExperimentType(Enum):
 
 class ExperimentSelectRequest(BaseModel):
     experiment_type: ExperimentType
+    device_id: Optional[str] = None
 
 
 @app.post("/api/sensor/select_experiment")
@@ -674,58 +728,78 @@ async def select_experiment(
         current_user=Depends(get_current_user)
 ):
     try:
-        device_id = await get_device_id()
+        # Use provided device_id or try to discover one
+        device_id = request.device_id
         if not device_id:
-            raise HTTPException(500, "Failed to get device ID from ESP32")
+            # Fallback: try to get device ID from ESP32 (for backward compatibility)
+            device_id = await get_device_id()
+            if not device_id:
+                raise HTTPException(500, "Failed to get device ID from ESP32. Please provide device_id parameter.")
 
-        firmware_map = {
+        # Resolve experiment mapping to OTA manager keys
+        exp = request.experiment_type
+        if exp == ExperimentType.DISTANCE:
+            ota_key = "displacement"  # TOF
+        elif exp == ExperimentType.OSCILLATION:
+            ota_key = "oscillation"
+        elif exp == ExperimentType.DISPLACEMENT:
+            ota_key = "displacement"
+        else:
+            raise HTTPException(400, f"Unknown experiment type: {exp}")
+
+        # Try device-specific firmware first (e.g., 834E8.bin / 834E8_OSC.bin)
+        device_fw_map = {
             ExperimentType.DISTANCE: f"{device_id}.bin",
             ExperimentType.OSCILLATION: f"{device_id}_OSC.bin",
             ExperimentType.DISPLACEMENT: f"{device_id}.bin"
         }
+        firmware_file = device_fw_map.get(exp)
+        device_specific_path = Path("bin") / (firmware_file or "")
+        firmware_path_override = str(device_specific_path) if device_specific_path.exists() else None
 
-        firmware_file = firmware_map.get(request.experiment_type)
-        if not firmware_file:
-            raise HTTPException(400, f"Unknown experiment type: {request.experiment_type}")
+        # Find device IP from session manager (fallback to constant)
+        status = await session_manager.get_device_status(device_id)
+        ip = None
+        if status:
+            ip = status.get("status", {}).get("ip_address") or status.get("ip_address")
+        device_ip = ip or ESP32_IP
+        if not device_ip:
+            raise HTTPException(500, "Device IP not available")
 
-        bin_path = Path("bin") / firmware_file
-        if not bin_path.exists():
-            raise HTTPException(
-                404,
-                f"Firmware file '{firmware_file}' not found. Please compile and place in bin/ folder"
-            )
-
-        logger.info(f"Uploading firmware: {firmware_file}")
-        success = await upload_firmware(bin_path)
-
-        if success:
-            logger.info("Firmware upload successful")
-            status = await check_esp32_connection()
-            if status["connected"]:
-                return {
-                    "success": True,
-                    "message": f"Firmware uploaded successfully. ESP32 ready for {request.experiment_type.value} experiment",
-                    "firmware": firmware_file
-                }
-            else:
-                return {
-                    "success": True,
-                    "message": "Firmware uploaded but ESP32 not responding yet. Please wait...",
-                    "firmware": firmware_file
-                }
+        # Kick off OTA via OTAManager (explicit firmware when available)
+        result = await ota_manager.start_ota_update(
+            device_id=device_id,
+            device_ip=device_ip,
+            experiment_type=ota_key,
+            firmware_path=firmware_path_override
+        )
+        if result.get("status") == "success" or result.get("success"):
+            return {
+                "success": True,
+                "message": f"Firmware flashed successfully for {exp.value} on {device_id}",
+                "device_id": device_id,
+                "ip": device_ip
+            }
         else:
-            raise HTTPException(500, "Firmware upload failed")
-
+            err = result.get("message") or result.get("error") or "OTA failed"
+            raise HTTPException(500, err)
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Experiment selection failed: {e}")
-        raise HTTPException(500, f"Failed to select experiment: {str(e)}")
+        logger.error(f"Failed to flash firmware: {e}", exc_info=True)
+        raise HTTPException(500, f"Failed to flash firmware: {str(e)}")
 
 
 @app.get("/api/sensor/available_experiments")
-async def get_available_experiments(current_user=Depends(get_current_user)):
-    device_id = await get_device_id()
+async def get_available_experiments(
+        device_id: Optional[str] = Query(None),
+        current_user=Depends(get_current_user)
+):
+    # Use provided device_id or try to discover one
     if not device_id:
-        return {"success": False, "experiments": []}
+        device_id = await get_device_id()
+        if not device_id:
+            return {"success": False, "experiments": [], "message": "No device ID provided and failed to discover device"}
 
     bin_folder = Path("bin")
     available = []
@@ -760,11 +834,13 @@ except Exception as e:
 @app.on_event("startup")
 async def startup_event():
     logger.info("=" * 60)
-    logger.info("🚀 Lab Expert API Starting... (WebSocket Enabled for TOF)")
+    logger.info("🚀 Lab Expert API Starting... (WebSocket Enabled)")
     logger.info(f"🌐 Local Network IP: {LOCAL_IP}")
     logger.info(f"📱 Access from phone: http://{LOCAL_IP}:5000")
     logger.info(f"💻 Access from PC: http://localhost:5000")
-    logger.info(f"🔌 WS Endpoint: ws://{LOCAL_IP}:5000/ws/sensor?token=...")
+    logger.info(f"🔌 WS Sensor Endpoint: ws://{LOCAL_IP}:5000/ws/sensor?token=...")
+    logger.info(f"🔌 WS Client Endpoint: ws://{LOCAL_IP}:5000/ws/client?token=...")
+    logger.info(f"🔌 WS Device Endpoint: ws://{LOCAL_IP}:5000/ws/device?device_id=...")
     logger.info("=" * 60)
 
 
@@ -778,3 +854,12 @@ if __name__ == "__main__":
         port=int(os.getenv("PORT", 5000)),
         log_level="info"
     )
+
+
+# ------------------ Firmware Serving ------------------
+@app.get("/api/firmware/{sensor_id}")
+async def get_firmware_file(sensor_id: str, current_user=Depends(get_current_user)):
+    path = ota_manager.get_firmware_for_sensor(sensor_id)
+    if not path:
+        raise HTTPException(404, f"No firmware mapped for sensor: {sensor_id}")
+    return FileResponse(path, media_type="application/octet-stream", filename=os.path.basename(path))

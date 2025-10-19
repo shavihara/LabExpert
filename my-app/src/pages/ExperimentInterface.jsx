@@ -1,792 +1,413 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Brush } from 'recharts';
-import { Play, Pause, Square, Download, Save, Settings, AlertCircle, RefreshCcw, Wifi, WifiOff, Zap, Loader, CheckCircle, X, Maximize2, Minimize2, ZoomIn, ZoomOut, Layers, TrendingUp, Info } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { useWebSocket, useDeviceManager } from '../hooks/useWebSocket';
 
-const BACKEND_URL = `http://${window.location.hostname.replace(':3000', '')}:5000`;
-const WS_URL = `ws://${window.location.hostname.replace(':3000', '')}:5000`;
-const RECONNECT_DELAY = 3000;
-const CONNECTION_CHECK_INTERVAL = 5000;
+// Configuration Modal Component
+const ConfigurationModal = ({ onComplete }) => {
+  const userToken = localStorage.getItem('token');
 
-function ExperimentInterface() {
-  const [isRunning, setIsRunning] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const [activeGraph, setActiveGraph] = useState('displacement');
-  const [elapsedTime, setElapsedTime] = useState(0);
-  const [timeLimit, setTimeLimit] = useState(60);
-  const [samplingRate, setSamplingRate] = useState(10);
-  const [showConfigModal, setShowConfigModal] = useState(false);
+  const [experimentType, setExperimentType] = useState('distance');
+  const [flashStatus, setFlashStatus] = useState('Select a sensor to begin');
+  const [isFlashing, setIsFlashing] = useState(false);
 
-  const [allDataPoints, setAllDataPoints] = useState([]);
+  // Use device manager for scanning and selection
+  const {
+    devices,
+    isScanning,
+    isConnected,
+    scanDevices,
+    selectDevice,
+  } = useDeviceManager(userToken);
 
-  const [analyzedData, setAnalyzedData] = useState(null);
-  const [isAnalysisComplete, setIsAnalysisComplete] = useState(false);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-
-  const [esp32Connected, setEsp32Connected] = useState(false);
-  const [esp32Info, setEsp32Info] = useState(null);
-  const [isCheckingConnection, setIsCheckingConnection] = useState(false);
-  const [error, setError] = useState(null);
-  const [isConnecting, setIsConnecting] = useState(false);
-
-  const [isStreamConnected, setIsStreamConnected] = useState(false);
-
-  const [latestStatus, setLatestStatus] = useState({ message: 'Welcome! Please select an experiment.', type: 'info' });
-
-  const [availableExperiments, setAvailableExperiments] = useState([]);
-  const [selectedExperiment, setSelectedExperiment] = useState(null);
-  const [showExperimentSelector, setShowExperimentSelector] = useState(true);
-  const [isUploadingFirmware, setIsUploadingFirmware] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState('');
-
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [comparisonMode, setComparisonMode] = useState(false);
-  const [zoomDomain, setZoomDomain] = useState(null);
-  const [showAllData, setShowAllData] = useState(false);
-
-  const token = localStorage.getItem('token');
-  const websocketRef = useRef(null);
-  const reconnectTimeoutRef = useRef(null);
-  const dataPointsRef = useRef([]);
-
-  const addStatusMessage = (message, type = 'info') => {
-    setLatestStatus({ message, type });
-  };
-  // Add this debug useEffect to find what's causing restarts
+  // Initial scan when connected
   useEffect(() => {
-    console.log("🔍 STATE CHANGE - isRunning:", isRunning, "elapsedTime:", elapsedTime, "dataPoints:", allDataPoints.length);
-  }, [isRunning, elapsedTime, allDataPoints.length]);
-
-  useEffect(() => {
-    const fetchExperiments = async () => {
-      if (!token) return;
-      try {
-        const response = await fetch(`${BACKEND_URL}/api/sensor/available_experiments`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setAvailableExperiments(data.experiments || []);
-        }
-      } catch (err) {
-        console.error('Failed to fetch experiments:', err);
-        addStatusMessage('Could not fetch experiment list.', 'error');
-      }
-    };
-    fetchExperiments();
-  }, [token]);
-
-  useEffect(() => {
-    const checkConnection = async () => {
-      if (isRunning || !token) return;
-      setIsCheckingConnection(true);
-      try {
-        const response = await fetch(`${BACKEND_URL}/api/sensor/status`, {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          const wasConnected = esp32Connected;
-          setEsp32Connected(data.status.connected);
-          setEsp32Info(data.status.device_info);
-          setError(data.status.connected ? null : 'ESP32 not connected');
-
-          if (!wasConnected && data.status.connected) {
-            addStatusMessage('ESP32 Connected', 'success');
-          } else if (wasConnected && !data.status.connected) {
-            addStatusMessage('ESP32 Disconnected', 'error');
-          }
-        } else {
-          setEsp32Connected(false);
-          setError('Failed to check ESP32 status');
-        }
-      } catch (err) {
-        if (esp32Connected) addStatusMessage('Cannot reach backend server', 'error');
-        setEsp32Connected(false);
-        setError('Cannot reach backend server');
-      } finally {
-        setIsCheckingConnection(false);
-      }
-    };
-
-    checkConnection();
-    const interval = setInterval(checkConnection, CONNECTION_CHECK_INTERVAL);
-    return () => clearInterval(interval);
-  }, [token, isRunning]);
-
-  const handleSelectExperiment = async (experimentType) => {
-    if (!esp32Connected) {
-      addStatusMessage('ESP32 not connected. Please check hardware.', 'error');
-      return;
+    if (isConnected && !isScanning && devices.length === 0) {
+      scanDevices();
     }
-    setIsUploadingFirmware(true);
-    setUploadProgress('Uploading firmware to ESP32...');
-    addStatusMessage('Starting firmware upload...', 'info');
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/sensor/select_experiment`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ experiment_type: experimentType })
-      });
-      if (response.ok) {
-        setUploadProgress('Firmware uploaded! ESP32 rebooting...');
-        addStatusMessage('Firmware uploaded, rebooting...', 'success');
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        setUploadProgress('Verifying ESP32 connection...');
-        addStatusMessage('Verifying connection...', 'info');
-        let attempts = 0;
-        const maxAttempts = 15;
-        while (attempts < maxAttempts) {
-          try {
-            const statusRes = await fetch(`${BACKEND_URL}/api/sensor/status`, { headers: { 'Authorization': `Bearer ${token}` } });
-            if (statusRes.ok) {
-              const statusData = await statusRes.json();
-              if (statusData.status.connected) {
-                setUploadProgress('ESP32 ready!');
-                addStatusMessage('ESP32 is ready!', 'success');
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                setSelectedExperiment(experimentType);
-                setShowExperimentSelector(false);
-                setIsUploadingFirmware(false);
-                return;
-              }
-            }
-          } catch (err) { /* Continue trying */ }
-          attempts++;
-          setUploadProgress(`Verifying ESP32 connection... (${attempts}/${maxAttempts})`);
-          await new Promise(resolve => setTimeout(resolve, 2000));
-        }
-        setUploadProgress('Firmware uploaded but ESP32 not responding.');
-        addStatusMessage('ESP32 not responding after upload.', 'warning');
-        setTimeout(() => {
-          setIsUploadingFirmware(false);
-          setShowExperimentSelector(false);
-          setSelectedExperiment(experimentType);
-        }, 3000);
-      } else {
-        const error = await response.json();
-        setUploadProgress(`Upload failed: ${error.detail}`);
-        addStatusMessage(`Upload failed: ${error.detail}`, 'error');
-        setTimeout(() => setIsUploadingFirmware(false), 3000);
-      }
-    } catch (err) {
-      setUploadProgress(`Error: ${err.message}`);
-      addStatusMessage(`Upload Error: ${err.message}`, 'error');
-      setTimeout(() => setIsUploadingFirmware(false), 3000);
-    }
-  };
+  }, [isConnected, isScanning, devices.length, scanDevices]);
 
-  // WebSocket connection management
-  useEffect(() => {
-    const connectWebSocket = () => {
-      if (!token || !esp32Connected || websocketRef.current) return;
-
-      setIsConnecting(true);
-      setError(null);
-
-      const ws = new WebSocket(`${WS_URL}/ws/sensor?token=${token}`);
-      websocketRef.current = ws;
-
-      ws.onopen = () => {
-        setIsConnecting(false);
-        setError(null);
-        if (!isStreamConnected) {
-          addStatusMessage('WebSocket connected', 'success');
-        }
-        setIsStreamConnected(true);
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-
-          // Handle different message types
-          if (data.event === 'connected') {
-            addStatusMessage('Sensor stream connected', 'success');
-          } else if (data.event === 'error') {
-            addStatusMessage(`Sensor error: ${data.data.error}`, 'error');
-          } else if (data.time !== undefined) {
-            // This is actual sensor data
-            const reading = {
-              timestamp: data.time,
-              displacement: parseFloat(data.displacement.toFixed(4)),
-              velocity: parseFloat(data.velocity.toFixed(3)),
-              acceleration: parseFloat(data.acceleration.toFixed(3)),
-            };
-
-            // Update elapsed time only if it's increasing
-            if (reading.timestamp * 1000 > elapsedTime) {
-              setElapsedTime(reading.timestamp * 1000);
-            }
-
-            const newDataPoint = {
-              time: reading.timestamp,
-              velocity: reading.velocity,
-              displacement: reading.displacement,
-              acceleration: reading.acceleration,
-            };
-
-            // Add new data point and update state
-            dataPointsRef.current = [...dataPointsRef.current, newDataPoint];
-            setAllDataPoints([...dataPointsRef.current]);
-
-            // REMOVED: Auto-stop when time limit reached - this causes the restart
-            // if (reading.timestamp >= timeLimit) {
-            //   handleStop();
-            // }
-          }
-        } catch (err) {
-          console.error('Error parsing WebSocket data:', err);
-        }
-      };
-      ws.onerror = (err) => {
-        console.error('WebSocket error:', err);
-        addStatusMessage('WebSocket connection error', 'error');
-        setIsConnecting(false);
-      };
-
-      ws.onclose = (event) => {
-        console.log('WebSocket closed:', event.code, event.reason);
-        websocketRef.current = null;
-
-        if (isStreamConnected) {
-          setError('WebSocket disconnected. Reconnecting...');
-          addStatusMessage('WebSocket disconnected. Reconnecting...', 'warning');
-        }
-
-        setIsStreamConnected(false);
-        setIsConnecting(false);
-
-        // Reconnect if not manually closed and still running
-        if (isRunning && !isPaused) {
-          reconnectTimeoutRef.current = setTimeout(connectWebSocket, RECONNECT_DELAY);
-        }
-      };
-    };
-
-    const disconnectWebSocket = () => {
-      if (websocketRef.current) {
-        websocketRef.current.close();
-        websocketRef.current = null;
-      }
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = null;
-      }
-      setIsStreamConnected(false);
-    };
-
-    if (isRunning && !isPaused) {
-      connectWebSocket();
-    } else {
-      disconnectWebSocket();
-    }
-
-    return disconnectWebSocket;
-  }, [isRunning, isPaused, timeLimit, token, esp32Connected]);
-
-  const handleConfigureExperiment = async () => {
-    if (!esp32Connected) {
-      addStatusMessage('ESP32 not connected.', 'error');
-      return false;
-    }
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/sensor/configure`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ frequency: samplingRate, duration: timeLimit, mode: 'distance' }),
-      });
-      if (response.ok) {
-        setShowConfigModal(false);
-        addStatusMessage('Experiment configured', 'success');
-        return true;
-      } else {
-        addStatusMessage('Failed to configure', 'error');
-        return false;
-      }
-    } catch (err) {
-      addStatusMessage('Config error: ' + err.message, 'error');
-      return false;
-    }
-  };
-
-  const handleStart = async () => {
-    console.log("🔄 handleStart called - isRunning:", isRunning); // DEBUG
-
-    if (!esp32Connected) {
-      addStatusMessage('ESP32 not connected', 'error');
-      return;
-    }
-
-    // Prevent multiple starts
-    if (isRunning) {
-      console.log("⚠️ Already running, blocking start"); // DEBUG
-      addStatusMessage('Experiment already running', 'warning');
-      return;
-    }
-
-    console.log("🔧 Configuring experiment..."); // DEBUG
-    // 1. Configure experiment
-    const configured = await handleConfigureExperiment();
-    if (!configured) return;
-
-    // 2. Reset data
-    if (elapsedTime === 0) {
-      handleReset();
-    }
-
-    console.log("🚀 Starting experiment..."); // DEBUG
-    // 3. Start the experiment
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/sensor/start`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-
-      console.log("📡 Start response status:", response.status); // DEBUG
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to start on ESP32');
-      }
-
-      setIsRunning(true);
-      setIsPaused(false);
-      setError(null);
-      addStatusMessage('Experiment started', 'success');
-      console.log("✅ Experiment started successfully"); // DEBUG
-
-    } catch (err) {
-      console.log("❌ Start error:", err); // DEBUG
-      setError('Failed to start: ' + err.message);
-      addStatusMessage('Failed to start: ' + err.message, 'error');
-    }
-  };
-
-  const handlePause = () => {
-    setIsPaused(!isPaused);
-    addStatusMessage(isPaused ? 'Resumed' : 'Paused', 'info');
-  };
-
-  const handleStop = async () => {
-    // Prevent multiple stop calls
-    if (!isRunning) {
-      console.log("🛑 Already stopped, ignoring stop command");
-      return;
-    }
-
-    console.log("🛑 Stopping experiment...");
+  const handleFlash = async (device) => {
+    setIsFlashing(true);
+    setFlashStatus('Allocating device...');
 
     try {
-      const response = await fetch(`${BACKEND_URL}/api/sensor/stop`, {
+      // Select device via device manager
+      selectDevice(device.id);
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      setFlashStatus('Flashing firmware via OTA...');
+      
+      const response = await fetch(`http://${window.location.hostname}:5000/api/sensor/select_experiment`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${userToken}`
+        },
+        body: JSON.stringify({ 
+          experiment_type: experimentType,
+          device_id: device.id
+        })
       });
 
-      if (response.ok) {
-        console.log("✅ Stop command sent successfully");
-        addStatusMessage('Experiment stopped', 'info');
-      } else {
-        console.log("❌ Stop command failed:", response.status);
+      const data = await response.json();
+      
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || 'Firmware flash failed');
       }
+
+      setFlashStatus('✓ Firmware flashed successfully');
+      
+      setTimeout(() => {
+        const expType = experimentType === 'distance' ? 'tof' : 'oscillation';
+        onComplete({ device, experimentType: expType, token: userToken });
+      }, 1000);
+
     } catch (err) {
-      console.error('Error stopping experiment:', err);
-    } finally {
-      // Always reset state, even if API call fails
-      setIsRunning(false);
-      setIsPaused(false);
-      setElapsedTime(0);
-      setError(null);
-      setIsStreamConnected(false);
-      console.log("🔄 UI state reset to stopped");
+      console.error(err);
+      setFlashStatus(`✗ Error: ${err.message}`);
+      setIsFlashing(false);
     }
   };
 
-  const handleReset = () => {
-    setAllDataPoints([]);
-    dataPointsRef.current = [];
-    setElapsedTime(0);
-    setError(null);
-    setZoomDomain(null);
-    setAnalyzedData(null);
-    setIsAnalysisComplete(false);
-    setIsStreamConnected(false);
-    setIsRunning(false); // Ensure running state is reset
-    setIsPaused(false); // Ensure paused state is reset
-    addStatusMessage('Data cleared', 'info');
-  };
-
-  const handleAnalysis = async () => {
-    if (allDataPoints.length < 5) {
-      addStatusMessage('Not enough data for analysis', 'warning');
-      return;
-    }
-    setIsAnalyzing(true);
-    addStatusMessage('Calculating best-fit...', 'info');
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/sensor/analyze`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ data: allDataPoints }),
-      });
-      if (response.ok) {
-        const result = await response.json();
-        setAnalyzedData(result.data);
-        setIsAnalysisComplete(true);
-        addStatusMessage('Analysis complete!', 'success');
-      } else {
-        const error = await response.json();
-        throw new Error(error.detail || 'Analysis failed');
-      }
-    } catch (err) {
-      addStatusMessage(`Analysis failed: ${err.message}`, 'error');
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
-
-  const handleExportCSV = () => {
-    const dataToExport = isAnalysisComplete ? analyzedData : allDataPoints;
-    if (dataToExport.length === 0) return;
-    const headers = ['Time (s)', 'Displacement (m)', 'Velocity (m/s)', 'Acceleration (m/s²)'];
-    const csvContent = [headers.join(','), ...dataToExport.map(row => `${row.time.toFixed(3)},${row.displacement},${row.velocity},${row.acceleration}`)].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `experiment_${isAnalysisComplete ? 'analyzed_' : ''}${new Date().toISOString()}.csv`;
-    a.click();
-    window.URL.revokeObjectURL(url);
-    addStatusMessage('CSV exported', 'success');
-  };
-
-  const handleSaveToProfile = async () => {
-    const dataToSave = isAnalysisComplete ? analyzedData : allDataPoints;
-    if (!token || dataToSave.length === 0) {
-      addStatusMessage(dataToSave.length === 0 ? 'No data to save' : 'Please log in to save', 'warning');
-      return;
-    }
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/sensor/save_data`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({
-          data: dataToSave,
-          metadata: { duration: timeLimit, samplingRate, timestamp: new Date().toISOString(), sensorType: esp32Info?.sensor_type || 'unknown', experimentType: selectedExperiment, analysisPerformed: isAnalysisComplete }
-        }),
-      });
-      if (response.ok) addStatusMessage('Data saved to profile', 'success');
-      else addStatusMessage('Failed to save data', 'error');
-    } catch (err) {
-      addStatusMessage('Error saving data: ' + err.message, 'error');
-    }
-  };
-
-  const getGraphColor = (type) => ({ velocity: '#8b5cf6', displacement: '#10b981', acceleration: '#f59e0b' }[type] || '#8b5cf6');
-  const getGraphLabel = (type) => ({ velocity: 'Velocity (m/s)', displacement: 'Displacement (m)', acceleration: 'Acceleration (m/s²)' }[type] || '');
-  const dataForTable = useMemo(() => {
-    const data = isAnalysisComplete ? analyzedData : allDataPoints;
-    const slicedData = showAllData ? data : data.slice(-20);
-    return [...slicedData].reverse(); // Keep reverse for table display (latest at top)
-  }, [allDataPoints, analyzedData, isAnalysisComplete, showAllData]);
-  const progress = Math.min((elapsedTime / (timeLimit * 1000)) * 100, 100);
-  const handleZoomIn = () => {
-    if (allDataPoints.length === 0) return;
-    const len = allDataPoints.length, start = Math.floor(len * 0.25), end = Math.floor(len * 0.75);
-    setZoomDomain([allDataPoints[start]?.time || 0, allDataPoints[end]?.time || 1]);
-  };
-  const handleZoomOut = () => setZoomDomain(null);
-  const getLineType = (graph) => !isAnalysisComplete || graph === 'displacement' ? 'monotone' : 'linear';
-
-  const StatusIcon = ({ type }) => {
-    const iconProps = { size: 20, className: 'flex-shrink-0' };
-    switch (type) {
-      case 'success': return <CheckCircle {...iconProps} className="text-green-500" />;
-      case 'error': return <X {...iconProps} className="text-red-500" />;
-      case 'warning': return <AlertCircle {...iconProps} className="text-yellow-500" />;
-      case 'info': return <Info {...iconProps} className="text-blue-500" />;
-      default: return <Info {...iconProps} className="text-slate-500" />;
-    }
-  };
+  const tofDevices = devices.filter(d => 
+    (d.sensor_type || '').toUpperCase().includes('TOF')
+  );
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-purple-50 to-slate-100 p-2 sm:p-4 pt-16 sm:pt-20">
-      {showExperimentSelector && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl p-4 sm:p-8 max-w-3xl w-full shadow-2xl transform transition-all max-h-[90vh] overflow-y-auto">
-            <div className="flex items-start justify-between mb-4 sm:mb-6">
-              <div>
-                <h2 className="text-2xl sm:text-4xl font-bold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent mb-2">Select Experiment</h2>
-                <p className="text-slate-600 text-sm sm:text-lg">Firmware will be automatically uploaded to your ESP32.</p>
-              </div>
-              <button onClick={() => !isUploadingFirmware && setShowExperimentSelector(false)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors" disabled={isUploadingFirmware}><X size={24} className="text-slate-600" /></button>
-            </div>
-            {isUploadingFirmware ? (
-              <div className="text-center py-8 sm:py-12 px-4 sm:px-6 bg-gradient-to-br from-purple-50 to-indigo-50 rounded-2xl">
-                {uploadProgress.includes('ready') ? <CheckCircle className="h-16 sm:h-20 w-16 sm:w-20 text-green-500 mx-auto mb-4" /> : <Loader className="animate-spin h-16 sm:h-20 w-16 sm:w-20 text-purple-600 mx-auto mb-4" />}
-                <p className="text-lg sm:text-xl font-semibold text-slate-800 mb-2">{uploadProgress}</p>
-                {!uploadProgress.includes('ready') && !uploadProgress.includes('failed') && <p className="text-xs sm:text-sm text-slate-500">Please wait, do not refresh...</p>}
-              </div>
-            ) : !esp32Connected ? (
-              <div className="text-center py-8 sm:py-12 px-4 sm:px-6 bg-red-50 rounded-2xl">
-                <WifiOff size={48} className="sm:w-16 sm:h-16 mx-auto mb-4 text-red-400" />
-                <p className="text-lg sm:text-xl font-semibold text-slate-800 mb-2">ESP32 Not Connected</p>
-                <p className="text-sm sm:text-base text-slate-600 mb-6">Please check your hardware connection</p>
-                <button onClick={() => window.location.reload()} className="px-6 sm:px-8 py-2 sm:py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl hover:shadow-lg transition-all font-semibold text-sm sm:text-base">Retry Connection</button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-5">
-                {availableExperiments.map((exp) => (
-                  <button key={exp.type} onClick={() => handleSelectExperiment(exp.type)} className="group p-4 sm:p-8 bg-gradient-to-br from-white to-purple-50 rounded-2xl border-2 border-slate-200 hover:border-purple-400 hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
-                    <Zap className="w-8 h-8 sm:w-12 sm:h-12 text-purple-600 mb-2 sm:mb-4 group-hover:scale-110 transition-transform" />
-                    <h3 className="text-lg sm:text-2xl font-bold text-slate-800 mb-1 sm:mb-2">{exp.name}</h3>
-                    <p className="text-slate-500 text-xs sm:text-sm font-mono">{exp.firmware}</p>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {showConfigModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl">
-            <h2 className="text-2xl sm:text-3xl font-bold text-slate-800 mb-4 sm:mb-6">Experiment Settings</h2>
-            <div className="space-y-4 sm:space-y-6">
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2 sm:mb-3">Time Limit (seconds)</label>
-                <input type="number" value={timeLimit} onChange={(e) => setTimeLimit(Number(e.target.value))} disabled={isRunning} className="w-full px-4 sm:px-5 py-3 sm:py-4 border-2 border-slate-200 rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-200 focus:outline-none disabled:bg-slate-100 transition-all text-base sm:text-lg font-semibold" min="10" max="300" />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2 sm:mb-3">Sampling Rate (Hz)</label>
-                <input type="number" value={samplingRate} onChange={(e) => setSamplingRate(Number(e.target.value))} disabled={isRunning} className="w-full px-4 sm:px-5 py-3 sm:py-4 border-2 border-slate-200 rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-200 focus:outline-none disabled:bg-slate-100 transition-all text-base sm:text-lg font-semibold" min="1" max="100" />
-              </div>
-            </div>
-            <div className="mt-6 sm:mt-8 flex flex-col sm:flex-row gap-3 sm:gap-4">
-              <button onClick={handleConfigureExperiment} className="flex-1 px-4 sm:px-6 py-3 sm:py-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl font-bold hover:shadow-lg transition-all hover:-translate-y-0.5 text-sm sm:text-base">Save & Configure</button>
-              <button onClick={() => setShowConfigModal(false)} className="flex-1 px-4 sm:px-6 py-3 sm:py-4 bg-slate-200 text-slate-700 rounded-xl font-bold hover:bg-slate-300 transition-all text-sm sm:text-base">Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="max-w-7xl mx-auto">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6">
-          <h1 className="text-2xl sm:text-4xl font-bold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">Physics Lab Interface</h1>
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-4 w-full sm:w-auto">
-            <div className="flex items-center gap-2 sm:gap-3 bg-white px-3 sm:px-5 py-2 sm:py-3 rounded-xl shadow-md border border-slate-200 w-full sm:w-64">
-              <StatusIcon type={latestStatus.type} />
-              <div className="min-w-0 flex-1">
-                <div className="text-xs sm:text-sm font-bold text-slate-800 truncate" title={latestStatus.message}>{latestStatus.message}</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 sm:gap-3 bg-white px-3 sm:px-5 py-2 sm:py-3 rounded-xl shadow-md border border-slate-200">
-              {esp32Connected ? <Wifi size={20} className="text-green-500 flex-shrink-0" /> : <WifiOff size={20} className="text-red-500 flex-shrink-0" />}
-              <div className="min-w-0 flex-1">
-                <div className="text-xs sm:text-sm font-bold text-slate-800 truncate">{esp32Connected ? 'ESP32 Connected' : 'Disconnected'}</div>
-                {esp32Info && <div className="text-xs text-slate-500 truncate">{esp32Info.sensor_type}</div>}
-              </div>
-            </div>
-            <button onClick={() => setShowExperimentSelector(true)} className="px-3 sm:px-5 py-2 sm:py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl hover:shadow-lg transition-all font-semibold text-xs sm:text-sm whitespace-nowrap">Change</button>
-          </div>
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full mx-4 overflow-hidden">
+        <div className="bg-gradient-to-r from-purple-600 to-purple-800 p-6">
+          <h2 className="text-3xl font-bold text-white">Experiment Setup</h2>
+          <p className="text-purple-100 mt-2">Choose experiment type and sensor device</p>
         </div>
 
-        <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 mb-4 sm:mb-6 shadow-xl border border-slate-200">
-          <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4 sm:gap-6">
-            <div className="flex items-center gap-4 sm:gap-8 justify-center lg:justify-start">
-              <div className="text-center">
-                <div className="text-3xl sm:text-5xl font-bold text-purple-600">{Math.floor(elapsedTime / 1000)}s</div>
-                <div className="text-xs sm:text-sm text-slate-500 font-semibold mt-1">Elapsed</div>
-              </div>
-              <div className="h-12 sm:h-16 w-px bg-slate-300" />
-              <div className="text-center">
-                <div className="text-2xl sm:text-3xl font-bold text-slate-800">{timeLimit}s</div>
-                <div className="text-xs sm:text-sm text-slate-500 font-semibold mt-1">Total</div>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 sm:flex gap-2 sm:gap-3">
-              {!isRunning ? (
-                <>
-                  <button onClick={() => setShowConfigModal(true)} disabled={!esp32Connected} className="flex items-center justify-center gap-2 px-3 sm:px-6 py-2 sm:py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl font-bold hover:shadow-lg transition-all hover:-translate-y-1 disabled:opacity-50 text-xs sm:text-sm"><Settings size={16} className="sm:w-5 sm:h-5" /><span className="hidden sm:inline">Configure</span></button>
-                  <button
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      console.log("🎯 Start button clicked");
-                      handleStart();
-                    }}
-                    disabled={!esp32Connected || isRunning}
-                    className="flex items-center justify-center gap-2 px-3 sm:px-6 py-2 sm:py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-bold hover:shadow-lg transition-all hover:-translate-y-1 disabled:opacity-50 text-xs sm:text-sm"
-                  >
-                    {isRunning ? (
-                      <Loader size={16} className="sm:w-5 sm:h-5 animate-spin" />
-                    ) : (
-                      <Play size={16} className="sm:w-5 sm:h-5" />
-                    )}
-                    {isRunning ? 'Running...' : 'Start'}
-                  </button>           </>
-              ) : (
-                <button onClick={handlePause} className="flex items-center justify-center gap-2 px-3 sm:px-6 py-2 sm:py-3 bg-gradient-to-r from-yellow-500 to-orange-600 text-white rounded-xl font-bold hover:shadow-lg transition-all hover:-translate-y-1 text-xs sm:text-sm"><Pause size={16} className="sm:w-5 sm:h-5" />{isPaused ? 'Resume' : 'Pause'}</button>
-              )}
-              <button onClick={handleStop} disabled={!isRunning && elapsedTime === 0} className="flex items-center justify-center gap-2 px-3 sm:px-6 py-2 sm:py-3 bg-gradient-to-r from-red-500 to-rose-600 text-white rounded-xl font-bold hover:shadow-lg transition-all hover:-translate-y-1 disabled:opacity-50 text-xs sm:text-sm"><Square size={16} className="sm:w-5 sm:h-5" />Stop</button>
-              {!isRunning && allDataPoints.length > 0 && (
-                <button onClick={handleReset} className="flex items-center justify-center gap-2 px-3 sm:px-6 py-2 sm:py-3 bg-gradient-to-r from-slate-500 to-slate-600 text-white rounded-xl font-bold hover:shadow-lg transition-all hover:-translate-y-1 text-xs sm:text-sm col-span-2 sm:col-span-1"><RefreshCcw size={16} className="sm:w-5 sm:h-5" />Reset</button>
-              )}
+        <div className="p-6 space-y-6">
+          {/* Experiment Type Selection */}
+          <div>
+            <h3 className="text-lg font-semibold text-gray-800 mb-3">Experiment Type</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <button
+                onClick={() => setExperimentType('distance')}
+                className={`p-4 rounded-xl border-2 transition-all ${
+                  experimentType === 'distance'
+                    ? 'border-purple-600 bg-purple-50 shadow-lg'
+                    : 'border-gray-200 hover:border-purple-300'
+                }`}
+              >
+                <div className="text-2xl mb-2">📏</div>
+                <div className="font-semibold text-gray-800">Displacement Analysis</div>
+              </button>
+              <button
+                onClick={() => setExperimentType('oscillation')}
+                className={`p-4 rounded-xl border-2 transition-all ${
+                  experimentType === 'oscillation'
+                    ? 'border-purple-600 bg-purple-50 shadow-lg'
+                    : 'border-gray-200 hover:border-purple-300'
+                }`}
+              >
+                <div className="text-2xl mb-2">📐</div>
+                <div className="font-semibold text-gray-800">Inclined Plane Experiment</div>
+              </button>
             </div>
           </div>
-          <div className="mt-4 sm:mt-6">
-            <div className="h-2 sm:h-3 bg-slate-200 rounded-full overflow-hidden">
-              <div className="h-full bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-600 transition-all duration-300" style={{ width: `${progress}%` }} />
-            </div>
-          </div>
-        </div>
 
-        {allDataPoints.length > 0 && (
-          <div className="mb-4 px-4 py-2 bg-blue-50 border-2 border-blue-200 rounded-xl text-blue-800 text-sm font-semibold text-center">
-            📊 {isAnalysisComplete ? analyzedData.length : allDataPoints.length} data points collected
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-          <div className={`${isFullscreen ? 'fixed inset-0 z-40 bg-white p-4 sm:p-6' : 'lg:col-span-2'} bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-xl border border-slate-200`}>
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6">
-              <h3 className="text-xl sm:text-2xl font-bold text-slate-800">Visualization</h3>
-              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-                <div className="flex gap-2">
-                  <button onClick={() => setActiveGraph('displacement')} className={`px-3 sm:px-5 py-1.5 sm:py-2 rounded-lg sm:rounded-xl font-bold transition-all text-xs sm:text-sm ${activeGraph === 'displacement' ? 'bg-green-600 text-white shadow-lg scale-105' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>s-t</button>
-                  <button onClick={() => setActiveGraph('velocity')} className={`px-3 sm:px-5 py-1.5 sm:py-2 rounded-lg sm:rounded-xl font-bold transition-all text-xs sm:text-sm ${activeGraph === 'velocity' ? 'bg-purple-600 text-white shadow-lg scale-105' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>v-t</button>
-                  <button onClick={() => setActiveGraph('acceleration')} className={`px-3 sm:px-5 py-1.5 sm:py-2 rounded-lg sm:rounded-xl font-bold transition-all text-xs sm:text-sm ${activeGraph === 'acceleration' ? 'bg-orange-600 text-white shadow-lg scale-105' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>a-t</button>
-                </div>
-
-                {!isRunning && allDataPoints.length > 0 && !isAnalysisComplete && (
-                  <button onClick={handleAnalysis} disabled={isAnalyzing} className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-blue-500 text-white rounded-lg sm:rounded-xl font-bold hover:bg-blue-600 transition-all text-xs sm:text-sm disabled:opacity-50">
-                    {isAnalyzing ? <Loader size={16} className="animate-spin" /> : <TrendingUp size={16} />}
-                    Calculate Gradient
-                  </button>
-                )}
-
-                <div className="flex gap-2 ml-auto">
-                  <button onClick={() => setComparisonMode(!comparisonMode)} className={`p-1.5 sm:p-2 rounded-lg transition-all ${comparisonMode ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`} title="Comparison Mode"><Layers size={16} className="sm:w-5 sm:h-5" /></button>
-                  <button onClick={handleZoomIn} disabled={allDataPoints.length === 0} className="p-1.5 sm:p-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-all disabled:opacity-50" title="Zoom In"><ZoomIn size={16} className="sm:w-5 sm:h-5" /></button>
-                  <button onClick={handleZoomOut} disabled={!zoomDomain} className="p-1.5 sm:p-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-all disabled:opacity-50" title="Zoom Out"><ZoomOut size={16} className="sm:w-5 sm:h-5" /></button>
-                  <button onClick={() => setIsFullscreen(!isFullscreen)} className="p-1.5 sm:p-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-all" title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}>{isFullscreen ? <Minimize2 size={16} className="sm:w-5 sm:h-5" /> : <Maximize2 size={16} className="sm:w-5 sm:h-5" />}</button>
-                </div>
-              </div>
-            </div>
-
-            <div className={`${isFullscreen ? 'h-[calc(100vh-150px)]' : 'h-64 sm:h-96'} bg-gradient-to-br from-slate-50 to-purple-50 rounded-xl sm:rounded-2xl p-2 sm:p-4 border border-slate-200`}>
-              {(allDataPoints.length > 0 || isAnalysisComplete) ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart
-                    data={isAnalysisComplete ? analyzedData : allDataPoints}
-                    margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
-                    // Add these props for performance:
-                    throttleDelay={100}
-                    syncId="sensorData"
-                    // Remove animations for real-time data:
-                    isAnimationActive={false}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="time" label={{ value: 'Time (s)', position: 'insideBottom', offset: -5, style: { fontSize: '12px' } }} stroke="#64748b" domain={zoomDomain || ['dataMin', 'dataMax']} tick={{ fontSize: 12 }} />
-                    <YAxis label={{ value: comparisonMode ? 'Value' : getGraphLabel(activeGraph), angle: -90, position: 'insideLeft', style: { fontSize: '12px' } }} stroke="#64748b" tick={{ fontSize: 12 }} />
-                    <Tooltip contentStyle={{ backgroundColor: '#fff', border: '2px solid #e2e8f0', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', fontSize: '12px' }} formatter={(value) => typeof value === 'number' ? value.toFixed(4) : value} />
-                    <Legend wrapperStyle={{ fontSize: '12px' }} />
-
-                    {comparisonMode ? (
-                      <>
-                        <Line type="monotone" dataKey="displacement" stroke={getGraphColor('displacement')} strokeWidth={2} dot={false} name="Displacement (m)" isAnimationActive={false} />
-                        <Line type={getLineType('velocity')} dataKey="velocity" stroke={getGraphColor('velocity')} strokeWidth={2} dot={false} name="Velocity (m/s)" isAnimationActive={false} />
-                        <Line type={getLineType('acceleration')} dataKey="acceleration" stroke={getGraphColor('acceleration')} strokeWidth={2} dot={false} name="Acceleration (m/s²)" isAnimationActive={false} />
-                      </>
-                    ) : (
-                      <>
-                        {isAnalysisComplete && activeGraph === 'velocity' && (
-                          <Line type="monotone" data={allDataPoints} dataKey="velocity" stroke="#cccccc" strokeDasharray="5 5" strokeWidth={2} dot={false} name="Live Velocity" isAnimationActive={false} />
-                        )}
-                        <Line
-                          type="monotone"
-                          dataKey={activeGraph}
-                          stroke={getGraphColor(activeGraph)}
-                          strokeWidth={2}
-                          dot={false} // Crucial for performance
-                          isAnimationActive={false} // Disable animations
-                          connectNulls={true}
-                        />
-                      </>
-                    )}
-                    {!isFullscreen && allDataPoints.length > 50 && <Brush dataKey="time" height={30} stroke="#8b5cf6" fill="#f3f4f6" />}
-                  </LineChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="h-full flex items-center justify-center">
-                  <div className="text-center">
-                    <Zap size={48} className="sm:w-16 sm:h-16 mx-auto mb-4 text-purple-300" />
-                    <p className="text-base sm:text-xl font-semibold text-slate-600">{!esp32Connected ? 'Waiting for ESP32...' : !selectedExperiment ? 'Select experiment type' : 'Start experiment to see data'}</p>
-                  </div>
+          {/* Device Selection */}
+          <div>
+            <h3 className="text-lg font-semibold text-gray-800 mb-3">Available TOF Sensors</h3>
+            <div className="grid grid-cols-3 gap-3 max-h-64 overflow-y-auto">
+              {tofDevices.map(device => (
+                <button
+                  key={device.id}
+                  onClick={() => handleFlash(device)}
+                  disabled={isFlashing}
+                  className="p-4 rounded-lg border-2 border-gray-200 hover:border-purple-600 hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <div className="text-sm font-bold text-gray-800">{device.id}</div>
+                  <div className="text-xs text-gray-500 mt-1">{device.ip_address || 'Unknown IP'}</div>
+                </button>
+              ))}
+              {tofDevices.length === 0 && (
+                <div className="col-span-3 text-center py-8 text-gray-500">
+                  {isScanning ? (
+                    <div className="flex items-center justify-center">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+                      <span className="ml-3">Scanning for devices...</span>
+                    </div>
+                  ) : (
+                    'No TOF devices found'
+                  )}
                 </div>
               )}
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-xl border border-slate-200">
-            <div className="mb-4">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-xl sm:text-2xl font-bold text-slate-800">{activeGraph.charAt(0).toUpperCase() + activeGraph.slice(1)} Data</h3>
-                {allDataPoints.length > 20 && <button onClick={() => setShowAllData(!showAllData)} className="text-xs sm:text-sm px-2 sm:px-3 py-1 bg-purple-100 text-purple-700 rounded-lg font-semibold hover:bg-purple-200 transition-all">{showAllData ? `Show Last 20` : `Show All (${dataForTable.length})`}</button>}
-              </div>
-              <p className="text-xs sm:text-sm text-slate-500">{isAnalysisComplete ? `Showing analyzed best-fit data.` : (showAllData ? `All ${allDataPoints.length} readings` : 'Last 20 readings')}</p>
+          {/* Status */}
+          <div className="bg-gray-50 rounded-lg p-4 text-center">
+            <div className={`text-sm font-medium ${isFlashing ? 'text-purple-600 animate-pulse' : 'text-gray-600'}`}>
+              {flashStatus}
             </div>
-            <div className={`overflow-y-auto rounded-xl border-2 border-slate-200 ${showAllData ? 'max-h-[500px]' : 'max-h-64 sm:max-h-96'}`}>
-              {dataForTable.length > 0 ? (
-                <table className="w-full text-xs sm:text-sm">
-                  <thead className="sticky top-0 bg-gradient-to-r from-purple-100 to-indigo-100 z-10">
-                    <tr>
-                      <th className="text-left p-2 sm:p-3 font-bold text-slate-700">Time (s)</th>
-                      <th className="text-right p-2 sm:p-3 font-bold text-slate-700">
-                        {activeGraph === 'velocity' && 'v (m/s)'}
-                        {activeGraph === 'displacement' && 's (m)'}
-                        {activeGraph === 'acceleration' && 'a (m/s²)'}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {dataForTable.map((reading, idx) => (
-                      <tr key={idx} className={`transition-colors ${activeGraph === 'velocity' ? 'hover:bg-purple-50' : activeGraph === 'displacement' ? 'hover:bg-green-50' : 'hover:bg-orange-50'}`}>
-                        <td className="p-2 sm:p-3 text-slate-700 font-semibold">{reading.time.toFixed(2)}</td>
-                        <td className={`text-right p-2 sm:p-3 font-mono text-sm sm:text-lg font-bold ${activeGraph === 'velocity' ? 'text-purple-700' : activeGraph === 'displacement' ? 'text-green-700' : 'text-orange-700'}`}>
-                          {activeGraph === 'velocity' && reading.velocity.toFixed(3)}
-                          {activeGraph === 'displacement' && reading.displacement.toFixed(4)}
-                          {activeGraph === 'acceleration' && reading.acceleration.toFixed(3)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <div className="text-center py-8 sm:py-12">
-                  <div className="text-slate-400 mb-2"><Zap size={36} className="sm:w-12 sm:h-12 mx-auto opacity-30" /></div>
-                  <p className="text-slate-500 font-semibold text-sm sm:text-base">No data yet</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-4 sm:mt-6 bg-gradient-to-br from-white to-purple-50 rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-xl border border-slate-200">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 mb-4">
-            <div>
-              <h3 className="text-xl sm:text-2xl font-bold text-slate-800">Export & Save</h3>
-              <p className="text-xs sm:text-sm text-slate-500 mt-1">{allDataPoints.length > 0 ? `${isAnalysisComplete ? 'Analyzed data is ready.' : `${allDataPoints.length} data points collected`}` : 'No data to export'}</p>
-            </div>
-          </div>
-          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-            <button onClick={handleExportCSV} disabled={allDataPoints.length === 0} className="flex-1 flex items-center justify-center gap-2 sm:gap-3 px-4 sm:px-8 py-3 sm:py-4 bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-xl font-bold hover:shadow-xl transition-all hover:-translate-y-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 text-sm sm:text-base"><Download size={20} className="sm:w-6 sm:h-6" />Export CSV</button>
-            <button onClick={handleSaveToProfile} disabled={allDataPoints.length === 0} className="flex-1 flex items-center justify-center gap-2 sm:gap-3 px-4 sm:px-8 py-3 sm:py-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl font-bold hover:shadow-xl transition-all hover:-translate-y-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 text-sm sm:text-base"><Save size={20} className="sm:w-6 sm:h-6" />Save to Profile</button>
           </div>
         </div>
       </div>
     </div>
   );
-}
+};
+
+// Configuration Panel Component
+const ConfigPanel = ({ config, onChange, onClose }) => {
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40 backdrop-blur-sm">
+      <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4">
+        <div className="bg-gradient-to-r from-purple-600 to-purple-800 p-4 rounded-t-xl">
+          <h3 className="text-xl font-bold text-white">Experiment Configuration</h3>
+        </div>
+        
+        <div className="p-6 space-y-6">
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Frequency: {config.frequency_hz} Hz
+            </label>
+            <input
+              type="range"
+              min="10"
+              max="50"
+              value={config.frequency_hz}
+              onChange={(e) => onChange({ ...config, frequency_hz: parseInt(e.target.value) })}
+              className="w-full h-2 bg-purple-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+            />
+            <div className="flex justify-between text-xs text-gray-500 mt-1">
+              <span>10 Hz</span>
+              <span>50 Hz</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Max Distance: {config.max_distance_cm} cm
+            </label>
+            <input
+              type="range"
+              min="100"
+              max="200"
+              value={config.max_distance_cm}
+              onChange={(e) => onChange({ ...config, max_distance_cm: parseInt(e.target.value) })}
+              className="w-full h-2 bg-purple-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+            />
+            <div className="flex justify-between text-xs text-gray-500 mt-1">
+              <span>100 cm</span>
+              <span>200 cm</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Duration: {config.duration_s} s
+            </label>
+            <input
+              type="range"
+              min="1"
+              max="60"
+              value={config.duration_s}
+              onChange={(e) => onChange({ ...config, duration_s: parseInt(e.target.value) })}
+              className="w-full h-2 bg-purple-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+            />
+            <div className="flex justify-between text-xs text-gray-500 mt-1">
+              <span>1 s</span>
+              <span>60 s</span>
+            </div>
+          </div>
+
+          <button
+            onClick={onClose}
+            className="w-full bg-gradient-to-r from-purple-600 to-purple-800 text-white py-3 rounded-lg font-semibold hover:shadow-lg transition-all"
+          >
+            Apply Configuration
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Graph Component
+const ExperimentGraph = ({ experimentType, token }) => {
+  const [experimentData, setExperimentData] = useState([]);
+  const [activeView, setActiveView] = useState('S');
+  const [isRunning, setIsRunning] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [status, setStatus] = useState('idle');
+
+  const { sendMessage, addMessageHandler } = useWebSocket(token, true);
+
+  useEffect(() => {
+    const handler = (data) => {
+      if (data.type === 'experiment_data' && data.experiment_type === experimentType) {
+        setExperimentData(prev => [...prev, {
+          time: data.data.timestamp || Date.now(),
+          displacement: data.data.displacement || 0,
+          velocity: data.data.velocity || 0,
+          acceleration: data.data.acceleration || 0
+        }]);
+      } else if (data.type === 'experiment_started') {
+        setIsRunning(true);
+        setIsPaused(false);
+        setStatus('running');
+      } else if (data.type === 'experiment_stopped') {
+        setIsRunning(false);
+        setIsPaused(false);
+        setStatus('stopped');
+      } else if (data.type === 'experiment_paused') {
+        setIsPaused(true);
+        setStatus('paused');
+      } else if (data.type === 'experiment_resumed') {
+        setIsPaused(false);
+        setStatus('running');
+      }
+    };
+    return addMessageHandler(handler);
+  }, [addMessageHandler, experimentType]);
+
+  const handleStart = () => {
+    setExperimentData([]);
+    sendMessage({ action: 'start_experiment', experiment_type: experimentType });
+  };
+
+  const handlePause = () => {
+    if (isPaused) {
+      sendMessage({ action: 'resume_experiment' });
+    } else {
+      sendMessage({ action: 'pause_experiment' });
+    }
+  };
+
+  const handleStop = () => {
+    sendMessage({ action: 'stop_experiment' });
+  };
+
+  const chartData = experimentData.slice(-100).map((point, idx) => ({
+    ...point,
+    timeDisplay: (point.time / 1000).toFixed(2)
+  }));
+
+  const getYAxisData = () => {
+    switch (activeView) {
+      case 'V': return 'velocity';
+      case 'a': return 'acceleration';
+      default: return 'displacement';
+    }
+  };
+
+  const getYAxisLabel = () => {
+    switch (activeView) {
+      case 'V': return 'Velocity (cm/s)';
+      case 'a': return 'Acceleration (cm/s²)';
+      default: return 'Displacement (cm)';
+    }
+  };
+
+  const getLineColor = () => {
+    switch (activeView) {
+      case 'V': return '#10b981';
+      case 'a': return '#f59e0b';
+      default: return '#667eea';
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Controls */}
+      <div className="flex gap-3">
+        <button
+          onClick={handleStart}
+          disabled={isRunning}
+          className="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+        >
+          Start
+        </button>
+        <button
+          onClick={handlePause}
+          disabled={!isRunning}
+          className="px-6 py-2 bg-yellow-600 text-white rounded-lg font-semibold hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+        >
+          {isPaused ? 'Resume' : 'Pause'}
+        </button>
+        <button
+          onClick={handleStop}
+          disabled={!isRunning}
+          className="px-6 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+        >
+          Stop
+        </button>
+      </div>
+
+      {/* View Tabs */}
+      <div className="flex gap-2">
+        {['S', 'V', 'a'].map(view => (
+          <button
+            key={view}
+            onClick={() => setActiveView(view)}
+            className={`px-6 py-2 rounded-lg font-semibold transition-all ${
+              activeView === view
+                ? 'bg-gradient-to-r from-purple-600 to-purple-800 text-white shadow-lg'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            {view === 'S' ? 'S - t' : view === 'V' ? 'V - t' : 'a - t'}
+          </button>
+        ))}
+      </div>
+
+      {/* Chart */}
+      <div className="bg-white rounded-xl shadow-md p-4">
+        <ResponsiveContainer width="100%" height={300}>
+          <LineChart data={chartData}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="timeDisplay" />
+            <YAxis dataKey={getYAxisData()} label={{ value: getYAxisLabel(), angle: -90, position: 'insideLeft' }} />
+            <Tooltip />
+            <Line type="monotone" dataKey={getYAxisData()} stroke={getLineColor()} strokeWidth={2} dot={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+};
+
+const ExperimentInterface = () => {
+  const [showConfigModal, setShowConfigModal] = useState(true);
+  const [config, setConfig] = useState({ frequency_hz: 20, max_distance_cm: 150, duration_s: 10 });
+  const [experimentType, setExperimentType] = useState('tof');
+  const userToken = localStorage.getItem('token');
+  const [selectedDevice, setSelectedDevice] = useState(null);
+
+  const handleComplete = ({ device, experimentType: expType, token }) => {
+    setSelectedDevice(device);
+    setExperimentType(expType);
+    setShowConfigModal(false);
+  };
+
+  return (
+    <div className="p-6 space-y-6">
+      {showConfigModal && <ConfigurationModal onComplete={handleComplete} />}
+
+      {!showConfigModal && (
+        <div className="bg-white rounded-xl shadow-md p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-gray-800">Experiment Controls</h2>
+            <button
+              onClick={() => setShowConfigModal(true)}
+              className="px-4 py-2 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700"
+            >
+              Change Device / Experiment
+            </button>
+          </div>
+
+          <ConfigPanel config={config} onChange={setConfig} onClose={() => setShowConfigModal(false)} />
+          <ExperimentGraph experimentType={experimentType} token={userToken} />
+        </div>
+      )}
+    </div>
+  );
+};
 
 export default ExperimentInterface;
