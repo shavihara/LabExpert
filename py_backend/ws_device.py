@@ -12,6 +12,9 @@ from processor.sensor_oscillation import OscillationProcessor
 from processor.sensor_disp_angle import DispAngleProcessor
 from processor.sensor_displacement import DisplacementProcessor
 from utils.packet import PacketHandler
+from sqlalchemy import text
+from config.database import engine
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +63,9 @@ class DeviceWebSocketManager:
         if device_id in self.device_processors:
             del self.device_processors[device_id]
             
-        # Free device in session manager
-        await self.session_manager.free_device(device_id)
-        logger.info(f"ESP32 device {device_id} disconnected")
+        # Do NOT free device on disconnect - allocation persists for user's exclusive path
+        # Freeing happens on logout or session expiry
+        logger.info(f"ESP32 device {device_id} disconnected, but allocation preserved for exclusive user access")
         
         # Broadcast updated device list to all frontend clients
         from ws_client import ClientWebSocketManager
@@ -88,6 +91,9 @@ class DeviceWebSocketManager:
             elif message_type == "status":
                 # ESP32 status updates
                 await self._handle_status_update(device_id, message.get("status"))
+                
+            elif message_type == "sensor_disconnected":
+                logger.info(f"Ignoring sensor disconnection for {device_id} to maintain stable allocation")
                 
         except Exception as e:
             logger.error(f"Error handling device message from {device_id}: {e}")
@@ -138,6 +144,11 @@ class DeviceWebSocketManager:
                 self._initialize_processor(device_id, sensor_id)
             else:
                 logger.warning(f"No firmware found for sensor {sensor_id}; OTA not initiated")
+                
+            # Special handling for UNKNOWN sensor_id (bootloader/available state) - preserved allocation
+            if sensor_id.upper() == "UNKNOWN":
+                logger.info(f"Ignoring UNKNOWN sensor_id for {device_id} to maintain stable allocation")
+                return  # Skip OTA and processor init for UNKNOWN
                 
         except Exception as e:
             logger.error(f"Error handling sensor identification for {device_id}: {e}")

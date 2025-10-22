@@ -442,6 +442,18 @@ const [showConfigPanel, setShowConfigPanel] = useState(false);
 const userToken = localStorage.getItem('token');
 const [selectedDevice, setSelectedDevice] = useState(null);
 
+const { sendMessage } = useWebSocket(userToken, true);
+const { releaseDevice } = useDeviceManager(userToken);
+
+const handleDisconnect = () => {
+  sendMessage({ action: 'release_device' });
+  releaseDevice();
+  localStorage.removeItem('selectedDevice');
+  localStorage.removeItem('experimentType');
+  setSelectedDevice(null);
+  setShowConfigModal(true);
+};
+
   // Initialize from localStorage: if we have a saved device and experiment, skip config modal
   useEffect(() => {
     const savedDeviceStr = localStorage.getItem('selectedDevice');
@@ -453,6 +465,9 @@ const [selectedDevice, setSelectedDevice] = useState(null);
         setExperimentType(savedExpType);
         setShowConfigModal(false);
       } catch (e) {
+        console.error('Failed to parse saved device:', e);
+        localStorage.removeItem('selectedDevice');
+        localStorage.removeItem('experimentType');
         setShowConfigModal(true);
       }
     } else {
@@ -491,6 +506,12 @@ const [selectedDevice, setSelectedDevice] = useState(null);
               className="px-4 py-2 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700"
             >
               Change Device / Experiment
+            </button>
+            <button
+              onClick={handleDisconnect}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700"
+            >
+              Disconnect
             </button>
           </div>
         </div>

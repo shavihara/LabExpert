@@ -32,7 +32,9 @@ class ClientWebSocketManager:
     async def disconnect(self, user_id: str):
         if user_id in self.active_clients:
             del self.active_clients[user_id]
-        logger.info(f"Frontend client {user_id} disconnected")
+        # Do NOT free user devices on random disconnection - preserve allocation
+        # Devices should only be freed on explicit user actions like logout or device release
+        logger.info(f"Frontend client {user_id} disconnected (devices allocation preserved)")
         
     async def send_to_user(self, user_id: str, message: dict):
         websocket = self.active_clients.get(user_id)
@@ -71,6 +73,7 @@ class ClientWebSocketManager:
     async def handle_client_message(self, websocket: WebSocket, user_id: str, message: dict):
         action = message.get("action")
         try:
+            # Actions that don't require allocation
             if action == "scan_devices":
                 await self._handle_scan_devices(user_id)
             elif action == "select_device":
@@ -78,19 +81,26 @@ class ClientWebSocketManager:
                 await self._handle_select_device(user_id, device_id)
             elif action == "release_device":
                 await self._handle_release_device(user_id)
-            elif action == "start_experiment":
-                await self._handle_start_experiment(user_id, message.get("config", {}), message.get("experiment_type"))
-            elif action == "pause_experiment":
-                await self._handle_simple_device_command(user_id, {"type": "pause_experiment"}, "experiment_paused")
-            elif action == "resume_experiment":
-                await self._handle_simple_device_command(user_id, {"type": "resume_experiment"}, "experiment_resumed")
-            elif action == "stop_experiment":
-                await self._handle_simple_device_command(user_id, {"type": "stop_experiment"}, "experiment_stopped")
-            elif action == "configure_experiment":
-                await self._handle_configure_experiment(user_id, message.get("config", {}), message.get("experiment_type"))
+            else:
+                # Verify allocation for device-specific actions
+                user_devices = await self.session_manager.get_user_devices(user_id)
+                if not user_devices:
+                    await self.send_to_user(user_id, {"type": "error", "message": "No device allocated - please select a device first"})
+                    return
+                
+                if action == "start_experiment":
+                    await self._handle_start_experiment(user_id, message.get("config", {}), message.get("experiment_type"))
+                elif action == "pause_experiment":
+                    await self._handle_simple_device_command(user_id, {"type": "pause_experiment"}, "experiment_paused")
+                elif action == "resume_experiment":
+                    await self._handle_simple_device_command(user_id, {"type": "resume_experiment"}, "experiment_resumed")
+                elif action == "stop_experiment":
+                    await self._handle_simple_device_command(user_id, {"type": "stop_experiment"}, "experiment_stopped")
+                elif action == "configure_experiment":
+                    await self._handle_configure_experiment(user_id, message.get("config", {}), message.get("experiment_type"))
         except Exception as e:
             logger.error(f"Error handling client message for {user_id}: {e}")
-            await self.send_to_user(user_id, {"type": "scan_error", "error": str(e)})
+            await self.send_to_user(user_id, {"type": "error", "message": str(e)})
 
     async def _handle_scan_devices(self, user_id: str):
         devices = await self.session_manager.get_available_devices()

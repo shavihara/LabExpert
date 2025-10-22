@@ -3,8 +3,9 @@
 import sys
 #additinal--------------remark by me-----------------------------
 import asyncio
+asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 if sys.platform == 'win32':
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 #------------------------------------------------------------------
 from typing import Optional
 import aiohttp
@@ -61,6 +62,8 @@ from services.oscillation_service import (
     live_oscillation_generator,
     get_osi_data
 )
+
+#from services.device_discovery import device_discovery_service
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -371,8 +374,17 @@ async def websocket_device(websocket: WebSocket, device_id: str = Query(...)):
     await device_ws_manager.connect(websocket, device_id)
     try:
         while True:
-            data = await websocket.receive_json()
-            await device_ws_manager.handle_device_message(websocket, device_id, data)
+            try:
+                data = await asyncio.wait_for(websocket.receive_json(), timeout=10.0)
+                await device_ws_manager.handle_device_message(websocket, device_id, data)
+            except asyncio.TimeoutError:
+                continue
+            except OSError as e:
+                if e.winerror == 121:
+                    logger.warning(f"Semaphore timeout for device {device_id} during receive, ignoring and continuing")
+                    continue
+                else:
+                    raise
     except WebSocketDisconnect:
         await device_ws_manager.disconnect(device_id)
     except Exception as e:
@@ -397,13 +409,14 @@ async def get_me(current_user=Depends(get_current_user)):
 
 
 @app.post("/api/auth/login")
-async def login(req: LoginRequest):
+async def login(req: LoginRequest, request: Request):
     user = UserService.find_by_email(req.email)
     if not user or not UserService.validate_password(req.password, user['password']):
         raise HTTPException(401, "Invalid credentials")
 
     UserService.update_last_login(user['id'])
-    token = SessionService.create(user['id'], "127.0.0.1")
+    ip_address = request.client.host
+    token = SessionService.create(user['id'], ip_address)
 
     return {
         "success": True,
@@ -559,16 +572,30 @@ async def sensor_status(current_user=Depends(get_current_user)):
 
 
 @app.post("/api/sensor/configure")
-async def configure_sensor(config: ExperimentConfig, current_user=Depends(get_current_user)):
+async def configure_sensor(
+    config: ExperimentConfig, 
+    device_id: Optional[str] = Query(None),
+    current_user=Depends(get_current_user)
+):
     user_id = current_user['id']
     user_devices = await session_manager.get_user_devices(user_id)
     logger.info(f"Configure sensor for user {user_id}: allocated devices {user_devices}")
     if not user_devices:
         raise HTTPException(403, "No device allocated to this user")
-    device_id = user_devices[0]  # Assuming one device per user
-    device_status = await session_manager.get_device_status(device_id)
+    
+    # Use provided device_id if it's allocated to user, else first allocated
+    selected_device = None
+    if device_id:
+        if device_id in user_devices:
+            selected_device = device_id
+        else:
+            raise HTTPException(403, "Specified device not allocated to this user")
+    else:
+        selected_device = user_devices[0]  # Default to first allocated
+    
+    device_status = await session_manager.get_device_status(selected_device)
     device_ip = device_status.get("ip_address")
-    logger.info(f"Device {device_id} status: {device_status}, IP: {device_ip}")
+    logger.info(f"Device {selected_device} status: {device_status}, IP: {device_ip}")
     if not device_ip:
         raise HTTPException(500, "Device IP not available")
     result = await configure_experiment(config.frequency, config.duration, device_ip, config.mode)
@@ -695,16 +722,30 @@ async def osi_status(current_user=Depends(get_current_user)):
 
 
 @app.post("/api/osi/configure")
-async def configure_osi(config: ExperimentConfig, current_user=Depends(get_current_user)):
+async def configure_osi(
+    config: ExperimentConfig, 
+    device_id: Optional[str] = Query(None),
+    current_user=Depends(get_current_user)
+):
     user_id = current_user['id']
     user_devices = await session_manager.get_user_devices(user_id)
     logger.info(f"Configure OSI for user {user_id}: allocated devices {user_devices}")
     if not user_devices:
         raise HTTPException(403, "No device allocated to this user")
-    device_id = user_devices[0]  # Assuming one device per user
-    device_status = await session_manager.get_device_status(device_id)
+    
+    # Use provided device_id if it's allocated to user, else first allocated
+    selected_device = None
+    if device_id:
+        if device_id in user_devices:
+            selected_device = device_id
+        else:
+            raise HTTPException(403, "Specified device not allocated to this user")
+    else:
+        selected_device = user_devices[0]  # Default to first allocated
+    
+    device_status = await session_manager.get_device_status(selected_device)
     device_ip = device_status.get("ip_address")
-    logger.info(f"Device {device_id} status: {device_status}, IP: {device_ip}")
+    logger.info(f"Device {selected_device} status: {device_status}, IP: {device_ip}")
     if not device_ip:
         raise HTTPException(500, "Device IP not available")
     result = await configure_osi_experiment(config.frequency, config.duration, device_ip)
@@ -852,13 +893,47 @@ async def select_experiment(
         )
         
         if result.get("status") == "success" or result.get("success"):
-            logger.info(f"Successfully selected and flashed device {device_id} for user {current_user['id']}")
-            return {
-                "success": True,
-                "message": f"Firmware flashed successfully for {exp.value} on {device_id}",
-                "device_id": device_id,
-                "ip": device_ip
-            }
+                logger.info(f"Successfully selected and flashed device {device_id} for user {current_user['id']}")
+
+                # Re-ensure allocation after OTA only if not already allocated to the user
+                device = await session_manager.get_device(device_id)
+                if device and device.get("allocated_to") != current_user['id']:
+                    success = await session_manager.allocate_device_to_user(device_id, current_user['id'])
+                    if not success:
+                        raise HTTPException(500, "Failed to re-reserve device after OTA")
+
+                # Update device status and DB after successful OTA, ensuring availability=0
+                expected_sensor_type = {
+                    "displacement": "TOF",
+                    "oscillation": "OSI"
+                }.get(ota_key, "UNKNOWN")
+
+                await session_manager.update_device_status(device_id, {"sensor_type": expected_sensor_type, "firmware_version": "1.0.0"})
+
+                from ws_client import ClientWebSocketManager
+                client_manager = ClientWebSocketManager.get_instance()
+                if client_manager:
+                    await client_manager.broadcast_device_list()
+
+                from datetime import datetime
+                from sqlalchemy import text
+                from config.database import engine
+                now = datetime.now().isoformat()
+                firmware_name = expected_sensor_type
+                update_stmt = text("""
+                    UPDATE available_sensors 
+                    SET availability = 0, last_firmware = :firmware, last_updated = :now
+                    WHERE sensor_id = :device_id
+                """)
+                with engine.begin() as conn:
+                    conn.execute(update_stmt, {"device_id": device_id, "firmware": firmware_name, "now": now})
+
+                return {
+                    "success": True,
+                    "message": f"Firmware flashed successfully for {exp.value} on {device_id}",
+                    "device_id": device_id,
+                    "ip": device_ip
+                }
         else:
             err = result.get("message") or result.get("error") or "OTA failed"
             await session_manager.free_device(device_id)  # Cleanup on failure

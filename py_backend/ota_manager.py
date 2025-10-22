@@ -4,7 +4,9 @@ import json
 import logging
 import os
 from typing import Dict, Optional
-
+from sqlalchemy import text
+from config.database import engine
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +75,9 @@ class OTAManager:
             firmware_path = os.path.join(self.bin_dir, firmware_file)
         if not os.path.isfile(firmware_path):
             return {"status": "error", "message": f"Firmware not found: {firmware_path}"}
+        
+        firmware_name = os.path.basename(firmware_path)  # Use filename as last_firmware
+        
         try:
             ok = await self._initiate_esp32_ota(device_ip)
             if not ok:
@@ -83,6 +88,25 @@ class OTAManager:
             ok = await self._finalize_esp32_ota(device_ip)
             if not ok:
                 return {"status": "error", "message": "Failed to finalize OTA"}
+            
+            # Update available_sensors with last_firmware
+            now = datetime.now().isoformat()
+            update_stmt = text("""
+                UPDATE available_sensors 
+                SET last_firmware = :firmware_name, last_updated = :now
+                WHERE sensor_id = :device_id
+            """)
+            try:
+                with engine.begin() as conn:
+                    conn.execute(update_stmt, {
+                        "device_id": device_id,
+                        "firmware_name": firmware_name,
+                        "now": now
+                    })
+                logger.info(f"Updated last_firmware for {device_id} to {firmware_name}")
+            except Exception as e:
+                logger.error(f"Failed to update available_sensors after OTA for {device_id}: {e}")
+            
             return {"status": "success", "message": "OTA update completed", "device_id": device_id, "ip": device_ip}
         except Exception as e:
             logger.error(f"OTA error for {device_id}@{device_ip}: {e}", exc_info=True)
@@ -132,10 +156,10 @@ class OTAManager:
         import aiohttp
         
         # Wait a bit for ESP32 to process the firmware and reboot
-        await asyncio.sleep(3)
+        await asyncio.sleep(1)  # Reduced from 3s to 1s for faster detection
         
         # Try to check if ESP32 comes back online
-        max_attempts = 10
+        max_attempts = 5  # Reduced from 10 to 5
         for attempt in range(max_attempts):
             try:
                 async with aiohttp.ClientSession() as session:
@@ -147,7 +171,7 @@ class OTAManager:
                 # ESP32 might still be rebooting
                 pass
             
-            await asyncio.sleep(2)  # Wait before next attempt
+            await asyncio.sleep(1)  # Reduced from 2s to 1s for quicker retries
         
         logger.warning(f"ESP32 at {device_ip} did not come back online within expected time")
         return True  # Still consider success as firmware was uploaded

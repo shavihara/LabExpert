@@ -438,6 +438,14 @@ void loop()
       webSocket.sendTXT(msg);
       
       if (sensorType == "UNKNOWN") {
+        // Send disconnection message to backend for DB cleanup
+        JsonDocument disconnectDoc;
+        disconnectDoc["type"] = "sensor_disconnected";
+        disconnectDoc["device_id"] = deviceID;
+        String disconnectMsg; serializeJson(disconnectDoc, disconnectMsg);
+        webSocket.sendTXT(disconnectMsg);
+        Serial.println("Sent sensor_disconnected message to backend");
+        
         Serial.println("Sensor unplug detected; erasing inactive OTA partition and rebooting to bootloader mode");
         eraseInactivePartition();
         // Force reboot to ensure we're in bootloader mode when sensor is unplugged
