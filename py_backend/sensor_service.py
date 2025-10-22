@@ -195,7 +195,20 @@ async def get_device_id():
         return None
 
 
-async def configure_experiment(frequency: int, duration: int, mode: str = "distance"):
+async def configure_experiment(frequency: int, duration: int, device_ip: str, mode: str = 'distance'):
+    if mode == 'distance':
+        url = f"http://{device_ip}/configure_distance"
+    elif mode == 'angle':
+        url = f"http://{device_ip}/configure_angle"
+    else:
+        return {"success": False, "error": "Invalid mode"}
+    payload = {"frequency": frequency, "duration": duration}
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=payload) as response:
+            if response.status == 200:
+                return {"success": True, "config": await response.json()}
+            else:
+                return {"success": False, "error": await response.text()}
     try:
         required_samples = frequency * duration
         if required_samples > MAX_ESP32_SAMPLES:

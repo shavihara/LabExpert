@@ -1,5 +1,11 @@
 # main.py
 # Lab Expert Backend API
+import sys
+#additinal--------------remark by me-----------------------------
+import asyncio
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+#------------------------------------------------------------------
 from typing import Optional
 import aiohttp
 import asyncio
@@ -72,6 +78,15 @@ client_ws_manager = ClientWebSocketManager(session_manager)
 ClientWebSocketManager.set_instance(client_ws_manager)
 device_ws_manager = DeviceWebSocketManager(session_manager, ota_manager)
 DeviceWebSocketManager.set_instance(device_ws_manager)
+
+async def periodic_cleanup():
+    while True:
+        await session_manager.cleanup_expired_allocations()
+        await asyncio.sleep(60)  # Run every 60 seconds
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(periodic_cleanup())
 
 # Add this at the top with other constants
 ESP32_IP = "192.168.137.15"  # Add this line
@@ -545,7 +560,18 @@ async def sensor_status(current_user=Depends(get_current_user)):
 
 @app.post("/api/sensor/configure")
 async def configure_sensor(config: ExperimentConfig, current_user=Depends(get_current_user)):
-    result = await configure_experiment(config.frequency, config.duration, config.mode)
+    user_id = current_user['id']
+    user_devices = await session_manager.get_user_devices(user_id)
+    logger.info(f"Configure sensor for user {user_id}: allocated devices {user_devices}")
+    if not user_devices:
+        raise HTTPException(403, "No device allocated to this user")
+    device_id = user_devices[0]  # Assuming one device per user
+    device_status = await session_manager.get_device_status(device_id)
+    device_ip = device_status.get("ip_address")
+    logger.info(f"Device {device_id} status: {device_status}, IP: {device_ip}")
+    if not device_ip:
+        raise HTTPException(500, "Device IP not available")
+    result = await configure_experiment(config.frequency, config.duration, device_ip, config.mode)
     if result["success"]:
         return {"success": True, "config": result["config"]}
     raise HTTPException(500, result.get("error", "Configuration failed"))
@@ -599,11 +625,22 @@ async def handle_upload_firmware(
         current_user=Depends(get_current_user)
 ):
     # Use provided device_id or try to discover one
-    device_id = request.device_id if request else None
+    device_id = request.device_id
     if not device_id:
+        # Fallback: try to get device ID from ESP32 (for backward compatibility)
         device_id = await get_device_id()
         if not device_id:
-            raise HTTPException(500, "Failed to get device ID. Please provide device_id parameter.")
+            raise HTTPException(500, "Failed to get device ID from ESP32. Please provide device_id parameter.")
+    
+    # Check if device is available and reserve it
+    device = await session_manager.get_device(device_id)
+    if not device:
+        raise HTTPException(404, "Device not found")
+    if device.get("allocated_to") and device["allocated_to"] != current_user['id']:
+        raise HTTPException(409, "Device is in use by another user")
+    success = await session_manager.allocate_device_to_user(device_id, current_user['id'])
+    if not success:
+        raise HTTPException(500, "Failed to reserve device")
     bin_path = Path("bin") / f"{device_id}.bin"
     if not bin_path.exists():
         raise HTTPException(404, f"Firmware file '{bin_path}' not found")
@@ -623,6 +660,19 @@ async def save_experiment_data(data: ExperimentData, current_user=Depends(get_cu
     except Exception as e:
         logger.error(f"Failed to save experiment data: {e}")
         raise HTTPException(500, f"Failed to save data: {str(e)}")
+
+@app.post("/api/auth/logout")
+async def logout(current_user=Depends(get_current_user), credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials
+    # Invalidate session using service
+    session = SessionService.find_by_token(token)
+    if session:
+        SessionService.invalidate(token)
+    
+    # Release any allocated devices
+    await session_manager.free_user_devices(current_user['id'])
+    
+    return {"success": True, "message": "Logged out successfully"}
 
 # -----> NEW ENDPOINT FOR BEST-FIT ANALYSIS <-----
 @app.post("/api/sensor/analyze")
@@ -646,7 +696,18 @@ async def osi_status(current_user=Depends(get_current_user)):
 
 @app.post("/api/osi/configure")
 async def configure_osi(config: ExperimentConfig, current_user=Depends(get_current_user)):
-    result = await configure_osi_experiment(config.frequency, config.duration)
+    user_id = current_user['id']
+    user_devices = await session_manager.get_user_devices(user_id)
+    logger.info(f"Configure OSI for user {user_id}: allocated devices {user_devices}")
+    if not user_devices:
+        raise HTTPException(403, "No device allocated to this user")
+    device_id = user_devices[0]  # Assuming one device per user
+    device_status = await session_manager.get_device_status(device_id)
+    device_ip = device_status.get("ip_address")
+    logger.info(f"Device {device_id} status: {device_status}, IP: {device_ip}")
+    if not device_ip:
+        raise HTTPException(500, "Device IP not available")
+    result = await configure_osi_experiment(config.frequency, config.duration, device_ip)
     if result["success"]:
         return {"success": True, "config": result["config"]}
     raise HTTPException(500, result.get("error", "Configuration failed"))
@@ -736,6 +797,21 @@ async def select_experiment(
             if not device_id:
                 raise HTTPException(500, "Failed to get device ID from ESP32. Please provide device_id parameter.")
 
+        # Check if device is available and reserve it
+        device = await session_manager.get_device(device_id)
+        if not device:
+            raise HTTPException(404, "Device not found")
+        logger.info(f"Select experiment for user {current_user['id']}: Requesting device {device_id}, current allocation: {device.get('allocated_to')}")
+        if device.get("allocated_to") == current_user['id']:
+            logger.info(f"Device {device_id} already allocated to user {current_user['id']}, skipping re-allocation")
+            success = True
+        else:
+            if device.get("allocated_to"):
+                raise HTTPException(409, "Device is in use by another user")
+            success = await session_manager.allocate_device_to_user(device_id, current_user['id'])
+        if not success:
+            raise HTTPException(500, "Failed to reserve device")
+        
         # Resolve experiment mapping to OTA manager keys
         exp = request.experiment_type
         if exp == ExperimentType.DISTANCE:
@@ -767,13 +843,16 @@ async def select_experiment(
             raise HTTPException(500, "Device IP not available")
 
         # Kick off OTA via OTAManager (explicit firmware when available)
+        logger.info(f"Starting OTA update for {exp.value} on device {device_id} at IP {device_ip}, firmware override: {firmware_path_override}")
         result = await ota_manager.start_ota_update(
             device_id=device_id,
             device_ip=device_ip,
             experiment_type=ota_key,
             firmware_path=firmware_path_override
         )
+        
         if result.get("status") == "success" or result.get("success"):
+            logger.info(f"Successfully selected and flashed device {device_id} for user {current_user['id']}")
             return {
                 "success": True,
                 "message": f"Firmware flashed successfully for {exp.value} on {device_id}",
@@ -782,12 +861,15 @@ async def select_experiment(
             }
         else:
             err = result.get("message") or result.get("error") or "OTA failed"
+            await session_manager.free_device(device_id)  # Cleanup on failure
             raise HTTPException(500, err)
-    except HTTPException:
-        raise
+    except HTTPException as he:
+        raise he
     except Exception as e:
-        logger.error(f"Failed to flash firmware: {e}", exc_info=True)
-        raise HTTPException(500, f"Failed to flash firmware: {str(e)}")
+        logger.error(f"Error in select_experiment: {str(e)}")
+        if device_id:
+            await session_manager.free_device(device_id)
+        raise HTTPException(500, str(e))
 
 
 @app.get("/api/sensor/available_experiments")

@@ -52,7 +52,7 @@ const ConfigurationModal = ({ onComplete }) => {
       const data = await response.json();
       
       if (!response.ok || !data.success) {
-        throw new Error(data.message || 'Firmware flash failed');
+        throw new Error(data.detail || data.message || data.error || 'Firmware flash failed');
       }
 
       setFlashStatus('✓ Firmware flashed successfully');
@@ -154,12 +154,63 @@ const ConfigurationModal = ({ onComplete }) => {
 };
 
 // Configuration Panel Component
-const ConfigPanel = ({ config, onChange, onClose }) => {
+const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken }) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [statusMessage, setStatusMessage] = useState('');
+
+  const handleApplyConfiguration = async () => {
+    if (!selectedDevice) {
+      setStatusMessage('Error: No device selected');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setStatusMessage('Sending configuration to sensor...');
+
+    try {
+      // Convert frontend config format to backend format
+      const backendConfig = {
+        frequency: config.frequency_hz,
+        duration: config.duration_s,
+        mode: "long", // Default mode for TOF sensor
+        averagingSamples: 1
+      };
+
+      const response = await fetch(`http://${window.location.hostname}:5000/api/sensor/configure`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${userToken}`
+        },
+        body: JSON.stringify(backendConfig)
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        setStatusMessage('✓ Configuration applied successfully!');
+        setTimeout(() => {
+          onClose();
+        }, 1500);
+      } else {
+        setStatusMessage(`✗ Error: ${data.error || 'Configuration failed'}`);
+      }
+    } catch (error) {
+      console.error('Configuration error:', error);
+      setStatusMessage('✗ Error: Failed to connect to backend');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40 backdrop-blur-sm">
       <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4">
         <div className="bg-gradient-to-r from-purple-600 to-purple-800 p-4 rounded-t-xl">
           <h3 className="text-xl font-bold text-white">Experiment Configuration</h3>
+          {selectedDevice && (
+            <p className="text-purple-100 text-sm mt-1">Device: {selectedDevice.id}</p>
+          )}
         </div>
         
         <div className="p-6 space-y-6">
@@ -217,11 +268,21 @@ const ConfigPanel = ({ config, onChange, onClose }) => {
             </div>
           </div>
 
+          {statusMessage && (
+            <div className={`text-sm font-medium text-center ${
+              statusMessage.includes('✓') ? 'text-green-600' : 
+              statusMessage.includes('✗') ? 'text-red-600' : 'text-blue-600'
+            }`}>
+              {statusMessage}
+            </div>
+          )}
+
           <button
-            onClick={onClose}
-            className="w-full bg-gradient-to-r from-purple-600 to-purple-800 text-white py-3 rounded-lg font-semibold hover:shadow-lg transition-all"
+            onClick={handleApplyConfiguration}
+            disabled={isSubmitting || !selectedDevice}
+            className="w-full bg-gradient-to-r from-purple-600 to-purple-800 text-white py-3 rounded-lg font-semibold hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Apply Configuration
+            {isSubmitting ? 'Applying...' : 'Apply Configuration'}
           </button>
         </div>
       </div>
@@ -374,26 +435,57 @@ const ExperimentGraph = ({ experimentType, token }) => {
 };
 
 const ExperimentInterface = () => {
-  const [showConfigModal, setShowConfigModal] = useState(true);
+  const [showConfigModal, setShowConfigModal] = useState(false);
   const [config, setConfig] = useState({ frequency_hz: 20, max_distance_cm: 150, duration_s: 10 });
   const [experimentType, setExperimentType] = useState('tof');
-  const userToken = localStorage.getItem('token');
-  const [selectedDevice, setSelectedDevice] = useState(null);
+const [showConfigPanel, setShowConfigPanel] = useState(false);
+const userToken = localStorage.getItem('token');
+const [selectedDevice, setSelectedDevice] = useState(null);
+
+  // Initialize from localStorage: if we have a saved device and experiment, skip config modal
+  useEffect(() => {
+    const savedDeviceStr = localStorage.getItem('selectedDevice');
+    const savedExpType = localStorage.getItem('experimentType');
+    if (savedDeviceStr && savedExpType) {
+      try {
+        const savedDevice = JSON.parse(savedDeviceStr);
+        setSelectedDevice(savedDevice);
+        setExperimentType(savedExpType);
+        setShowConfigModal(false);
+      } catch (e) {
+        setShowConfigModal(true);
+      }
+    } else {
+      setShowConfigModal(true);
+    }
+  }, []);
 
   const handleComplete = ({ device, experimentType: expType, token }) => {
+    // Persist selection so subsequent visits skip the configuration modal
+    localStorage.setItem('selectedDevice', JSON.stringify(device));
+    localStorage.setItem('experimentType', expType);
+
     setSelectedDevice(device);
-    setExperimentType(expType);
-    setShowConfigModal(false);
-  };
+  setExperimentType(expType);
+  setShowConfigPanel(false);
+  setShowConfigModal(false);
+};
 
   return (
     <div className="p-6 space-y-6">
       {showConfigModal && <ConfigurationModal onComplete={handleComplete} />}
 
       {!showConfigModal && (
-        <div className="bg-white rounded-xl shadow-md p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold text-gray-800">Experiment Controls</h2>
+      <div className="bg-white rounded-xl shadow-md p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold text-gray-800">Experiment Controls</h2>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowConfigPanel(true)}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700"
+            >
+              Configuration
+            </button>
             <button
               onClick={() => setShowConfigModal(true)}
               className="px-4 py-2 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700"
@@ -401,13 +493,22 @@ const ExperimentInterface = () => {
               Change Device / Experiment
             </button>
           </div>
-
-          <ConfigPanel config={config} onChange={setConfig} onClose={() => setShowConfigModal(false)} />
-          <ExperimentGraph experimentType={experimentType} token={userToken} />
         </div>
-      )}
-    </div>
-  );
+
+        {showConfigPanel && (
+          <ConfigPanel 
+            config={config}
+            onChange={setConfig}
+            onClose={() => setShowConfigPanel(false)}
+            selectedDevice={selectedDevice}
+            userToken={userToken}
+          />
+        )}
+        <ExperimentGraph experimentType={experimentType} token={userToken} />
+      </div>
+    )}
+  </div>
+);
 };
 
 export default ExperimentInterface;

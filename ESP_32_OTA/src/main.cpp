@@ -137,7 +137,10 @@ bool detectSensor()
     }
     else
     {
+      // EEPROM not detected - this indicates sensor was unplugged
       Serial.printf("✘ EEPROM sensor not found, I2C error: %d\n", error);
+      sensorType = "UNKNOWN";
+      return false;
     }
     if (retry < EEPROM_RETRY_COUNT - 1)
     {
@@ -145,6 +148,7 @@ bool detectSensor()
       delay(EEPROM_RETRY_DELAY);
     }
   }
+  sensorType = "UNKNOWN";
   return false;
 }
 
@@ -363,6 +367,20 @@ void setup()
     }
   }
 
+  // Check if we should run in bootloader mode (custom partition 0)
+  if (running && strcmp(running->label, "ota_0") == 0) {
+    Serial.println("Running in bootloader mode (custom partition 0)");
+  } else if (running && strcmp(running->label, "ota_1") == 0) {
+    Serial.println("Running in UI firmware mode (partition 1)");
+    // If running UI firmware but sensor is missing, erase and reboot to bootloader
+    if (sensorType == "UNKNOWN") {
+      Serial.println("Sensor missing while running UI firmware - erasing and rebooting to bootloader");
+      eraseInactivePartition();
+      delay(1000);
+      ESP.restart();
+    }
+  }
+  
   // Erase inactive partition to allow clean OTA
   eraseInactivePartition();
 
@@ -409,7 +427,7 @@ void loop()
     lastSensorCheck = millis();
     String prev = sensorType;
     bool ok = detectSensor();
-    if (!ok) sensorType = "UNKNOWN";
+    
     if (sensorType != prev) {
       JsonDocument doc;
       doc["type"] = "sensor_id";
@@ -418,9 +436,13 @@ void loop()
       doc["ip"] = WiFi.localIP().toString();
       String msg; serializeJson(doc, msg);
       webSocket.sendTXT(msg);
+      
       if (sensorType == "UNKNOWN") {
-        Serial.println("Sensor unplug detected; erasing inactive OTA partition");
+        Serial.println("Sensor unplug detected; erasing inactive OTA partition and rebooting to bootloader mode");
         eraseInactivePartition();
+        // Force reboot to ensure we're in bootloader mode when sensor is unplugged
+        delay(1000);
+        ESP.restart();
       }
     }
   }

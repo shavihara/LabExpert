@@ -37,10 +37,14 @@ class DeviceWebSocketManager:
         """Handle ESP32 device connection"""
         await websocket.accept()
         self.active_connections[device_id] = websocket
-        logger.info(f"ESP32 device {device_id} connected")
+        logger.info(f"ESP32 device {device_id} connected from IP {websocket.client.host}")
         
         # Register device in session manager
         await self.session_manager.register_device(device_id)
+        
+        # Capture and store client IP
+        device_ip = websocket.client.host
+        await self.session_manager.update_device_status(device_id, {"ip_address": device_ip})
         
         # Broadcast updated device list to all frontend clients
         from ws_client import ClientWebSocketManager

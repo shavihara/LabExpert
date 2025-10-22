@@ -31,7 +31,7 @@ async def check_osi_connection():
         return {"connected": False, "ready": False, "error": str(e)}
 
 
-async def configure_osi_experiment(frequency: int, duration: int):
+async def configure_osi_experiment(frequency: int, duration: int, device_ip: str):
     """Send experiment configuration to OSI sensor"""
     try:
         config = {

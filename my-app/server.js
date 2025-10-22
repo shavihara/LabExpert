@@ -1,7 +1,7 @@
 import express from 'express';
-import https from 'https';
-import fs from 'fs';
+import http from 'http';
 import path from 'path';
+import os from 'os';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -12,29 +12,27 @@ const app = express();
 // Serve static files from dist
 app.use(express.static(path.join(__dirname, 'dist')));
 
-// Handle SPA routing - use a wildcard pattern that works with newer Express
-app.get('/*', (req, res) => {
+// Handle SPA routing - catch all routes and serve index.html
+app.use((req, res) => {
+  // Skip API routes and static files
+  if (req.path.startsWith('/api') || req.path.includes('.')) {
+    return res.status(404).send('Not found');
+  }
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
-// HTTPS options
-const httpsOptions = {
-  key: fs.readFileSync(path.join(__dirname, 'localhost+2-key.pem')),
-  cert: fs.readFileSync(path.join(__dirname, 'localhost+2.pem'))
-};
-
-// Start HTTPS server
+// Start HTTP server (removing HTTPS for now)
 const PORT = 3000;
-https.createServer(httpsOptions, app).listen(PORT, '0.0.0.0', () => {
-  const networkInterfaces = require('os').networkInterfaces();
+http.createServer(app).listen(PORT, '0.0.0.0', () => {
+  const networkInterfaces = os.networkInterfaces();
   const localIP = Object.values(networkInterfaces)
     .flat()
     .find(iface => iface.family === 'IPv4' && !iface.internal)?.address;
 
-  console.log(`🚀 HTTPS Server running on:`);
-  console.log(`   Local:   https://localhost:${PORT}`);
+  console.log(`🚀 HTTP Server running on:`);
+  console.log(`   Local:   http://localhost:${PORT}`);
   if (localIP) {
-    console.log(`   Network: https://${localIP}:${PORT}`);
+    console.log(`   Network: http://${localIP}:${PORT}`);
   }
-  console.log('\n📱 PWA Install should now work!\n');
+  console.log('\n📱 Server is ready!\n');
 });
