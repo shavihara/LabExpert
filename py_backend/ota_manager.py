@@ -117,7 +117,7 @@ class OTAManager:
         import aiohttp
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(f"http://{device_ip}/", timeout=aiohttp.ClientTimeout(total=5)) as response:
+                async with session.get(f"http://{device_ip}/", timeout=aiohttp.ClientTimeout(total=3)) as response:
                     return response.status == 200
         except Exception as e:
             logger.warning(f"ESP32 at {device_ip} not reachable: {e}")
@@ -138,7 +138,7 @@ class OTAManager:
             data.add_field('update', firmware_data, filename=os.path.basename(firmware_path), content_type='application/octet-stream')
             
             async with aiohttp.ClientSession() as session:
-                async with session.post(f"http://{device_ip}/update", data=data, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                async with session.post(f"http://{device_ip}/update", data=data, timeout=aiohttp.ClientTimeout(total=8)) as response:
                     response_text = await response.text()
                     success = response.status == 200 and "OK" in response_text
                     if success:

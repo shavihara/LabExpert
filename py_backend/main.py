@@ -1,11 +1,30 @@
 # main.py
 # Lab Expert Backend API
-import sys
+
 #additinal--------------remark by me-----------------------------
+#import asyncio
+#import sys
+#asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+#if sys.platform == 'win32':
+    #asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+#------------------------------------------------------------------
 import asyncio
-asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+import sys
+
+# Check the OS
 if sys.platform == 'win32':
+    # On Windows, set the proactor loop policy
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+else:
+    # On Linux/macOS, try to use the high-speed uvloop if it's installed
+    try:
+        import uvloop
+        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    except ImportError:
+        # uvloop isn't installed, just use the (still excellent) default loop
+        pass 
+
+
 #------------------------------------------------------------------
 from typing import Optional
 import aiohttp
