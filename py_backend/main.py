@@ -63,8 +63,6 @@ from services.oscillation_service import (
     get_osi_data
 )
 
-#from services.device_discovery import device_discovery_service
-
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
