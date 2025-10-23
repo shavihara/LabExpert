@@ -994,6 +994,45 @@ async def get_available_experiments(
     return {"success": True, "experiments": available}
 
 
+@app.post("/api/user/disconnect-devices")
+async def disconnect_user_devices(current_user=Depends(get_current_user)):
+    """
+    Disconnect all devices allocated to the current user.
+    This is called when the user returns to the dashboard to ensure
+    devices are properly freed up for other users.
+    """
+    try:
+        user_id = current_user['id']
+        
+        # Free all devices allocated to this user
+        await session_manager.free_user_devices(user_id)
+        
+        # Notify the client WebSocket manager to handle the disconnection
+        from ws_client import ClientWebSocketManager
+        client_manager = ClientWebSocketManager.get_instance()
+        if client_manager:
+            # Send disconnect notification to the user's WebSocket
+            await client_manager.send_to_user(user_id, {
+                "type": "devices_disconnected",
+                "message": "All devices have been disconnected",
+                "user_id": user_id
+            })
+            
+            # Broadcast updated device list to all clients
+            await client_manager.broadcast_device_list()
+        
+        logger.info(f"Successfully disconnected all devices for user {user_id}")
+        return {
+            "success": True,
+            "message": "All devices disconnected successfully",
+            "user_id": user_id
+        }
+        
+    except Exception as e:
+        logger.error(f"Error disconnecting devices for user {current_user['id']}: {e}")
+        raise HTTPException(500, f"Failed to disconnect devices: {str(e)}")
+
+
 # ------------------ Email Setup ------------------
 yag = None
 try:

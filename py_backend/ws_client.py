@@ -35,6 +35,20 @@ class ClientWebSocketManager:
         # Do NOT free user devices on random disconnection - preserve allocation
         # Devices should only be freed on explicit user actions like logout or device release
         logger.info(f"Frontend client {user_id} disconnected (devices allocation preserved)")
+
+    async def handle_dashboard_disconnect(self, user_id: str):
+        """Handle dashboard-initiated device disconnection"""
+        await self.session_manager.free_user_devices(user_id)
+        await self.send_to_user(user_id, {
+            "type": "dashboard_disconnect",
+            "message": "Devices disconnected by dashboard navigation"
+        })
+        await self.broadcast_device_list()
+
+    async def handle_dashboard_navigation(self, user_id: str):
+        """Handle user navigation back to dashboard - trigger device disconnection"""
+        logger.info(f"User {user_id} navigated back to dashboard - triggering device disconnection")
+        await self.handle_dashboard_disconnect(user_id)
         
     async def send_to_user(self, user_id: str, message: dict):
         websocket = self.active_clients.get(user_id)
@@ -81,6 +95,8 @@ class ClientWebSocketManager:
                 await self._handle_select_device(user_id, device_id)
             elif action == "release_device":
                 await self._handle_release_device(user_id)
+            elif action == "dashboard_navigation":
+                await self.handle_dashboard_navigation(user_id)
             else:
                 # Verify allocation for device-specific actions
                 user_devices = await self.session_manager.get_user_devices(user_id)
