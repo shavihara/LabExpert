@@ -167,6 +167,34 @@ export const checkBackendHealth = async () => {
   }
 };
 
+// Development bootstrap: auto-create or login a dev user to get a token
+export const bootstrapDevAuth = async () => {
+  try {
+    if (!import.meta.env.DEV) return null;
+    const existingToken = localStorage.getItem('token');
+    if (existingToken && existingToken !== 'undefined' && existingToken !== null) {
+      return existingToken;
+    }
+
+    const devEmail = 'dev@local';
+    const devPassword = 'dev12345';
+
+    // Try signup, fall back to login if email exists
+    try {
+      const user = await saveUser({ name: 'Dev User', email: devEmail, password: devPassword });
+      console.log('Dev signup successful');
+      return localStorage.getItem('token');
+    } catch (e) {
+      console.warn('Dev signup failed or email exists, trying login...');
+      await findUser(devEmail, devPassword);
+      return localStorage.getItem('token');
+    }
+  } catch (error) {
+    console.error('bootstrapDevAuth error:', error);
+    return null;
+  }
+};
+
 // ADDITIONAL APIs
 
 export const userAPI = {
@@ -180,5 +208,4 @@ export const fileAPI = {
   getFile: (fileId) => `${API_URL}/files/${fileId}`,
 };
 
-// Export API_URL for use in components
 export { API_URL, api };

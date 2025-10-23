@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { api } from '../utils/api';
 
 function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
@@ -25,10 +26,18 @@ function Header() {
   const isLoggedIn = localStorage.getItem('user') !== null
   const isAuthPage = ['/login', '/signup', '/forgot-password'].includes(location.pathname)
 
-  const handleLogout = () => {
-    localStorage.removeItem('user')
-    localStorage.removeItem('token')
-    window.location.href = '/login'
+  const handleLogout = async () => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      try {
+        await api.post('/api/auth/logout');
+      } catch (error) {
+        console.error('Logout failed:', error);
+      }
+    }
+    localStorage.removeItem('user');
+    localStorage.removeItem('token');
+    window.location.href = '/login';
   }
 
   return (

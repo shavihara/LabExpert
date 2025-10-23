@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useWebSocket } from '../hooks/useWebSocket';
 import '../styles/UserDashboard.css';
 
 function UserDashboard() {
@@ -14,6 +15,10 @@ function UserDashboard() {
 
   // Get current user
   const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+  const userToken = localStorage.getItem('token');
+  
+  // Initialize WebSocket connection
+  const { sendMessage, isConnected } = useWebSocket(userToken, true);
 
   // Available experiments
   const availableExperiments = [
@@ -150,6 +155,25 @@ function UserDashboard() {
       setLoading(false);
     }, 1000);
   }, [currentUser]);
+
+  // Detect when user navigates back to dashboard and trigger device disconnection
+  useEffect(() => {
+    if (isConnected && currentUser.id) {
+      console.log('User navigated back to dashboard - triggering device disconnection');
+      
+      // Send WebSocket message to backend to handle dashboard navigation
+      const success = sendMessage({
+        action: 'dashboard_navigation',
+        user_id: currentUser.id
+      });
+      
+      if (success) {
+        console.log('Dashboard navigation message sent successfully');
+      } else {
+        console.warn('Failed to send dashboard navigation message - WebSocket not connected');
+      }
+    }
+  }, [isConnected, currentUser.id, sendMessage]);
 
   // Updated startExperiment function with routing
   const startExperiment = (experiment) => {
