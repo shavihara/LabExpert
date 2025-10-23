@@ -21,6 +21,7 @@ class SessionService:
             row = result.fetchone()
             if row:
                 return {
+                    'id': row[0],  # s.id
                     'user_id': row[1],  # s.user_id
                     'token': row[2],  # s.token
                     'ip_address': row[3],  # s.ip_address
@@ -35,16 +36,47 @@ class SessionService:
             return None
 
     @staticmethod
+    def invalidate(token):
+        stmt = text("""
+                    UPDATE sessions
+                    SET is_active = 0,
+                        expires_at = :now
+                    WHERE token = :token
+                    """)
+        now = datetime.now().isoformat()
+    
+        with engine.begin() as conn:
+            result = conn.execute(stmt, {"token": token, "now": now})
+            return result.rowcount > 0
+    
+    @staticmethod
+    def invalidate_old_sessions(user_id):
+        stmt = text("""
+                    UPDATE sessions
+                    SET is_active = 0,
+                        expires_at = :now
+                    WHERE user_id = :user_id
+                      AND is_active = 1
+                    """)
+        now = datetime.now().isoformat()
+    
+        with engine.begin() as conn:
+            conn.execute(stmt, {"user_id": user_id, "now": now})
+
+    @staticmethod
     def create(user_id, ip_address):
+        # Invalidate old sessions first
+        SessionService.invalidate_old_sessions(user_id)
+        
         token = secrets.token_hex(32)  # generates a secure 64-char token
         expires_at = (datetime.now() + timedelta(days=7)).isoformat()
         now = datetime.now().isoformat()
-
+    
         stmt = text("""
                     INSERT INTO sessions (user_id, token, ip_address, expires_at, is_active, last_activity)
                     VALUES (:user_id, :token, :ip_address, :expires_at, 1, :now)
                     """)
-
+    
         with engine.begin() as conn:
             conn.execute(stmt, {
                 "user_id": user_id,
@@ -53,7 +85,7 @@ class SessionService:
                 "expires_at": expires_at,
                 "now": now
             })
-
+    
         return token
 
     @staticmethod

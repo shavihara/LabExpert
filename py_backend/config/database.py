@@ -79,6 +79,29 @@ def init_db():
         );
         """))
 
+        # Device Allocations table
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS device_allocations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT NOT NULL UNIQUE,
+            user_id TEXT NOT NULL,
+            allocated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            expires_at DATETIME NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
+        """))
+
+        # Available Sensors table
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS available_sensors (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sensor_id TEXT NOT NULL UNIQUE,
+            availability INTEGER DEFAULT 1,
+            last_firmware TEXT,
+            last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        """))
+
         # WAL mode for concurrency
         conn.execute(text("PRAGMA journal_mode = WAL;"))
         conn.execute(text("PRAGMA synchronous = NORMAL;"))
