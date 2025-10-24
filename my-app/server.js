@@ -22,7 +22,7 @@ app.use((req, res) => {
 });
 
 // Start HTTP server (removing HTTPS for now)
-const PORT = 3000;
+const PORT = 3000||5173;
 http.createServer(app).listen(PORT, '0.0.0.0', () => {
   const networkInterfaces = os.networkInterfaces();
   const localIP = Object.values(networkInterfaces)
