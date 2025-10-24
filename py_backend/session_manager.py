@@ -195,7 +195,35 @@ class SessionManager:
         except Exception as e:
             logger.error(f"Failed to update available_sensors for {device_id}: {e}")
         
+        # Send disconnect_and_cleanup command to ESP32 device
+        await self._send_cleanup_command_to_device(device_id)
+        
         logger.info(f"Freed device {device_id} from user {user_id}. Remaining allocations: {self.user_allocations.get(user_id, [])}")
+    
+    async def _send_cleanup_command_to_device(self, device_id: str):
+        """Send disconnect_and_cleanup command to ESP32 device via WebSocket"""
+        try:
+            # Import here to avoid circular imports
+            from ws_device import DeviceWebSocketManager
+            
+            device_manager = DeviceWebSocketManager.get_instance()
+            if device_manager:
+                # Check if device is currently connected
+                if device_id in device_manager.active_connections:
+                    websocket = device_manager.active_connections[device_id]
+                    cleanup_command = {
+                        "type": "disconnect_and_cleanup",
+                        "device_id": device_id,
+                        "message": "Device allocation freed - cleaning up firmware"
+                    }
+                    await websocket.send_json(cleanup_command)
+                    logger.info(f"Sent disconnect_and_cleanup command to device {device_id}")
+                else:
+                    logger.warning(f"Device {device_id} not connected - cannot send cleanup command")
+            else:
+                logger.warning("DeviceWebSocketManager instance not available")
+        except Exception as e:
+            logger.error(f"Failed to send cleanup command to device {device_id}: {e}")
         
     async def get_user_devices(self, user_id: str):
         devices = [did for did, info in self.devices.items() if info.get("allocated_to") == user_id]

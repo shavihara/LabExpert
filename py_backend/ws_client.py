@@ -46,8 +46,23 @@ class ClientWebSocketManager:
         await self.broadcast_device_list()
 
     async def handle_dashboard_navigation(self, user_id: str):
-        """Handle user navigation back to dashboard - trigger device disconnection"""
-        logger.info(f"User {user_id} navigated back to dashboard - triggering device disconnection")
+        """Handle user navigation back to dashboard - trigger device disconnection and cleanup"""
+        logger.info(f"User {user_id} navigated back to dashboard - triggering device disconnection and cleanup")
+        
+        # Get user's allocated devices
+        user_devices = await self.session_manager.get_user_devices(user_id)
+        if user_devices:
+            # Send disconnect_and_cleanup command to each device
+            from ws_device import DeviceWebSocketManager
+            device_manager = DeviceWebSocketManager.get_instance()
+            
+            for device_id in user_devices:
+                if device_manager and device_manager.is_device_connected(device_id):
+                    logger.info(f"Sending disconnect_and_cleanup command to device {device_id}")
+                    await device_manager.send_command_to_device(device_id, {
+                        "type": "disconnect_and_cleanup"
+                    })
+        
         await self.handle_dashboard_disconnect(user_id)
         
     async def send_to_user(self, user_id: str, message: dict):

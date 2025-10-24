@@ -127,8 +127,9 @@ def get_local_ip():
         return "127.0.0.1"
 
 
-LOCAL_IP = get_local_ip()
-logger.info(f"🌐 Local IP Address: {LOCAL_IP}")
+# Use the specific IP that ESP32 devices are configured to connect to
+LOCAL_IP = "192.168.137.1"
+logger.info(f"🌐 Local IP Address: {LOCAL_IP} (ESP32-compatible)")
 
 # ------------------ CORS ------------------
 # UPDATED: Allow WS upgrades

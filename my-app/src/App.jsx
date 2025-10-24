@@ -20,6 +20,9 @@ function AppContent() {
   const [loading, setLoading] = useState(true);
   const location = useLocation();
 
+  // Define which routes are auth pages
+  const isAuthPage = ['/login', '/signup', '/forgot-password'].includes(location.pathname);
+
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -64,57 +67,64 @@ function AppContent() {
   return (
     <div className="app">
       <Header />
-      <Routes>
-        <Route path="/" element={<Navigate to="/login" />} />
-        <Route path="/login" element={<Login setCurrentUser={setCurrentUser} />} />
-        <Route path="/signup" element={<Signup />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />
-        <Route
-          path="/home"
-          element={
-            <PrivateRoute>
-              <Home />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/dashboard"
-          element={
-            <PrivateRoute>
-              <UserDashboard />
-            </PrivateRoute>
-          }
-        />
+      {/* ADD MAIN WRAPPER HERE:
+        This <main> tag adds padding-top to offset the fixed Header.
+        It uses 'pt-20' (80px) for auth pages and 'pt-[70px]' (70px) for all other pages,
+        matching the heights defined in your Header.jsx.
+      */}
+      <main className={isAuthPage ? 'pt-20' : 'pt-[70px]'}>
+        <Routes>
+          <Route path="/" element={<Navigate to="/login" />} />
+          <Route path="/login" element={<Login setCurrentUser={setCurrentUser} />} />
+          <Route path="/signup" element={<Signup />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route
+            path="/home"
+            element={
+              <PrivateRoute>
+                <Home />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/dashboard"
+            element={
+              <PrivateRoute>
+                <UserDashboard />
+              </PrivateRoute>
+            }
+          />
 
-        {/* Dynamic route for experiments - This handles /experiment/1, /experiment/2, etc. */}
-        <Route
-          path="/experiment/:id"
-          element={
-            <PrivateRoute>
-              <ExperimentRouter />
-            </PrivateRoute>
-          }
-        />
+          {/* Dynamic route for experiments - This handles /experiment/1, /experiment/2, etc. */}
+          <Route
+            path="/experiment/:id"
+            element={
+              <PrivateRoute>
+                <ExperimentRouter />
+              </PrivateRoute>
+            }
+          />
 
-        {/* Keep the old /experiment route for backward compatibility */}
-        <Route
-          path="/experiment"
-          element={
-            <PrivateRoute>
-              <ExperimentInterface />
-            </PrivateRoute>
-          }
-        />
+          {/* Keep the old /experiment route for backward compatibility */}
+          <Route
+            path="/experiment"
+            element={
+              <PrivateRoute>
+                <ExperimentInterface />
+              </PrivateRoute>
+            }
+          />
 
-        <Route
-          path="/admin"
-          element={
-            <PrivateRoute requiredRole="admin">
-              <AdminDashboard />
-            </PrivateRoute>
-          }
-        />
-      </Routes>
+          <Route
+            path="/admin"
+            element={
+              <PrivateRoute requiredRole="admin">
+                <AdminDashboard />
+              </PrivateRoute>
+            }
+          />
+        </Routes>
+      </main>
     </div>
   );
 }
