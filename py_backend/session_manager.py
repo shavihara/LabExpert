@@ -1,8 +1,9 @@
 # session_manager.py
 import asyncio
 import logging
+import aiohttp
 from typing import Dict, Optional, List
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy import text  # Add this import
 from config.database import engine  # Add this import assuming engine is defined there
 
@@ -33,6 +34,8 @@ class SessionManager:
                 })
                 self.user_allocations.setdefault(user_id, []).append(device_id)
             logger.info(f"Loaded {len(self.devices)} persistent device allocations from DB")
+        
+   
         
     async def register_device(self, device_id: str):
         self.devices.setdefault(device_id, {
@@ -274,21 +277,68 @@ class SessionManager:
         return self.devices.get(device_id)
 
     async def get_available_devices(self) -> List[Dict]:
-        # Return simplified list for UI, including IP if known
+        # First, check and update online status for all available devices
+        await self.check_all_available_devices_online_status()
+        
+        # Get devices from database with online_status
+        stmt = text("""
+            SELECT sensor_id, availability, online_status, last_firmware, last_updated 
+            FROM available_sensors 
+            WHERE availability = 1 AND online_status = 1
+        """)
+        
         result = []
-        for device_id, device in self.devices.items():
-            entry = {
-                "device_id": device_id,
-                "id": device_id,
-                "sensor_type": device.get("sensor_id") or device.get("status", {}).get("sensor_type", "Unknown"),
-                "firmware": device.get("status", {}).get("firmware_version", "Unknown"),
-                "last_seen": device.get("last_seen"),
-            }
-            ip = device.get("status", {}).get("ip_address")
-            if ip:
-                entry["ip_address"] = ip
-            entry["status"] = "In Use" if device.get("allocated_to") else "online"
-            result.append(entry)
+        try:
+            with engine.connect() as conn:
+                db_result = conn.execute(stmt)
+                for row in db_result.fetchall():
+                    sensor_id, availability, online_status, last_firmware, last_updated = row
+                    
+                    # Get additional info from in-memory devices if available
+                    device = self.devices.get(sensor_id, {})
+                    
+                    entry = {
+                        "device_id": sensor_id,
+                        "id": sensor_id,
+                        "sensor_type": device.get("sensor_id") or device.get("status", {}).get("sensor_type", "Unknown"),
+                        "firmware": device.get("status", {}).get("firmware_version", last_firmware or "Unknown"),
+                        "last_seen": device.get("last_seen"),
+                        "availability": availability,
+                        "online_status": online_status
+                    }
+                    
+                    # Add IP if available
+                    ip = device.get("status", {}).get("ip_address")
+                    if ip:
+                        entry["ip_address"] = ip
+                    
+                    # Set status based on allocation and online status
+                    if device.get("allocated_to"):
+                        entry["status"] = "In Use"
+                    elif online_status == 1:
+                        entry["status"] = "online"
+                    else:
+                        entry["status"] = "offline"
+                    
+                    result.append(entry)
+                    
+        except Exception as e:
+            logger.error(f"Failed to get available devices: {e}")
+            # Fallback to old method if database query fails
+            for device_id, device in self.devices.items():
+                entry = {
+                    "device_id": device_id,
+                    "id": device_id,
+                    "sensor_type": device.get("sensor_id") or device.get("status", {}).get("sensor_type", "Unknown"),
+                    "firmware": device.get("status", {}).get("firmware_version", "Unknown"),
+                    "last_seen": device.get("last_seen"),
+                }
+                ip = device.get("status", {}).get("ip_address")
+                if ip:
+                    entry["ip_address"] = ip
+                entry["status"] = "In Use" if device.get("allocated_to") else "online"
+                result.append(entry)
+        
         return result
 
     async def cleanup_expired_allocations(self):
@@ -314,3 +364,114 @@ class SessionManager:
         # Free devices for affected users
         for user_id in unique_users:
             await self.free_user_devices(user_id)
+
+    async def _ping_device(self, device_ip: str, timeout: int = 3) -> bool:
+        """
+        Send a lightweight HTTP GET request to check if ESP32 device is online.
+        Returns True if device responds, False otherwise.
+        """
+        try:
+            logger.info(f"Attempting to ping device at {device_ip}")
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
+                async with session.get(f"http://{device_ip}/ping") as response:
+                    logger.info(f"Ping response from {device_ip}: status={response.status}")
+                    return response.status == 200
+        except Exception as e:
+            logger.warning(f"Ping failed for device {device_ip}: {e}")
+            return False
+
+    async def _update_device_online_status(self, sensor_id: str, online_status: int):
+        """
+        Update the online_status column in available_sensors table.
+        """
+        try:
+            stmt = text("""
+                UPDATE available_sensors 
+                SET online_status = :online_status 
+                WHERE sensor_id = :sensor_id
+            """)
+            with engine.connect() as conn:
+                conn.execute(stmt, {"online_status": online_status, "sensor_id": sensor_id})
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to update online status for {sensor_id}: {e}")
+
+    async def check_device_online_status(self, sensor_id: str) -> bool:
+        """
+        Check if a specific device is online by pinging it and update database.
+        Returns True if online, False if offline.
+        """
+        logger.info(f"=== Checking online status for sensor_id: {sensor_id} ===")
+        
+        # Debug: Print all devices in memory
+        logger.info(f"All devices in memory: {list(self.devices.keys())}")
+        for device_id, device_info in self.devices.items():
+            stored_sensor_id = device_info.get("status", {}).get("sensor_type") or device_info.get("sensor_id")
+            ip_address = device_info.get("status", {}).get("ip_address")
+            logger.info(f"Device {device_id}: sensor_type={stored_sensor_id}, ip_address={ip_address}")
+        
+        # Get device IP from registered devices
+        # The sensor_id from database should match the device_id in memory
+        device_info = self.devices.get(sensor_id)
+        
+        if not device_info:
+            logger.warning(f"No device found in memory for sensor_id {sensor_id}, marking as offline")
+            await self._update_device_online_status(sensor_id, 0)
+            return False
+        
+        device_ip = device_info.get("status", {}).get("ip_address")
+        
+        if not device_ip:
+            logger.warning(f"No IP found for sensor_id {sensor_id}, marking as offline")
+            await self._update_device_online_status(sensor_id, 0)
+            return False
+        
+        logger.info(f"Pinging device {sensor_id} at IP {device_ip}")
+        
+        # Ping the device
+        is_online = await self._ping_device(device_ip)
+        online_status = 1 if is_online else 0
+        
+        logger.info(f"Ping result for {sensor_id} at {device_ip}: {'online' if is_online else 'offline'}")
+        
+        # Update database
+        await self._update_device_online_status(sensor_id, online_status)
+        
+        return is_online
+
+    async def check_all_available_devices_online_status(self):
+        """
+        Check online status for all devices marked as available (availability=1).
+        Update online_status based on ping results.
+        """
+        try:
+            # Get all available devices
+            stmt = text("""
+                SELECT sensor_id FROM available_sensors 
+                WHERE availability = 1
+            """)
+            with engine.connect() as conn:
+                result = conn.execute(stmt)
+                sensor_ids = [row[0] for row in result.fetchall()]
+            
+            # Check each device
+            for sensor_id in sensor_ids:
+                await self.check_device_online_status(sensor_id)
+                
+            logger.info(f"Checking online status for {len(sensor_ids)} available devices: {sensor_ids}")
+            
+        except Exception as e:
+            logger.error(f"Failed to check all devices online status: {e}")
+
+        # Also set offline status for devices with availability=0
+        try:
+            stmt = text("""
+                UPDATE available_sensors 
+                SET online_status = 0 
+                WHERE availability = 0
+            """)
+            with engine.connect() as conn:
+                conn.execute(stmt)
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to update offline status for unavailable devices: {e}")

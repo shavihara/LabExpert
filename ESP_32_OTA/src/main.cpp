@@ -23,7 +23,7 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t length);
 // Wi-Fi credentials
 const char *ssid = "LabExpert_1.0";
 const char *password = "11111111";
-IPAddress local_IP(192, 168, 137, 15);
+IPAddress local_IP(192, 168, 137, 16);
 IPAddress gateway(192, 168, 137, 1);
 IPAddress subnet(255, 255, 255, 0);
 
@@ -249,6 +249,11 @@ void setupRoutes()
     String jsonResp;
     serializeJson(doc, jsonResp);
     server.send(200, "application/json", jsonResp); });
+
+  // Lightweight ping endpoint for device status checking
+  server.on("/ping", HTTP_GET, []()
+            {
+    server.send(200, "text/plain", "pong"); });
 
   server.on("/id", HTTP_GET, []()
             {
@@ -528,6 +533,14 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
           Serial.println("Received disconnect_and_cleanup command from backend");
           backendCleanupRequested = true;
           Serial.println("Cleanup flag set - will execute in main loop");
+        } else if (cmdType && strcmp(cmdType, "ping") == 0) {
+          Serial.println("Received ping from backend");
+          JsonDocument pongDoc;
+          pongDoc["type"] = "pong";
+          pongDoc["device_id"] = deviceID;
+          String pongMsg; serializeJson(pongDoc, pongMsg);
+          webSocket.sendTXT(pongMsg);
+          Serial.println("Sent pong response");
         }
       }
       break;

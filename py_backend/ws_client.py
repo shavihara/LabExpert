@@ -52,12 +52,20 @@ class ClientWebSocketManager:
         # Get user's allocated devices
         user_devices = await self.session_manager.get_user_devices(user_id)
         if user_devices:
-            # Send disconnect_and_cleanup command to each device
+            # Send user_disconnected message to each device
             from ws_device import DeviceWebSocketManager
             device_manager = DeviceWebSocketManager.get_instance()
             
             for device_id in user_devices:
                 if device_manager and device_manager.is_device_connected(device_id):
+                    logger.info(f"Sending user_disconnected message to device {device_id}")
+                    await device_manager.send_command_to_device(device_id, {
+                        "type": "user_disconnected",
+                        "message": "User disconnected from the application",
+                        "user_id": user_id
+                    })
+                    
+                    # Also send the original disconnect_and_cleanup command
                     logger.info(f"Sending disconnect_and_cleanup command to device {device_id}")
                     await device_manager.send_command_to_device(device_id, {
                         "type": "disconnect_and_cleanup"
