@@ -65,6 +65,14 @@ class OTAManager:
     async def start_ota_update(self, device_id: str, device_ip: str, experiment_type: Optional[str] = None, firmware_path: Optional[str] = None) -> Dict:
         if not device_ip:
             return {"status": "error", "message": "Device IP not provided"}
+        
+        # Update global ESP32 IP for other services
+        from sensor_service import set_esp32_ip
+        from services.oscillation_service import set_esp32_ip as set_osi_esp32_ip
+        
+        set_esp32_ip(device_ip)
+        set_osi_esp32_ip(device_ip)
+        
         # Resolve firmware path: explicit path wins, else by experiment type
         if firmware_path is None:
             if not experiment_type:

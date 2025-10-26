@@ -23,7 +23,7 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t length);
 // Wi-Fi credentials
 const char *ssid = "LabExpert_1.0";
 const char *password = "11111111";
-IPAddress local_IP(192, 168, 137, 15);
+IPAddress local_IP(192, 168, 137, 16);
 IPAddress gateway(192, 168, 137, 1);
 IPAddress subnet(255, 255, 255, 0);
 
@@ -52,6 +52,9 @@ unsigned long previousSensorLedMillis = 0;
 const unsigned long ledInterval = 3000;
 bool wifiLedState = false;
 bool sensorLedState = false;
+
+// Backend disconnect cleanup flag
+bool backendCleanupRequested = false;
 
 // Retry mechanism for EEPROM detection
 #define EEPROM_RETRY_COUNT 3
@@ -247,6 +250,11 @@ void setupRoutes()
     serializeJson(doc, jsonResp);
     server.send(200, "application/json", jsonResp); });
 
+  // Lightweight ping endpoint for device status checking
+  server.on("/ping", HTTP_GET, []()
+            {
+    server.send(200, "text/plain", "pong"); });
+
   server.on("/id", HTTP_GET, []()
             {
     JsonDocument doc;
@@ -384,7 +392,12 @@ void setup()
   // Erase inactive partition to allow clean OTA
   eraseInactivePartition();
 
+  // Use static IP configuration for reliable OTA updates
   WiFi.mode(WIFI_STA);
+  if (!WiFi.config(local_IP, gateway, subnet)) {
+    Serial.println("✘ Failed to configure static IP");
+  }
+  
   WiFi.begin(ssid, password);
   Serial.printf("Connecting to WiFi SSID: %s\n", ssid);
   while (WiFi.status() != WL_CONNECTED)
@@ -454,6 +467,17 @@ void loop()
       }
     }
   }
+
+  // Check for backend-initiated cleanup request
+  if (backendCleanupRequested) {
+    Serial.println("Executing backend-initiated cleanup: erasing partition and rebooting to bootloader");
+    backendCleanupRequested = false; // Reset flag
+    
+    // Execute cleanup - erase inactive partition and reboot to bootloader
+    eraseInactivePartition();
+    delay(1000);
+    ESP.restart();
+  }
 }
 
 // ========== Utils ==========
@@ -499,7 +523,26 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
     }
     case WStype_TEXT: {
       Serial.printf("WS message: %.*s\n", (int)length, (const char*)payload);
-      // OTA is pushed via HTTP by backend; we just log WS commands here.
+      
+      // Parse JSON message to check for backend commands
+      JsonDocument cmdDoc;
+      DeserializationError error = deserializeJson(cmdDoc, payload, length);
+      if (!error) {
+        const char* cmdType = cmdDoc["type"];
+        if (cmdType && strcmp(cmdType, "disconnect_and_cleanup") == 0) {
+          Serial.println("Received disconnect_and_cleanup command from backend");
+          backendCleanupRequested = true;
+          Serial.println("Cleanup flag set - will execute in main loop");
+        } else if (cmdType && strcmp(cmdType, "ping") == 0) {
+          Serial.println("Received ping from backend");
+          JsonDocument pongDoc;
+          pongDoc["type"] = "pong";
+          pongDoc["device_id"] = deviceID;
+          String pongMsg; serializeJson(pongDoc, pongMsg);
+          webSocket.sendTXT(pongMsg);
+          Serial.println("Sent pong response");
+        }
+      }
       break;
     }
     case WStype_DISCONNECTED:
