@@ -10,6 +10,14 @@ from config.database import engine  # Add this import assuming engine is defined
 logger = logging.getLogger(__name__)
 
 class SessionManager:
+    _instance = None
+    
+    @classmethod
+    def get_instance(cls):
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+    
     def __init__(self):
         self.devices: Dict[str, Dict] = {}
         self.user_allocations: Dict[str, List[str]] = {}

@@ -198,15 +198,16 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken }) =
       // Save config to localStorage for timer access
       localStorage.setItem('experimentConfig', JSON.stringify(config));
       
-      const response = await fetch(`http://${window.location.hostname}:5000/api/sensor/configure`, {
+      const response = await fetch(`http://${window.location.hostname}:5000/api/sensor/configure?device_id=${selectedDevice.id}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${userToken}`
         },
         body: JSON.stringify({
-          device_id: selectedDevice.id,
-          ...config
+          frequency: config.frequency_hz,
+          duration: config.duration_s,
+          mode: "distance"
         })
       });
 

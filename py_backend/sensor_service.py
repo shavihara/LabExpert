@@ -5,6 +5,7 @@ from datetime import datetime
 import logging
 from collections import deque
 import numpy as np
+from ws_device import DeviceWebSocketManager
 
 logger = logging.getLogger(__name__)
 
@@ -195,116 +196,122 @@ async def get_device_id():
         return None
 
 
-async def configure_experiment(frequency: int, duration: int, device_ip: str, mode: str = 'distance'):
-    if mode == 'distance':
-        url = f"http://{device_ip}/configure_distance"
-    elif mode == 'angle':
-        url = f"http://{device_ip}/configure_angle"
-    else:
-        return {"success": False, "error": "Invalid mode"}
-    payload = {"frequency": frequency, "duration": duration}
-    async with aiohttp.ClientSession() as session:
-        async with session.post(url, json=payload) as response:
-            if response.status == 200:
-                return {"success": True, "config": await response.json()}
-            else:
-                return {"success": False, "error": await response.text()}
+async def configure_experiment(frequency: int, duration: int, device_id: str, mode: str = 'distance'):
     try:
-        required_samples = frequency * duration
-        if required_samples > MAX_ESP32_SAMPLES:
-            error_msg = (
-                f"Configuration exceeds ESP32 buffer capacity. "
-                f"Max samples: {MAX_ESP32_SAMPLES}, Required: {required_samples}. "
-                f"Reduce frequency or duration."
-            )
-            logger.error(error_msg)
-            return {"success": False, "error": error_msg}
+        # Use WebSocket approach if device is connected
+        device_manager = DeviceWebSocketManager.get_instance()
         
-        if frequency > 50:
-            logger.warning(f"Frequency {frequency}Hz exceeds recommended max: 50Hz")
+        # Check if device is connected via WebSocket
+        if device_manager.is_device_connected(device_id):
+            # Validate configuration
+            required_samples = frequency * duration
+            if required_samples > MAX_ESP32_SAMPLES:
+                error_msg = (
+                    f"Configuration exceeds ESP32 buffer capacity. "
+                    f"Max samples: {MAX_ESP32_SAMPLES}, Required: {required_samples}. "
+                    f"Reduce frequency or duration."
+                )
+                logger.error(error_msg)
+                return {"success": False, "error": error_msg}
             
-        # Create configuration
-        config_data = {
-            "frequency": frequency, 
-            "duration": duration, 
+            if frequency > 50:
+                logger.warning(f"Frequency {frequency}Hz exceeds recommended max: 50Hz")
+            
+            # Create configuration
+            config = {
+                "frequency": frequency,
+                "duration": duration,
+                "mode": mode,
+                "averagingSamples": 1
+            }
+            
+            logger.info(f"Sending configuration to ESP32 via WebSocket: {config}")
+            physics_processor.reset()
+            
+            # Send configuration via WebSocket
+            success = await device_manager.send_command_to_device(device_id, {
+                "type": "configure_experiment",
+                "experiment_type": "tof",
+                "config": config
+            })
+            
+            if success:
+                return {"success": True, "config": config, "required_samples": required_samples, "max_samples": MAX_ESP32_SAMPLES}
+            else:
+                return {"success": False, "error": "Failed to send configuration to device via WebSocket"}
+        
+        # Fallback to HTTP for devices not connected via WebSocket
+        logger.info(f"Device {device_id} not connected via WebSocket, falling back to HTTP configuration")
+        
+        # Get device IP from session manager for HTTP fallback
+        from session_manager import SessionManager
+        session_manager = SessionManager.get_instance()
+        device_status = await session_manager.get_device_status(device_id)
+        device_ip = device_status.get("ip_address") if device_status else None
+        
+        if not device_ip:
+            return {"success": False, "error": f"Device {device_id} IP address not available for HTTP fallback"}
+        
+        # Create configuration for HTTP
+        config = {
+            "frequency": frequency,
+            "duration": duration,
             "mode": mode,
             "averagingSamples": 1
         }
         
-        logger.info(f"Sending configuration to ESP32: {config_data}")
+        logger.info(f"Sending configuration to ESP32 via HTTP: {config}")
         physics_processor.reset()
         
+        # Send configuration via HTTP
         async with aiohttp.ClientSession() as session:
-            # Send as form data with 'plain' parameter
-            form_data = aiohttp.FormData()
-            form_data.add_field('plain', json.dumps(config_data))
-            
             async with session.post(
-                f"{ESP32_BASE_URL}/configure", 
-                data=form_data,
+                f"http://{device_ip}/configure",
+                json=config,
                 timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
             ) as response:
-                
-                response_text = await response.text()
-                logger.info(f"ESP32 response status: {response.status}")
-                logger.info(f"ESP32 response body: {response_text}")
-                
                 if response.status == 200:
-                    try:
-                        response_data = json.loads(response_text)
-                        logger.info(f"Experiment configured successfully: {response_data}")
-                        return {
-                            "success": True, 
-                            "config": config_data, 
-                            "esp32_response": response_data,
-                            "required_samples": required_samples, 
-                            "max_samples": MAX_ESP32_SAMPLES
-                        }
-                    except json.JSONDecodeError:
-                        logger.info(f"Experiment configured successfully (no JSON response)")
-                        return {
-                            "success": True, 
-                            "config": config_data, 
-                            "required_samples": required_samples, 
-                            "max_samples": MAX_ESP32_SAMPLES
-                        }
-                elif response.status == 400:
-                    try:
-                        error_data = json.loads(response_text)
-                        logger.error(f"Configuration rejected by ESP32: {error_data}")
-                        return {"success": False, "error": error_data.get("error", "Configuration rejected")}
-                    except json.JSONDecodeError:
-                        logger.error(f"ESP32 returned invalid JSON: {response_text}")
-                        return {"success": False, "error": f"Invalid response: {response_text}"}
+                    result = await response.json()
+                    return {"success": True, "config": config, "required_samples": frequency * duration, "max_samples": MAX_ESP32_SAMPLES}
                 else:
-                    # Even if we get 501, if the configuration was parsed successfully, we can proceed
-                    if "Parsed JSON" in open_serial_output:  # This would need actual serial monitoring
-                        logger.warning(f"ESP32 returned status {response.status} but configuration was parsed: {response_text}")
-                        return {
-                            "success": True, 
-                            "config": config_data, 
-                            "required_samples": required_samples, 
-                            "max_samples": MAX_ESP32_SAMPLES,
-                            "warning": f"ESP32 returned {response.status} but configuration was accepted"
-                        }
-                    else:
-                        logger.error(f"ESP32 returned status {response.status}: {response_text}")
-                        return {"success": False, "error": f"Status {response.status}: {response_text}"}
-                    
+                    error_text = await response.text()
+                    logger.error(f"HTTP configuration failed with status {response.status}: {error_text}")
+                    return {"success": False, "error": f"HTTP configuration failed: Status {response.status}"}
+        
     except Exception as e:
         logger.error(f"Failed to configure experiment: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
 
-async def start_experiment():
+async def start_experiment(device_id: str = None):
     try:
         physics_processor.reset()
+        
+        # Use WebSocket approach if device_id is provided
+        if device_id:
+            device_manager = DeviceWebSocketManager.get_instance()
+            
+            if not device_manager.is_device_connected(device_id):
+                return {"success": False, "error": f"Device {device_id} is not connected via WebSocket"}
+            
+            success = await device_manager.send_command_to_device(device_id, {
+                "type": "start_experiment",
+                "experiment_type": "tof"
+            })
+            
+            if success:
+                logger.info("Experiment started successfully via WebSocket")
+                return {"success": True}
+            else:
+                return {"success": False, "error": "Failed to start experiment via WebSocket"}
+        
+        # Fallback to HTTP for backward compatibility
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 f"{ESP32_BASE_URL}/start", 
                 timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
             ) as response:
                 if response.status == 200:
-                    logger.info("Experiment started successfully")
+                    logger.info("Experiment started successfully via HTTP")
                     return {"success": True}
                 else:
                     error_text = await response.text()
@@ -315,15 +322,34 @@ async def start_experiment():
         return {"success": False, "error": str(e)}
 
 
-async def stop_experiment():
+async def stop_experiment(device_id: str = None):
     try:
+        # Use WebSocket approach if device_id is provided
+        if device_id:
+            device_manager = DeviceWebSocketManager.get_instance()
+            
+            if not device_manager.is_device_connected(device_id):
+                return {"success": False, "error": f"Device {device_id} is not connected via WebSocket"}
+            
+            success = await device_manager.send_command_to_device(device_id, {
+                "type": "stop_experiment",
+                "experiment_type": "tof"
+            })
+            
+            if success:
+                logger.info("Experiment stopped successfully via WebSocket")
+                return {"success": True}
+            else:
+                return {"success": False, "error": "Failed to stop experiment via WebSocket"}
+        
+        # Fallback to HTTP for backward compatibility
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 f"{ESP32_BASE_URL}/stop", 
                 timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
             ) as response:
                 if response.status == 200:
-                    logger.info("Experiment stopped successfully")
+                    logger.info("Experiment stopped successfully via HTTP")
                     return {"success": True}
                 else:
                     error_text = await response.text()

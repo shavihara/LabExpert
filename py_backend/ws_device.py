@@ -78,7 +78,7 @@ class DeviceWebSocketManager:
         try:
             message_type = message.get("type")
             
-            if message_type == "sensor_id":
+            if message_type == "sensor_id" or message_type == "sensor_identify":
                 # ESP32 sends sensor ID, backend selects firmware
                 sensor_id = message.get("sensor_id")
                 device_ip = message.get("ip")

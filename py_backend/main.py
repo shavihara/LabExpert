@@ -612,11 +612,8 @@ async def configure_sensor(
         selected_device = user_devices[0]  # Default to first allocated
     
     device_status = await session_manager.get_device_status(selected_device)
-    device_ip = device_status.get("ip_address")
-    logger.info(f"Device {selected_device} status: {device_status}, IP: {device_ip}")
-    if not device_ip:
-        raise HTTPException(500, "Device IP not available")
-    result = await configure_experiment(config.frequency, config.duration, device_ip, config.mode)
+    logger.info(f"Device {selected_device} status: {device_status}")
+    result = await configure_experiment(config.frequency, config.duration, selected_device, config.mode)
     if result["success"]:
         return {"success": True, "config": result["config"]}
     raise HTTPException(500, result.get("error", "Configuration failed"))
@@ -624,7 +621,13 @@ async def configure_sensor(
 
 @app.post("/api/sensor/start")
 async def start_sensor(current_user=Depends(get_current_user)):
-    result = await start_experiment()
+    user_id = current_user['id']
+    user_devices = await session_manager.get_user_devices(user_id)
+    if not user_devices:
+        raise HTTPException(403, "No device allocated to this user")
+    
+    selected_device = user_devices[0]  # Use first allocated device
+    result = await start_experiment(selected_device)
     if result["success"]:
         return {"success": True}
     raise HTTPException(500, result.get("error", "Failed to start experiment"))
@@ -632,7 +635,13 @@ async def start_sensor(current_user=Depends(get_current_user)):
 
 @app.post("/api/sensor/stop")
 async def stop_sensor(current_user=Depends(get_current_user)):
-    result = await stop_experiment()
+    user_id = current_user['id']
+    user_devices = await session_manager.get_user_devices(user_id)
+    if not user_devices:
+        raise HTTPException(403, "No device allocated to this user")
+    
+    selected_device = user_devices[0]  # Use first allocated device
+    result = await stop_experiment(selected_device)
     if result["success"]:
         return {"success": True}
     raise HTTPException(500, result.get("error", "Failed to stop experiment"))
