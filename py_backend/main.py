@@ -83,6 +83,13 @@ from services.oscillation_service import (
     get_osi_data
 )
 
+# Import MQTT services
+from services.mqtt_service import MQTTService
+from services.mqtt_broker import start_mqtt_broker, stop_mqtt_broker
+
+# Global MQTT server instance
+mqtt_server = None
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -100,6 +107,10 @@ ClientWebSocketManager.set_instance(client_ws_manager)
 device_ws_manager = DeviceWebSocketManager(session_manager, ota_manager)
 DeviceWebSocketManager.set_instance(device_ws_manager)
 
+# Initialize MQTT service
+mqtt_service = MQTTService(session_manager, client_ws_manager, broker_host="192.168.137.1")
+MQTTService.set_instance(mqtt_service)
+
 async def periodic_cleanup():
     while True:
         await session_manager.cleanup_expired_allocations()
@@ -114,6 +125,20 @@ async def startup_event():
         logger.info("✅ UDP discovery service started successfully")
     else:
         logger.error("❌ Failed to start UDP discovery service")
+    
+    # Start MQTT broker
+    global mqtt_server
+    mqtt_server = await start_mqtt_broker()
+    if mqtt_server:
+        logger.info("✅ MQTT broker started successfully")
+        # Start serving MQTT connections in background
+        asyncio.create_task(mqtt_server.serve_forever())
+    else:
+        logger.error("❌ Failed to start MQTT broker")
+    
+    # Start MQTT client service
+    await mqtt_service.start()
+    logger.info("✅ MQTT client service started successfully")
 
 # Add this at the top with other constants
 ESP32_IP = "192.168.137.15"  # Add this line
@@ -620,10 +645,22 @@ async def configure_sensor(
     
     device_status = await session_manager.get_device_status(selected_device)
     logger.info(f"Device {selected_device} status: {device_status}")
-    result = await configure_experiment(config.frequency, config.duration, selected_device, config.mode)
-    if result["success"]:
-        return {"success": True, "config": result["config"]}
-    raise HTTPException(500, result.get("error", "Configuration failed"))
+    
+    # Use MQTT to send configuration to device
+    mqtt_config = {
+        "frequency": config.frequency,
+        "duration": config.duration,
+        "mode": config.mode,
+        "averagingSamples": 1
+    }
+    
+    # Use MQTT to send configuration to device
+    mqtt_service = MQTTService.get_instance()
+    if not mqtt_service or not mqtt_service.connected:
+        raise HTTPException(500, "MQTT service not available")
+    
+    mqtt_service.publish_config(selected_device, mqtt_config)
+    return {"success": True, "config": mqtt_config}
 
 
 @app.post("/api/sensor/start")
@@ -634,10 +671,18 @@ async def start_sensor(current_user=Depends(get_current_user)):
         raise HTTPException(403, "No device allocated to this user")
     
     selected_device = user_devices[0]  # Use first allocated device
-    result = await start_experiment(selected_device)
-    if result["success"]:
+    
+    # Use MQTT to send start command
+    mqtt_service = MQTTService.get_instance()
+    if not mqtt_service or not mqtt_service.connected:
+        raise HTTPException(500, "MQTT service not available")
+    
+    try:
+        mqtt_service.publish_start_command(selected_device)
         return {"success": True}
-    raise HTTPException(500, result.get("error", "Failed to start experiment"))
+    except Exception as e:
+        logger.error(f"Failed to send start command via MQTT: {e}")
+        raise HTTPException(500, f"Failed to start experiment: {str(e)}")
 
 
 @app.post("/api/sensor/stop")
@@ -648,10 +693,18 @@ async def stop_sensor(current_user=Depends(get_current_user)):
         raise HTTPException(403, "No device allocated to this user")
     
     selected_device = user_devices[0]  # Use first allocated device
-    result = await stop_experiment(selected_device)
-    if result["success"]:
+    
+    # Use MQTT to send stop command
+    mqtt_service = MQTTService.get_instance()
+    if not mqtt_service or not mqtt_service.connected:
+        raise HTTPException(500, "MQTT service not available")
+    
+    try:
+        mqtt_service.publish_stop_command(selected_device)
         return {"success": True}
-    raise HTTPException(500, result.get("error", "Failed to stop experiment"))
+    except Exception as e:
+        logger.error(f"Failed to send stop command via MQTT: {e}")
+        raise HTTPException(500, f"Failed to stop experiment: {str(e)}")
 
 
 # UPDATED: /stream now WS endpoint - connect via ws://localhost:5000/ws/sensor?token=...

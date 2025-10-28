@@ -10,13 +10,12 @@
 #include <AsyncWebSocket.h>
 #include <Update.h>
 #include <Wire.h>
-#include <WebSocketsClient.h>
 
 // Include modular headers
 #include "../include/sensor_communication.h"
-#include "../include/websocket_handler.h"
 #include "../include/config_handler.h"
 #include "../include/experiment_manager.h"
+#include "../include/mqtt_handler.h"
 
 // Hardware configuration
 #define STATUS_LED 2
@@ -30,9 +29,9 @@ IPAddress local_IP(192, 168, 137, 15);
 IPAddress gateway(192, 168, 137, 1);
 IPAddress subnet(255, 255, 255, 0);
 
-// Backend WebSocket configuration
-const char* backendHost = "192.168.137.1"; // Backend server IP
-const uint16_t backendPort = 5000;
+// MQTT configuration (replaces WebSocket backend)
+const char* mqttBroker = "192.168.137.1"; // Backend server IP
+const uint16_t mqttPort = 1883;
 
 // Hardware serial for TOF sensor
 HardwareSerial TOFSerial(2);
@@ -84,29 +83,15 @@ void setup() {
         sensorID = getDeviceIDFromMAC();
         Serial.printf("Device ID: %s\n", sensorID.c_str());
         
-        // Initialize backend WebSocket connection
-        backendWebSocket.begin(backendHost, backendPort, String("/ws/device?device_id=") + sensorID);
-        backendWebSocket.onEvent(onBackendWsEvent);
-        Serial.printf("Connecting to backend at %s:%d\n", backendHost, backendPort);
+        // Initialize MQTT connection (replaces WebSocket backend)
+        setupMQTT();
+        Serial.printf("MQTT configured for broker at %s:%d\n", mqttBroker, mqttPort);
         
     } else {
         Serial.println("\nWiFi connection failed!");
     }
     
-    // Setup WebSocket
-    ws.onEvent(onWsEvent);
-    server.addHandler(&ws);
-    
-    // Setup HTTP routes
-    server.on("/status", HTTP_GET, handleStatus);
-    server.on("/configure", HTTP_POST, handleConfigure);
-    server.on("/calibrate", HTTP_POST, handleCalibrate);
-    server.on("/start", HTTP_GET, handleStart);
-    server.on("/stop", HTTP_GET, handleStop);
-    server.on("/data", HTTP_GET, handleData);
-    server.on("/id", HTTP_GET, handleId);
-    
-    // OTA update
+    // Setup HTTP routes (minimal for OTA updates only)
     server.on("/update", HTTP_POST, handleUpdate, handleUpdateUpload);
     
     // CORS handling
@@ -119,19 +104,13 @@ void setup() {
     });
     
     server.begin();
-    Serial.println("HTTP/WS server started");
+    Serial.println("HTTP server started (OTA only)");
     digitalWrite(STATUS_LED, LOW);
 }
 
 void loop() {
-    // WebSocket maintenance
-    ws.cleanupClients();
-    backendWebSocket.loop();
-    
-    if (wsActive && (millis() - lastWSPing > 30000)) {
-        ws.pingAll();
-        lastWSPing = millis();
-    }
+    // MQTT maintenance
+    mqttLoop();
 
     // Check sensor status periodically
     checkSensorStatus();
@@ -143,4 +122,56 @@ void loop() {
     handleBackendCleanup();
     
     delay(1);
+}
+
+void cleanFirmwareAndBootOTA() {
+    Serial.println("Cleaning firmware and booting to OTA partition...");
+    
+    // Clean up any running processes
+    experimentRunning = false;
+    dataReady = false;
+    
+    // Disconnect MQTT gracefully
+    if (mqttClient.connected()) {
+        mqttClient.disconnect();
+        Serial.println("MQTT disconnected");
+    }
+    
+    // Stop WiFi
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    Serial.println("WiFi disconnected");
+    
+    delay(1000);
+    
+    // Get the running partition
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    Serial.printf("Current running partition: %s\n", running->label);
+    
+    // Find the OTA boot partition (partition 0)
+    const esp_partition_t *ota_partition = esp_partition_find_first(
+        ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL);
+    
+    if (ota_partition != NULL) {
+        Serial.printf("Found OTA partition: %s\n", ota_partition->label);
+        
+        // Set boot partition to OTA 0
+        if (esp_ota_set_boot_partition(ota_partition) == ESP_OK) {
+            Serial.println("Boot partition set to OTA_0 successfully");
+            
+            // Restart the ESP32 to boot into OTA partition
+            Serial.println("Restarting ESP32 to boot into OTA partition...");
+            delay(1000);
+            ESP.restart();
+        } else {
+            Serial.println("Failed to set boot partition to OTA_0");
+        }
+    } else {
+        Serial.println("OTA partition not found");
+    }
+    
+    // If we get here, something went wrong - restart anyway
+    Serial.println("Restarting ESP32 as fallback...");
+    delay(1000);
+    ESP.restart();
 }

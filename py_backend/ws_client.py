@@ -170,39 +170,78 @@ class ClientWebSocketManager:
         await self.send_to_user(user_id, {"type": "device_selected", "device": device, "status": status})
 
     async def _handle_release_device(self, user_id: str):
+        # Get user's allocated devices before freeing them
+        user_devices = await self.session_manager.get_user_devices(user_id)
+        
+        # Send disconnect command to each allocated device via MQTT
+        if user_devices:
+            from services.mqtt_service import MQTTService
+            mqtt_service = MQTTService.get_instance()
+            
+            for device_id in user_devices:
+                if mqtt_service:
+                    logger.info(f"Sending disconnect command to device {device_id}")
+                    mqtt_service.publish_disconnect_command(device_id)
+        
+        # Free user devices from session manager
         await self.session_manager.free_user_devices(user_id)
         await self.send_to_user(user_id, {"type": "device_disconnected", "device_id": None})
 
     async def _handle_start_experiment(self, user_id: str, config: dict, experiment_type: str):
-        from ws_device import DeviceWebSocketManager
-        device_manager = DeviceWebSocketManager.get_instance()
+        from services.mqtt_service import MQTTService
+        mqtt_service = MQTTService.get_instance()
         devices = await self.session_manager.get_user_devices(user_id)
         if not devices:
             await self.send_to_user(user_id, {"type": "error", "message": "No device allocated"})
             return
         device_id = devices[0]
-        success = await device_manager.send_command_to_device(device_id, {
-            "type": "start_experiment",
-            "experiment_type": experiment_type,
-            "config": config
-        })
-        if success:
+        
+        if not mqtt_service or not mqtt_service.connected:
+            await self.send_to_user(user_id, {"type": "error", "message": "MQTT service not available"})
+            return
+        
+        try:
+            # Send configuration first if provided
+            if config:
+                mqtt_service.publish_config(device_id, config)
+                
+            # Send start command
+            mqtt_service.publish_start_command(device_id)
             await self.send_to_user(user_id, {"type": "experiment_started", "device_id": device_id})
-        else:
+        except Exception as e:
+            logger.error(f"Failed to send start command via MQTT: {e}")
             await self.send_to_user(user_id, {"type": "error", "message": "Failed to start experiment"})
 
     async def _handle_simple_device_command(self, user_id: str, command: dict, success_event: str):
-        from ws_device import DeviceWebSocketManager
-        device_manager = DeviceWebSocketManager.get_instance()
+        from services.mqtt_service import MQTTService
+        mqtt_service = MQTTService.get_instance()
         devices = await self.session_manager.get_user_devices(user_id)
         if not devices:
             await self.send_to_user(user_id, {"type": "error", "message": "No device allocated"})
             return
         device_id = devices[0]
-        success = await device_manager.send_command_to_device(device_id, command)
-        if success:
-            await self.send_to_user(user_id, {"type": success_event, "device_id": device_id})
-        else:
+        
+        if not mqtt_service or not mqtt_service.connected:
+            await self.send_to_user(user_id, {"type": "error", "message": "MQTT service not available"})
+            return
+        
+        try:
+            command_type = command.get("type")
+            if command_type == "pause_experiment":
+                # Pause functionality not implemented in MQTT service yet
+                # Send error message to frontend
+                await self.send_to_user(user_id, {"type": "error", "message": "Pause functionality not available via MQTT"})
+            elif command_type == "resume_experiment":
+                # Resume functionality not implemented in MQTT service yet
+                # Send error message to frontend
+                await self.send_to_user(user_id, {"type": "error", "message": "Resume functionality not available via MQTT"})
+            elif command_type == "stop_experiment":
+                mqtt_service.publish_stop_command(device_id)
+                await self.send_to_user(user_id, {"type": success_event, "device_id": device_id})
+            else:
+                await self.send_to_user(user_id, {"type": "error", "message": f"Unknown command type: {command_type}"})
+        except Exception as e:
+            logger.error(f"Failed to send {command_type} command via MQTT: {e}")
             await self.send_to_user(user_id, {"type": "error", "message": f"Failed to {success_event}"})
 
     async def _handle_configure_experiment(self, user_id: str, config: dict, experiment_type: str):

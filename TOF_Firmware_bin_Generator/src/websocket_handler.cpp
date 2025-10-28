@@ -208,39 +208,3 @@ void sendWS(const String& data) {
         lastWSPing = millis();
     }
 }
-
-// Send binary data to backend WebSocket
-void sendBinaryData(uint32_t timestamp, uint16_t distance, uint16_t sampleNumber) {
-    if (backendWebSocket.isConnected()) {
-        // Use backend-compatible 14-byte format: <cffIc (header, timestamp, distance, sample_num, checksum)
-        uint8_t binaryData[14];
-        
-        // Header (1 byte: 'T' for TOF)
-        binaryData[0] = 'T';  // Header byte
-        
-        // Timestamp (4 bytes as float)
-        float timestampFloat = timestamp / 1000.0;  // Convert ms to seconds
-        memcpy(&binaryData[1], &timestampFloat, 4);
-        
-        // Distance (4 bytes as float)
-        float distanceFloat = distance;  // Convert to float
-        memcpy(&binaryData[5], &distanceFloat, 4);
-        
-        // Sample number (4 bytes as int)
-        uint32_t sampleNumInt = sampleNumber;
-        memcpy(&binaryData[9], &sampleNumInt, 4);
-        
-        // Calculate checksum (XOR of bytes 1-13)
-        uint8_t checksum = 0;
-        for (int i = 1; i < 13; i++) {
-            checksum ^= binaryData[i];
-        }
-        binaryData[13] = checksum;  // Checksum byte
-        
-        backendWebSocket.sendBIN(binaryData, 14);
-        
-        // Also print to serial for debugging
-        Serial.printf("BIN: ts=%.3fs, dist=%.1fmm, sample=%d, chk=0x%02X\n", 
-                     timestampFloat, distanceFloat, sampleNumber, checksum);
-    }
-}

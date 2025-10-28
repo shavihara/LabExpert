@@ -1,6 +1,6 @@
 #include "experiment_manager.h"
 #include "sensor_communication.h"
-#include "websocket_handler.h"
+#include "mqtt_handler.h"
 #include "config_handler.h"
 #include <esp_partition.h>
 #include <esp_ota_ops.h>
@@ -45,15 +45,10 @@ void manageExperimentLoop() {
             
             Serial.printf("Experiment COMPLETED. Collected %d samples in %lu ms\n", sampleCount, elapsedTime);
             
-            // Notify backend and clients about experiment completion
-            if (backendWebSocket.isConnected()) {
-                String completionMsg = "{\"type\":\"experiment_status\",\"sensor_id\":\"" + sensorID + 
-                                    "\",\"status\":\"completed\",\"samples\":" + String(sampleCount) + "}";
-                backendWebSocket.sendTXT(completionMsg);
-            }
-            
-            if (wsActive) {
-                ws.textAll("{\"type\":\"experiment_status\",\"status\":\"completed\",\"samples\":" + String(sampleCount) + "}");
+            // Notify backend about experiment completion via MQTT
+            if (mqttConnected) {
+                String completionMsg = "Experiment completed with " + String(sampleCount) + " samples";
+                publishStatus("experiment_completed", completionMsg.c_str());
             }
             
             return;
@@ -73,19 +68,8 @@ void manageExperimentLoop() {
                 sampleCount++;
             }
             
-            // Send binary data to backend for real-time processing
-            // Use current timestamp (millis()) instead of elapsed time for absolute timing
-            sendBinaryData(currentTime, distance, sampleCount);
-            
-            // Send JSON data to local WebSocket clients (only if paired user is connected)
-            if (wsActive && config.userPaired) {
-                String dataMsg = "{\"type\":\"data\",\"timestamp\":" + String(currentTime) + 
-                               ",\"elapsed\":" + String(elapsedTime) + 
-                               ",\"distance\":" + String(distance) + 
-                               ",\"sample\":" + String(sampleCount) + 
-                               ",\"sensor_id\":\"" + sensorID + "\"}";
-                ws.textAll(dataMsg);
-            }
+            // Send data to backend via MQTT for real-time processing
+            publishSensorData(currentTime, distance, sampleCount);
             
             // Toggle status LED
             digitalWrite(STATUS_LED, !digitalRead(STATUS_LED));
@@ -106,9 +90,9 @@ void checkSensorStatus() {
         if (sensorWasPresent && !sensorCurrentlyPresent) {
             Serial.println("⚠️  Sensor unplugged detected! Returning to bootloader mode...");
             
-            // Send notification to backend if connected
-            if (backendWebSocket.isConnected()) {
-                backendWebSocket.sendTXT("{\"type\":\"sensor_status\",\"status\":\"unplugged\",\"action\":\"reboot_to_bootloader\"}");
+            // Send notification to backend via MQTT
+            if (mqttConnected) {
+                publishStatus("sensor_unplugged", "Rebooting to bootloader mode");
             }
             
             // Wait a moment for messages to be sent
@@ -141,9 +125,9 @@ void handleBackendCleanup() {
         Serial.println("Executing backend-initiated cleanup: rebooting to bootloader mode");
         backendCleanupRequested = false; // Reset flag
         
-        // Send notification to backend if connected
-        if (backendWebSocket.isConnected()) {
-            backendWebSocket.sendTXT("{\"type\":\"sensor_status\",\"status\":\"disconnected\",\"action\":\"reboot_to_bootloader\"}");
+        // Send notification to backend via MQTT
+        if (mqttConnected) {
+            publishStatus("disconnected", "Rebooting to bootloader mode");
         }
         
         // Wait a moment for messages to be sent
