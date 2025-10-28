@@ -19,5 +19,26 @@
     "description": "MPU6050 angle/tilt sensor firmware",
     "size": 0,
     "checksum": ""
+  },
+  "TOF": {
+    "filename": "TOF.bin",
+    "version": "1.0.0",
+    "description": "Time-of-Flight displacement sensor firmware",
+    "size": 0,
+    "checksum": ""
+  },
+  "OSI": {
+    "filename": "OSI.bin",
+    "version": "1.0.0",
+    "description": "LDR/laser oscillation counter firmware",
+    "size": 0,
+    "checksum": ""
+  },
+  "ANGLE": {
+    "filename": "ANGLE.bin",
+    "version": "1.0.0",
+    "description": "MPU6050 angle/tilt sensor firmware",
+    "size": 0,
+    "checksum": ""
   }
 }

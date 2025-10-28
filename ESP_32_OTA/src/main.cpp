@@ -6,13 +6,11 @@
 #include <EEPROM.h>
 #include "esp_partition.h"
 #include "esp_ota_ops.h"
-#include <WebSocketsClient.h>
 #include <WiFiUdp.h>
 #include <vector>
 // Forward declarations
 static bool hexToBytes(const String& hex, std::vector<uint8_t>& out);
 static String getDeviceIDFromMAC();
-void webSocketEvent(WStype_t type, uint8_t *payload, size_t length);
 // GPIO pin setup
 #define WIFI_LED 2
 #define SENSOR_LED 15
@@ -28,7 +26,6 @@ const char *password = "11111111";   // Change this to your hotspot password
 
 // Web server
 WebServer server(80);
-WebSocketsClient webSocket;
 String deviceID = "ESP32";
 const char* backendHost = "192.168.1.198"; // Backend server IP - Use the IP of your device running the backend
 //const char* backendHost = "192.168.137.1";  Backend server IP - Connect to hotspot interface
@@ -53,8 +50,7 @@ const unsigned long ledInterval = 3000;
 bool wifiLedState = false;
 bool sensorLedState = false;
 
-// Backend disconnect cleanup flag
-bool backendCleanupRequested = false;
+
 
 // Retry mechanism for EEPROM detection
 #define EEPROM_RETRY_COUNT 3
@@ -466,9 +462,6 @@ void setup()
 
   deviceID = getDeviceIDFromMAC();
   Serial.printf("DeviceID: %s\n", deviceID.c_str());
-  webSocket.begin(backendHost, backendPort, String("/ws/device?device_id=") + deviceID);
-  webSocket.onEvent(webSocketEvent);
-  webSocket.setReconnectInterval(5000);
 
   setupRoutes();
   server.begin();
@@ -489,7 +482,6 @@ void loop()
   server.handleClient();
   handleWifiLed();
   handleSensorLed();
-  webSocket.loop();
   handleUDPDiscovery();
 
   if (WiFi.status() != WL_CONNECTED)
@@ -507,23 +499,9 @@ void loop()
     bool ok = detectSensor();
     
     if (sensorType != prev) {
-      JsonDocument doc;
-      doc["type"] = "sensor_id";
-      doc["sensor_id"] = sensorType;
-      doc["device_id"] = deviceID;
-      doc["ip"] = WiFi.localIP().toString();
-      String msg; serializeJson(doc, msg);
-      webSocket.sendTXT(msg);
+      Serial.printf("Sensor type changed: %s -> %s\n", prev.c_str(), sensorType.c_str());
       
       if (sensorType == "UNKNOWN") {
-        // Send disconnection message to backend for DB cleanup
-        JsonDocument disconnectDoc;
-        disconnectDoc["type"] = "sensor_disconnected";
-        disconnectDoc["device_id"] = deviceID;
-        String disconnectMsg; serializeJson(disconnectDoc, disconnectMsg);
-        webSocket.sendTXT(disconnectMsg);
-        Serial.println("Sent sensor_disconnected message to backend");
-        
         Serial.println("Sensor unplug detected; erasing inactive OTA partition and rebooting to bootloader mode");
         eraseInactivePartition();
         // Force reboot to ensure we're in bootloader mode when sensor is unplugged
@@ -533,16 +511,7 @@ void loop()
     }
   }
 
-  // Check for backend-initiated cleanup request
-  if (backendCleanupRequested) {
-    Serial.println("Executing backend-initiated cleanup: erasing partition and rebooting to bootloader");
-    backendCleanupRequested = false; // Reset flag
-    
-    // Execute cleanup - erase inactive partition and reboot to bootloader
-    eraseInactivePartition();
-    delay(1000);
-    ESP.restart();
-  }
+
 }
 
 // ========== Utils ==========
@@ -570,50 +539,4 @@ static String getDeviceIDFromMAC() {
   mac.replace(":", "");
   if (mac.length() >= 5) return mac.substring(mac.length()-5);
   return mac;
-}
-
-// WebSocket event handler
-void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
-  switch (type) {
-    case WStype_CONNECTED: {
-      Serial.println("WS connected to backend");
-      JsonDocument doc;
-      doc["type"] = "sensor_id";
-      doc["sensor_id"] = sensorType;
-      doc["device_id"] = deviceID;
-      doc["ip"] = WiFi.localIP().toString();
-      String msg; serializeJson(doc, msg);
-      webSocket.sendTXT(msg);
-      break;
-    }
-    case WStype_TEXT: {
-      Serial.printf("WS message: %.*s\n", (int)length, (const char*)payload);
-      
-      // Parse JSON message to check for backend commands
-      JsonDocument cmdDoc;
-      DeserializationError error = deserializeJson(cmdDoc, payload, length);
-      if (!error) {
-        const char* cmdType = cmdDoc["type"];
-        if (cmdType && strcmp(cmdType, "disconnect_and_cleanup") == 0) {
-          Serial.println("Received disconnect_and_cleanup command from backend");
-          backendCleanupRequested = true;
-          Serial.println("Cleanup flag set - will execute in main loop");
-        } else if (cmdType && strcmp(cmdType, "ping") == 0) {
-          Serial.println("Received ping from backend");
-          JsonDocument pongDoc;
-          pongDoc["type"] = "pong";
-          pongDoc["device_id"] = deviceID;
-          String pongMsg; serializeJson(pongDoc, pongMsg);
-          webSocket.sendTXT(pongMsg);
-          Serial.println("Sent pong response");
-        }
-      }
-      break;
-    }
-    case WStype_DISCONNECTED:
-      Serial.println("WS disconnected");
-      break;
-    default:
-      break;
-  }
 }
