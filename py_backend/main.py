@@ -72,6 +72,7 @@ from session_manager import SessionManager
 from ws_client import ClientWebSocketManager
 from ws_device import DeviceWebSocketManager
 from ota_manager import OTAManager
+from services.udp_discovery_service import udp_discovery_service
 from services.oscillation_service import (
     check_osi_connection,
     configure_osi_experiment,
@@ -107,6 +108,12 @@ async def periodic_cleanup():
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(periodic_cleanup())
+    
+    # Start UDP discovery service
+    if await udp_discovery_service.start():
+        logger.info("✅ UDP discovery service started successfully")
+    else:
+        logger.error("❌ Failed to start UDP discovery service")
 
 # Add this at the top with other constants
 ESP32_IP = "192.168.137.15"  # Add this line
@@ -894,7 +901,7 @@ async def select_experiment(
         # Try device-specific firmware first (e.g., 834E8.bin / 834E8_OSC.bin)
         device_fw_map = {
             ExperimentType.DISTANCE: f"{device_id}.bin",
-            ExperimentType.OSCILLATION: f"{device_id}_OSC.bin",
+            ExperimentType.OSCILLATION: f"{device_id}.bin",
             ExperimentType.DISPLACEMENT: f"{device_id}.bin"
         }
         firmware_file = device_fw_map.get(exp)
@@ -916,7 +923,8 @@ async def select_experiment(
             device_id=device_id,
             device_ip=device_ip,
             experiment_type=ota_key,
-            firmware_path=firmware_path_override
+            firmware_path=firmware_path_override,
+            #user_id=current_user['id']
         )
         
         if result.get("status") == "success" or result.get("success"):
@@ -948,8 +956,8 @@ async def select_experiment(
                 now = datetime.now().isoformat()
                 firmware_name = expected_sensor_type
                 update_stmt = text("""
-                    UPDATE available_sensors 
-                    SET availability = 0, last_firmware = :firmware, last_updated = :now
+                    UPDATE available_sensors
+                    SET availability = 0, online_status = 0, last_firmware = :firmware, last_updated = :now
                     WHERE sensor_id = :device_id
                 """)
                 with engine.begin() as conn:

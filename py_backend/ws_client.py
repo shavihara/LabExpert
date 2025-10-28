@@ -142,13 +142,23 @@ class ClientWebSocketManager:
             await self.send_to_user(user_id, {"type": "error", "message": str(e)})
 
     async def _handle_scan_devices(self, user_id: str):
-        devices = await self.session_manager.get_available_devices()
-        normalized = []
-        for d in devices:
-            item = dict(d)
-            item["id"] = item.get("id") or item.get("device_id")
-            normalized.append(item)
-        await self.send_to_user(user_id, {"type": "device_list", "devices": normalized})
+        # Use manual device discovery for experiment interfaces
+        logger.info(f"Manual device scan triggered for user {user_id}")
+        try:
+            devices = await self.session_manager.scan_devices_for_experiment()
+            logger.info(f"Found {len(devices)} devices after manual scan")
+            normalized = []
+            for d in devices:
+                item = dict(d)
+                item["id"] = item.get("id") or item.get("device_id")
+                normalized.append(item)
+            
+            logger.info(f"Sending device list with {len(normalized)} devices to user {user_id}")
+            await self.send_to_user(user_id, {"type": "device_list", "devices": normalized})
+            logger.info(f"Device list sent successfully to user {user_id}")
+        except Exception as e:
+            logger.error(f"Error during manual device scan for user {user_id}: {e}")
+            await self.send_to_user(user_id, {"type": "scan_error", "error": str(e)})
 
     async def _handle_select_device(self, user_id: str, device_id: str):
         success = await self.session_manager.allocate_device_to_user(device_id, user_id)

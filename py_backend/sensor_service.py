@@ -201,8 +201,8 @@ async def configure_experiment(frequency: int, duration: int, device_id: str, mo
         # Use WebSocket approach if device is connected
         device_manager = DeviceWebSocketManager.get_instance()
         
-        # Check if device is connected via WebSocket
-        if device_manager.is_device_connected(device_id):
+        # Check if device is connected via WebSocket and has completed identification
+        if device_manager.is_device_connected(device_id) and await device_manager.is_device_ready_for_configuration(device_id):
             # Validate configuration
             required_samples = frequency * duration
             if required_samples > MAX_ESP32_SAMPLES:
