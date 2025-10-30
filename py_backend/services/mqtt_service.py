@@ -2,6 +2,8 @@
 # MQTT service for ESP32 device communication
 import json
 import logging
+import asyncio
+import threading
 import paho.mqtt.client as mqtt
 from typing import Dict, Optional, Callable
 from session_manager import SessionManager
@@ -20,6 +22,7 @@ class MQTTService:
         self.client_ws_manager = client_ws_manager
         self.message_handlers: Dict[str, Callable] = {}
         self.connected = False
+        self.loop = None  # Will store the main event loop
         
         # Setup MQTT callbacks
         self.client.on_connect = self._on_connect
@@ -64,7 +67,18 @@ class MQTTService:
         """Handle incoming MQTT messages"""
         try:
             topic = msg.topic
+            
+            # Debug: log raw message details
+            logger.debug(f"MQTT message received on topic: {topic}")
+            logger.debug(f"Message QoS: {msg.qos}, Retained: {msg.retain}")
+            
+            # Check if payload is empty
+            if not msg.payload:
+                logger.warning(f"Empty payload received on topic: {topic}")
+                return
+                
             payload = msg.payload.decode('utf-8')
+            logger.debug(f"Payload content: {payload}")
             
             # Extract device ID from topic
             if topic.startswith("sensors/") and "/" in topic[8:]:
@@ -76,7 +90,9 @@ class MQTTService:
                     self._handle_status_update(device_id, payload)
                     
         except Exception as e:
-            logger.error(f"Error processing MQTT message: {e}")
+            logger.error(f"Error processing MQTT message on topic {msg.topic}: {e}")
+            if hasattr(msg, 'payload') and msg.payload:
+                logger.error(f"Problematic payload: {msg.payload[:100]}")  # First 100 chars
     
     def _on_disconnect(self, client, userdata, rc):
         """MQTT disconnection callback"""
@@ -124,14 +140,29 @@ class MQTTService:
     def publish_config(self, device_id: str, config: dict):
         """Publish configuration to device"""
         try:
-            topic = f"sensors/{device_id}/config"
-            payload = json.dumps(config)
+            # Convert field names to match ESP32 firmware expectations
+            esp32_config = {
+                "freq": config.get("frequency", 50),  # ESP32 expects "freq" not "frequency"
+                "duration": config.get("duration", 60),
+                "averagingSamples": config.get("averagingSamples", 1)
+            }
+            # Only include maxRange if explicitly provided to avoid forcing unsupported range
+            if "maxRange" in config and config["maxRange"] is not None:
+                esp32_config["maxRange"] = config["maxRange"]
             
-            self.client.publish(topic, payload, qos=1)
-            logger.info(f"Published config to {device_id}: {config}")
+            topic = f"sensors/{device_id}/config"
+            payload = json.dumps(esp32_config)
+            
+            result = self.client.publish(topic, payload, qos=1)
+            if result.rc != mqtt.MQTT_ERR_SUCCESS:
+                logger.error(f"Failed to publish config to {device_id}: RC {result.rc}")
+                raise ValueError(f"MQTT publish failed with RC {result.rc}")
+            
+            logger.info(f"Successfully published config to {device_id}: {esp32_config}")
             
         except Exception as e:
             logger.error(f"Error publishing config to {device_id}: {e}")
+            raise
 
     def publish_start_command(self, device_id: str):
         """Publish start experiment command to device"""

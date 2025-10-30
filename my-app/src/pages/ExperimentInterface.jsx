@@ -362,28 +362,6 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
       
       // Use WebSocket instead of HTTP
       applyConfiguration(selectedDevice.id, config);
-      
-      // Wait for WebSocket response
-      const checkStatus = () => {
-        if (configStatus) {
-          if (configStatus.success) {
-            setStatusMessage('✓ Configuration applied successfully');
-            setTimeout(() => {
-              onClose();
-            }, 1500);
-            setIsSubmitting(false);
-          } else if (configStatus.success === false) {
-            setStatusMessage(`❌ Error: ${configStatus.message}`);
-            setIsSubmitting(false);
-          }
-        } else {
-          // Check again after delay
-          setTimeout(checkStatus, 100);
-        }
-      };
-      
-      // Start checking for status
-      setTimeout(checkStatus, 100);
 
     } catch (err) {
       console.error(err);
@@ -391,6 +369,22 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
       setIsSubmitting(false);
     }
   };
+
+  // React to configuration status updates from backend to clear spinner
+  useEffect(() => {
+    if (!isSubmitting) return;
+    if (!configStatus) return;
+    if (configStatus.success === true) {
+      setStatusMessage('✓ Configuration applied successfully');
+      setIsSubmitting(false);
+      setTimeout(() => {
+        onClose();
+      }, 1500);
+    } else if (configStatus.success === false) {
+      setStatusMessage(`❌ Error: ${configStatus.message}`);
+      setIsSubmitting(false);
+    }
+  }, [configStatus, isSubmitting, onClose]);
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm p-4">
