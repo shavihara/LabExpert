@@ -39,11 +39,15 @@ export const useWebSocket = (token, isActive = true) => {
 
   // Send message through WebSocket
   const sendMessage = useCallback((message) => {
+    console.log('sendMessage called with:', message, 'WebSocket state:', websocketRef.current?.readyState);
     if (websocketRef.current && websocketRef.current.readyState === WebSocket.OPEN) {
+      console.log('Sending message via WebSocket:', JSON.stringify(message));
       websocketRef.current.send(JSON.stringify(message));
       return true;
+    } else {
+      console.log('Cannot send message - WebSocket not open. State:', websocketRef.current?.readyState);
+      return false;
     }
-    return false;
   }, []);
 
   // Disconnect WebSocket
@@ -85,20 +89,34 @@ export const useWebSocket = (token, isActive = true) => {
       return;
     }
 
-    console.log('Connecting WebSocket with token:', tokenRef.current?.substring(0, 10) + '...');
+    // Close any existing connection first
+    if (websocketRef.current) {
+      console.log('Closing existing WebSocket connection');
+      websocketRef.current.close();
+      websocketRef.current = null;
+    }
+
+    console.log('Connecting WebSocket with token:', tokenRef.current?.substring(0, 10) + '...', 'URL:', `${WS_URL}/ws/client?token=${tokenRef.current}`);
     setIsConnecting(true);
     setError(null);
 
     try {
       const ws = new WebSocket(`${WS_URL}/ws/client?token=${tokenRef.current}`);
       websocketRef.current = ws;
+      console.log('WebSocket instance created:', ws);
 
       ws.onopen = () => {
-        console.log('WebSocket connected successfully');
+        console.log('WebSocket connection opened successfully');
         setIsConnected(true);
         setIsConnecting(false);
+        setReconnectAttempts(0);
         setError(null);
-        reconnectAttemptsRef.current = 0;
+        
+        // Send a test ping message to verify connection
+        setTimeout(() => {
+          console.log('Sending test ping message');
+          ws.send(JSON.stringify({ action: 'ping', message: 'test connection' }));
+        }, 1000);
       };
 
       ws.onmessage = (event) => {
@@ -120,13 +138,13 @@ export const useWebSocket = (token, isActive = true) => {
       };
 
       ws.onerror = (err) => {
-        console.error('WebSocket error:', err);
+        console.error('WebSocket error occurred:', err);
         setError('WebSocket connection error');
         setIsConnecting(false);
       };
 
       ws.onclose = (event) => {
-        console.log('WebSocket closed:', event.code, event.reason);
+        console.log('WebSocket connection closed:', event.code, event.reason, event.wasClean);
         websocketRef.current = null;
         setIsConnected(false);
         setIsConnecting(false);
@@ -195,6 +213,8 @@ export const useWebSocket = (token, isActive = true) => {
           }, RECONNECT_DELAY);
         } else if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
           setError('Connection failed after multiple attempts');
+        } else {
+          console.log('Not reconnecting - isActive:', isActiveRef.current, 'hasToken:', !!tokenRef.current, 'attempts:', reconnectAttemptsRef.current);
         }
       };
 
@@ -207,14 +227,19 @@ export const useWebSocket = (token, isActive = true) => {
 
   // Effect to manage connection based on isActive and token
   useEffect(() => {
+    console.log('useWebSocket effect triggered - token:', token ? token.substring(0, 10) + '...' : 'null', 'isActive:', isActive);
+    
     if (isActive && token) {
+      console.log('Attempting to connect WebSocket...');
       connect();
     } else {
+      console.log('Disconnecting WebSocket - token:', !!token, 'isActive:', isActive);
       disconnect();
     }
     
     // Cleanup on unmount or when isActive/token changes
     return () => {
+      console.log('useWebSocket cleanup');
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
@@ -242,19 +267,21 @@ export const useWebSocket = (token, isActive = true) => {
 };
 
 // Hook for device management
-export const useDeviceManager = (token) => {
+export const useDeviceManager = (webSocketInstance) => {
   const [devices, setDevices] = useState([]);
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [isScanning, setIsScanning] = useState(false);
   const [scanError, setScanError] = useState(null);
 
-  const { sendMessage, addMessageHandler, isConnected } = useWebSocket(token, true);
+  const { sendMessage, addMessageHandler, isConnected } = webSocketInstance;
 
   // Handle device-related messages
   useEffect(() => {
     const handleMessage = (data) => {
+      console.log('useDeviceManager received message:', data);
       switch (data.type) {
         case 'device_list':
+          console.log('Processing device_list message with devices:', data.devices);
           setDevices(data.devices || []);
           setIsScanning(false);
           setScanError(null);
@@ -280,15 +307,21 @@ export const useDeviceManager = (token) => {
 
   // Initiate a device scan
   const scanDevices = useCallback(() => {
+    console.log('scanDevices called - isConnected:', isConnected);
     if (!isConnected) {
+      console.log('Cannot scan: WebSocket not connected');
       setScanError('WebSocket not connected');
       return;
     }
 
+    console.log('Starting device scan...');
     setIsScanning(true);
     setScanError(null);
     // Backend expects 'action' field instead of 'type'
-    sendMessage({ action: 'scan_devices' });
+    const message = { action: 'scan_devices' };
+    console.log('Sending scan message:', message);
+    const sent = sendMessage(message);
+    console.log('Message sent successfully:', sent);
   }, [isConnected, sendMessage]);
 
   // Select a device by ID
@@ -322,7 +355,7 @@ export const useDeviceManager = (token) => {
 };
 
 // Hook for experiment management
-export const useExperimentManager = (token) => {
+export const useExperimentManager = (webSocketInstance) => {
   const [experimentData, setExperimentData] = useState([]);
   const [isRunning, setIsRunning] = useState(false);
   const [experimentError, setExperimentError] = useState(null);
@@ -330,7 +363,7 @@ export const useExperimentManager = (token) => {
   const [configStatus, setConfigStatus] = useState(null);
   const [saveStatus, setSaveStatus] = useState(null);
 
-  const { sendMessage, addMessageHandler, isConnected } = useWebSocket(token, true);
+  const { sendMessage, addMessageHandler, isConnected } = webSocketInstance;
 
   // Handle experiment-related messages
   useEffect(() => {
@@ -351,6 +384,11 @@ export const useExperimentManager = (token) => {
           setIsRunning(false);
           break;
         case 'firmware_flash_result':
+          console.log('Received firmware_flash_result:', data);
+          console.log('Setting firmwareStatus to:', {
+            success: data.success,
+            message: data.message || data.detail || 'Firmware operation completed'
+          });
           setFirmwareStatus({
             success: data.success,
             message: data.message || data.detail || 'Firmware operation completed'

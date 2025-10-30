@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useDeviceManager } from '../hooks/useWebSocket';
 import './DeviceScanner.css';
 
-const DeviceScanner = ({ token, onDeviceSelected, selectedExperiment }) => {
+const DeviceScanner = ({ webSocketInstance, onDeviceSelected, selectedExperiment }) => {
   const [autoScan, setAutoScan] = useState(false);
   const [scanInterval, setScanInterval] = useState(null);
 
@@ -17,7 +17,16 @@ const DeviceScanner = ({ token, onDeviceSelected, selectedExperiment }) => {
     selectDevice,
     releaseDevice,
     isConnected
-  } = useDeviceManager(token);
+  } = webSocketInstance ? useDeviceManager(webSocketInstance) : {
+    devices: [],
+    selectedDevice: null,
+    isScanning: false,
+    scanError: null,
+    scanDevices: () => {},
+    selectDevice: () => {},
+    releaseDevice: () => {},
+    isConnected: false
+  };
 
   // Auto-scan functionality
   useEffect(() => {

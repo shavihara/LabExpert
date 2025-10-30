@@ -204,6 +204,20 @@ export const userAPI = {
     }),
 };
 
+export const deviceAPI = {
+  scanDevices: async () => {
+    try {
+      console.log('🔍 Triggering device scan via REST API...');
+      const response = await api.post('/api/user/scan-devices');
+      console.log('✅ Device scan successful:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Device scan failed:', error);
+      throw error;
+    }
+  },
+};
+
 export const fileAPI = {
   getFile: (fileId) => `${API_URL}/files/${fileId}`,
 };

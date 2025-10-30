@@ -77,10 +77,14 @@ class ClientWebSocketManager:
         websocket = self.active_clients.get(user_id)
         if websocket:
             try:
+                logger.info(f"Sending message to user {user_id}: {message}")
                 await websocket.send_json(message)
+                logger.info(f"Message sent successfully to user {user_id}")
                 return True
             except Exception as e:
                 logger.error(f"Error sending message to user {user_id}: {e}")
+        else:
+            logger.warning(f"No active WebSocket connection for user {user_id}")
         return False
     
     async def broadcast_device_list(self):
@@ -121,6 +125,9 @@ class ClientWebSocketManager:
                 await self._handle_release_device(user_id)
             elif action == "dashboard_navigation":
                 await self.handle_dashboard_navigation(user_id)
+            elif action == "flash_firmware":
+                # Flash firmware doesn't require device allocation - just needs device IP
+                await self._handle_flash_firmware(user_id, message.get("device_id"), message.get("experiment_type"))
             else:
                 # Verify allocation for device-specific actions
                 user_devices = await self.session_manager.get_user_devices(user_id)
@@ -138,8 +145,6 @@ class ClientWebSocketManager:
                     await self._handle_simple_device_command(user_id, {"type": "stop_experiment"}, "experiment_stopped")
                 elif action == "configure_experiment":
                     await self._handle_configure_experiment(user_id, message.get("config", {}), message.get("experiment_type"))
-                elif action == "flash_firmware":
-                    await self._handle_flash_firmware(user_id, message.get("device_id"), message.get("experiment_type"))
                 elif action == "save_experiment_data":
                     await self._handle_save_experiment_data(user_id, message.get("experiment_type"), message.get("graph_type"), message.get("data"), message.get("timestamp"))
         except Exception as e:
@@ -293,7 +298,17 @@ class ClientWebSocketManager:
             
             # Get device IP from session manager
             device_status = await self.session_manager.get_device_status(device_id)
-            device_ip = device_status.get("ip_address") if device_status else None
+            logger.info(f"Device status for {device_id}: {device_status}")
+            
+            # Extract IP from nested status structure
+            device_ip = None
+            if device_status:
+                # Try different possible locations for IP address
+                device_ip = device_status.get("ip_address")  # Direct access
+                if not device_ip and "status" in device_status:
+                    device_ip = device_status["status"].get("ip_address")  # Nested in status
+            
+            logger.info(f"Resolved device IP for {device_id}: {device_ip}")
             
             if not device_ip:
                 await self.send_to_user(user_id, {
@@ -309,6 +324,8 @@ class ClientWebSocketManager:
                 ota_key = "displacement"
             elif experiment_type == "oscillation":
                 ota_key = "oscillation"
+            elif experiment_type == "inclined_plane":
+                ota_key = "inclined_plane"
             elif experiment_type == "angle":
                 ota_key = "angle"
             
@@ -326,12 +343,20 @@ class ClientWebSocketManager:
                 device_ip=device_ip,
                 experiment_type=ota_key
             )
+
+            logger.info(f"OTA result for {device_id}: {result}")
             
-            await self.send_to_user(user_id, {
+            success = result.get("status") == "success"
+            message = result.get("message", "Firmware flash completed")
+            
+            response_message = {
                 "type": "firmware_flash_result", 
-                "success": result.get("status") == "success", 
-                "message": result.get("message", "Firmware flash completed")
-            })
+                "success": success, 
+                "message": message
+            }
+            
+            logger.info(f"Sending firmware_flash_result to user {user_id}: {response_message}")
+            await self.send_to_user(user_id, response_message)
             
         except Exception as e:
             logger.error(f"Error flashing firmware for device {device_id}: {e}")

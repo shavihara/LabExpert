@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Brush, ReferenceLine } from 'recharts';
-import { useWebSocket, useDeviceManager } from '../hooks/useWebSocket';
+import { useWebSocket, useDeviceManager, useExperimentManager } from '../hooks/useWebSocket';
+import { deviceAPI } from '../utils/api';
 import { 
   FiSettings, FiBarChart2, FiPlay, FiPause, FiStopCircle, FiX, FiCheckCircle, 
   FiAlertTriangle, FiLoader, FiWifi, FiWifiOff, FiZap, FiLogOut, FiRepeat,
@@ -11,33 +12,122 @@ import {
 // =================================================================================
 // Configuration Modal Component
 // =================================================================================
-const ConfigurationModal = ({ onComplete }) => {
+const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, sharedExperimentManager }) => {
   const userToken = localStorage.getItem('token');
   const [experimentType, setExperimentType] = useState('distance');
   const [flashStatus, setFlashStatus] = useState('Select a sensor to begin');
   const [isFlashing, setIsFlashing] = useState(false);
+  const [pendingFirmware, setPendingFirmware] = useState(null); // Track which firmware to flash
+  const [selectedDevice, setSelectedDevice] = useState(null); // Track which device was selected for flashing
 
+  // Use shared connections instead of creating new ones
   const {
     devices,
     isScanning,
     isConnected,
     scanDevices,
     selectDevice,
-  } = useDeviceManager(userToken);
+  } = sharedDeviceManager;
 
   const {
     flashFirmware,
     firmwareStatus
-  } = useExperimentManager(userToken);
+  } = sharedExperimentManager;
+
+  // Debug logging for firmwareStatus changes
+  useEffect(() => {
+    console.log('ConfigurationModal - firmwareStatus changed:', firmwareStatus);
+    if (firmwareStatus && firmwareStatus.success === true) {
+      console.log('SUCCESS DETECTED in useEffect! firmwareStatus:', firmwareStatus);
+    }
+  }, [firmwareStatus]);
+
+  // Handle firmware flash completion
+  useEffect(() => {
+    console.log('=== FIRMWARE STATUS USEEFFECT TRIGGERED ===');
+    console.log('isFlashing:', isFlashing);
+    console.log('firmwareStatus:', firmwareStatus);
+    console.log('firmwareStatus?.success:', firmwareStatus?.success);
+    console.log('firmwareStatus?.success !== null:', firmwareStatus?.success !== null);
+    console.log('Condition check:', isFlashing && firmwareStatus && firmwareStatus.success !== null);
+    
+    if (isFlashing && firmwareStatus && firmwareStatus.success !== null) {
+      console.log('=== CONDITION MET - PROCESSING FIRMWARE RESULT ===');
+      if (firmwareStatus.success) {
+        console.log('Firmware flash successful, transitioning to experiment...');
+        setFlashStatus('✓ Firmware flashed successfully');
+        
+        // Call onComplete immediately instead of using setTimeout
+        const expType = experimentType === 'distance' ? 'tof' : 'oscillation';
+        console.log('Calling onComplete with:', { device: selectedDevice, experimentType: expType, token: userToken });
+        console.log('selectedDevice details:', selectedDevice);
+        
+        try {
+          onComplete({ device: selectedDevice, experimentType: expType, token: userToken });
+        } catch (error) {
+          console.error('Error calling onComplete:', error);
+        }
+      } else if (firmwareStatus.success === false) {
+        console.log('Firmware flash failed:', firmwareStatus.message);
+        setFlashStatus(`✗ Error: ${firmwareStatus.message}`);
+        setIsFlashing(false);
+      }
+    } else {
+      console.log('=== CONDITION NOT MET ===');
+      console.log('Reasons:');
+      console.log('- isFlashing:', isFlashing);
+      console.log('- firmwareStatus exists:', !!firmwareStatus);
+      console.log('- firmwareStatus.success !== null:', firmwareStatus?.success !== null);
+    }
+  }, [firmwareStatus, isFlashing, experimentType, userToken, onComplete, selectedDevice]);
 
   useEffect(() => {
+    console.log('ConfigurationModal useEffect - isConnected:', isConnected, 'isScanning:', isScanning, 'devices.length:', devices.length);
     if (isConnected && !isScanning && devices.length === 0) {
+      console.log('Triggering device scan...');
       scanDevices();
+    } else {
+      console.log('Not scanning because:', {
+        isConnected,
+        isScanning,
+        devicesLength: devices.length,
+        condition: isConnected && !isScanning && devices.length === 0
+      });
     }
   }, [isConnected, isScanning, devices.length, scanDevices]);
 
+  // Handle experiment type selection - prepare firmware but don't flash yet
+  const handleExperimentTypeSelection = (type) => {
+    setExperimentType(type);
+    
+    // Map experiment types to firmware files
+    const firmwareMap = {
+      'distance': 'displacement', // Maps to TOF.bin in firmware registry
+      'oscillation': 'inclined_plane' // Maps to INC.bin in firmware registry
+    };
+    
+    const firmwareType = firmwareMap[type];
+    setPendingFirmware(firmwareType);
+    
+    // Update status to indicate firmware is prepared
+    const firmwareNames = {
+      'distance': 'TOF.bin',
+      'oscillation': 'INC.bin'
+    };
+    
+    setFlashStatus(`${firmwareNames[type]} prepared. Select a sensor to flash firmware.`);
+  };
+
   const handleFlash = async (device) => {
+    if (!pendingFirmware) {
+      setFlashStatus('Please select an experiment type first');
+      return;
+    }
+
+    console.log('=== STARTING FLASH OPERATION ===');
+    console.log('Setting isFlashing to true');
     setIsFlashing(true);
+    setSelectedDevice(device); // Store the selected device for use in useEffect
     setFlashStatus('Allocating device...');
 
     try {
@@ -46,30 +136,15 @@ const ConfigurationModal = ({ onComplete }) => {
 
       setFlashStatus('Flashing firmware via OTA...');
       
-      // Use WebSocket instead of HTTP
-      flashFirmware(device.id, experimentType);
+      // Use the prepared firmware type instead of experimentType
+      console.log('Flashing firmware for device:', device.id, 'with firmware type:', pendingFirmware);
+      console.log('Current firmwareStatus before flash:', firmwareStatus);
       
-      // Wait for WebSocket response
-      const checkStatus = () => {
-        if (firmwareStatus) {
-          if (firmwareStatus.success) {
-            setFlashStatus('✓ Firmware flashed successfully');
-            setTimeout(() => {
-              const expType = experimentType === 'distance' ? 'tof' : 'oscillation';
-              onComplete({ device, experimentType: expType, token: userToken });
-            }, 1000);
-          } else if (firmwareStatus.success === false) {
-            setFlashStatus(`✗ Error: ${firmwareStatus.message}`);
-            setIsFlashing(false);
-          }
-        } else {
-          // Check again after delay
-          setTimeout(checkStatus, 100);
-        }
-      };
+      // Clear any previous firmware status before starting new flash
+      // Note: The flashFirmware function will set it to { success: null, message: 'Flashing firmware...' }
+      flashFirmware(device.id, pendingFirmware);
       
-      // Start checking for status
-      setTimeout(checkStatus, 100);
+      // The firmware status will be handled by the useEffect below
 
     } catch (err) {
       console.error(err);
@@ -78,9 +153,44 @@ const ConfigurationModal = ({ onComplete }) => {
     }
   };
 
-  const tofDevices = devices.filter(d => 
-    (d.sensor_type || '').toUpperCase().includes('TOF')
-  );
+  // Debug logging to see what devices we're receiving
+  console.log('All devices received:', devices);
+  console.log('Devices length:', devices.length);
+  console.log('Current experiment type:', experimentType);
+  
+  // Filter devices based on experiment type compatibility (backend already filters by online_status = 1)
+  const tofDevices = devices.filter(device => {
+    // If no experiment type is selected, show all online devices (already filtered by backend)
+    if (!experimentType) return true;
+    
+    // Check if device supports the selected experiment type
+    if (device.supported_experiments && Array.isArray(device.supported_experiments)) {
+      return device.supported_experiments.includes(experimentType);
+    }
+    
+    // If device doesn't have supported_experiments info, check by device type
+    if (device.type) {
+      // Map experiment types to device types
+      const experimentToDeviceType = {
+        'tof': ['tof', 'displacement', 'distance'],
+        'distance': ['tof', 'displacement', 'distance'],
+        'displacement': ['tof', 'displacement', 'distance'],
+        'oscillation': ['oscillation', 'angle', 'incline'],
+        'angle': ['oscillation', 'angle', 'incline']
+      };
+      
+      const compatibleTypes = experimentToDeviceType[experimentType] || [];
+      return compatibleTypes.some(type => 
+        device.type.toLowerCase().includes(type.toLowerCase())
+      );
+    }
+    
+    // If no type information available, show the device (assume compatible)
+    return true;
+  });
+  
+  console.log(`Showing ${tofDevices.length} compatible devices for experiment type: ${experimentType || 'any'} (backend filters online_status = 1)`);
+  console.log('Devices received from backend:', tofDevices.map(d => `${d.device_id} (status: ${d.status})`));
 
   const getFlashStatusDisplay = () => {
     if (flashStatus.includes('✓')) {
@@ -110,7 +220,7 @@ const ConfigurationModal = ({ onComplete }) => {
             <h3 className="text-xl font-semibold text-slate-800 mb-4">1. Select Experiment Type</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <button
-                onClick={() => setExperimentType('distance')}
+                onClick={() => handleExperimentTypeSelection('distance')}
                 className={`p-6 rounded-xl border-2 transition-all duration-300 group ${
                   experimentType === 'distance'
                     ? 'border-purple-600 bg-purple-50 shadow-lg scale-105'
@@ -120,9 +230,10 @@ const ConfigurationModal = ({ onComplete }) => {
                 <div className="text-4xl mb-3">📏</div>
                 <div className="font-semibold text-slate-800 text-lg">Displacement Analysis</div>
                 <p className="text-sm text-slate-500 mt-1">Measure distance, velocity, and acceleration.</p>
+                <p className="text-xs text-purple-600 mt-2 font-medium">→ TOF.bin firmware</p>
               </button>
               <button
-                onClick={() => setExperimentType('oscillation')}
+                onClick={() => handleExperimentTypeSelection('oscillation')}
                 className={`p-6 rounded-xl border-2 transition-all duration-300 group ${
                   experimentType === 'oscillation'
                     ? 'border-purple-600 bg-purple-50 shadow-lg scale-105'
@@ -132,12 +243,52 @@ const ConfigurationModal = ({ onComplete }) => {
                 <div className="text-4xl mb-3">📐</div>
                 <div className="font-semibold text-slate-800 text-lg">Inclined Plane</div>
                 <p className="text-sm text-slate-500 mt-1">Analyze motion on an inclined plane.</p>
+                <p className="text-xs text-purple-600 mt-2 font-medium">→ INC.bin firmware</p>
               </button>
             </div>
           </div>
 
-          <div>
+            <div>
             <h3 className="text-xl font-semibold text-slate-800 mb-4">2. Select Sensor</h3>
+            
+            {/* Manual scan button for debugging */}
+            <div className="mb-4">
+              <button
+                onClick={async () => {
+                  console.log('Manual scan button clicked');
+                  console.log('WebSocket state:', sharedWebSocket);
+                  console.log('Device manager state:', sharedDeviceManager);
+                  
+                  // Try WebSocket first
+                  const wsSuccess = sharedWebSocket.sendMessage({ action: 'scan_devices' });
+                  console.log('WebSocket scan message sent:', wsSuccess);
+                  
+                  // If WebSocket fails or is not connected, try REST API
+                  if (!wsSuccess || !isConnected) {
+                    console.log('WebSocket failed, trying REST API...');
+                    try {
+                      const result = await deviceAPI.scanDevices();
+                      console.log('REST API scan result:', result);
+                      
+                      // Manually update the device manager with the results
+                      if (result.success && result.devices) {
+                        // This is a workaround - ideally we'd have a way to inject devices into the device manager
+                        console.log(`Found ${result.devices.length} devices via REST API:`, result.devices);
+                      }
+                    } catch (error) {
+                      console.error('REST API scan failed:', error);
+                    }
+                  }
+                }}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+              >
+                Manual Scan (WS + REST)
+              </button>
+              <span className="ml-2 text-sm text-gray-600">
+                Connected: {isConnected ? 'Yes' : 'No'} | Scanning: {isScanning ? 'Yes' : 'No'} | Devices: {devices.length}
+              </span>
+            </div>
+            
             <div className="max-h-60 overflow-y-auto bg-slate-50 p-4 rounded-lg border border-slate-200">
               {isScanning ? (
                 <div className="flex items-center justify-center py-10 text-slate-500">
@@ -186,14 +337,15 @@ const ConfigurationModal = ({ onComplete }) => {
 // =================================================================================
 // Configuration Panel Component
 // =================================================================================
-const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken }) => {
+const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sharedExperimentManager }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   
+  // Use shared experiment manager instead of creating new one
   const {
     applyConfiguration,
     configStatus
-  } = useExperimentManager(userToken);
+  } = sharedExperimentManager;
 
   const handleApplyConfiguration = async () => {
     if (!selectedDevice) {
@@ -542,7 +694,7 @@ const LiveDataTable = ({ data, graphType, isFullscreen, onToggleFullscreen }) =>
 // =================================================================================
 // Experiment Graph Component (with enhanced features)
 // =================================================================================
-const ExperimentGraph = ({ experimentType, token }) => {
+const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperimentManager }) => {
   const [chartData, setChartData] = useState([]);
   const [graphType, setGraphType] = useState('s-t');
   const [isRunning, setIsRunning] = useState(false);
@@ -557,8 +709,9 @@ const ExperimentGraph = ({ experimentType, token }) => {
   const timerRef = useRef(null);
   const startTimeRef = useRef(null);
 
-  const { sendMessage, lastMessage } = useWebSocket(token, false);
-  const { saveExperimentData, saveStatus: wsSaveStatus } = useExperimentManager();
+  // Use shared connections instead of creating new ones
+  const { sendMessage, lastMessage } = sharedWebSocket;
+  const { saveExperimentData, saveStatus: wsSaveStatus } = sharedExperimentManager;
 
   // Timer countdown effect
   useEffect(() => {
@@ -1003,14 +1156,22 @@ const ExperimentInterface = () => {
   const [experimentType, setExperimentType] = useState('tof');
   const [showConfigPanel, setShowConfigPanel] = useState(false);
   const userToken = localStorage.getItem('token');
+  console.log('ExperimentInterface - userToken:', userToken ? userToken.substring(0, 10) + '...' : 'null');
+
+  // Create shared WebSocket connections at the top level
+  const sharedWebSocket = useWebSocket(userToken, true);
+  console.log('ExperimentInterface - sharedWebSocket state:', {
+    isConnected: sharedWebSocket.isConnected,
+    isConnecting: sharedWebSocket.isConnecting,
+    error: sharedWebSocket.error
+  });
+  const sharedDeviceManager = useDeviceManager(sharedWebSocket);
+  const sharedExperimentManager = useExperimentManager(sharedWebSocket);
   const [selectedDevice, setSelectedDevice] = useState(null);
 
-  const { sendMessage } = useWebSocket(userToken, true);
-  const { releaseDevice } = useDeviceManager(userToken);
-
   const handleDisconnect = () => {
-    sendMessage({ action: 'release_device' });
-    releaseDevice();
+    sharedWebSocket.sendMessage({ action: 'release_device' });
+    sharedDeviceManager.releaseDevice();
     localStorage.removeItem('selectedDevice');
     localStorage.removeItem('experimentType');
     setSelectedDevice(null);
@@ -1037,13 +1198,26 @@ const ExperimentInterface = () => {
     }
   }, []);
 
+  useEffect(() => {
+    console.log('=== showConfigModal state changed ===');
+    console.log('showConfigModal:', showConfigModal);
+    console.log('selectedDevice:', selectedDevice);
+    console.log('experimentType:', experimentType);
+  }, [showConfigModal, selectedDevice, experimentType]);
+
   const handleComplete = ({ device, experimentType: expType, token }) => {
+    console.log('=== handleComplete called ===');
+    console.log('Received parameters:', { device, experimentType: expType, token });
+    console.log('Current showConfigModal state:', showConfigModal);
+    
     localStorage.setItem('selectedDevice', JSON.stringify(device));
     localStorage.setItem('experimentType', expType);
     setSelectedDevice(device);
     setExperimentType(expType);
     setShowConfigPanel(false);
     setShowConfigModal(false);
+    
+    console.log('handleComplete completed - should hide modal and show main interface');
   };
 
   const getExperimentName = () => {
@@ -1055,7 +1229,14 @@ const ExperimentInterface = () => {
   return (
     <div className="p-4 md:p-8 bg-gradient-to-br from-slate-50 via-blue-50 to-purple-50 min-h-screen">
       
-      {showConfigModal && <ConfigurationModal onComplete={handleComplete} />}
+      {showConfigModal && (
+        <ConfigurationModal 
+          onComplete={handleComplete}
+          sharedWebSocket={sharedWebSocket}
+          sharedDeviceManager={sharedDeviceManager}
+          sharedExperimentManager={sharedExperimentManager}
+        />
+      )}
       {showConfigPanel && (
         <ConfigPanel 
           config={config}
@@ -1063,6 +1244,7 @@ const ExperimentInterface = () => {
           onClose={() => setShowConfigPanel(false)}
           selectedDevice={selectedDevice}
           userToken={userToken}
+          sharedExperimentManager={sharedExperimentManager}
         />
       )}
 
@@ -1123,7 +1305,12 @@ const ExperimentInterface = () => {
               <span className="hidden sm:inline">Live Data Feed</span>
               <span className="sm:hidden">Live Data</span>
             </h2>
-            <ExperimentGraph experimentType={experimentType} token={userToken} sendMessage={sendMessage} />
+            <ExperimentGraph 
+              experimentType={experimentType} 
+              token={userToken} 
+              sharedWebSocket={sharedWebSocket}
+              sharedExperimentManager={sharedExperimentManager}
+            />
           </div>
 
         </div>
