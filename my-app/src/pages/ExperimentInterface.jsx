@@ -543,7 +543,7 @@ const DataStatistics = ({ data, dataType }) => {
 // Live Data Table Component
 // =================================================================================
 const LiveDataTable = ({ data, graphType, isFullscreen, onToggleFullscreen }) => {
-  const [showAllData, setShowAllData] = useState(false);
+  const [showAllData, setShowAllData] = useState(true);
   const tableRef = useRef(null);
 
   const displayData = showAllData ? data : data.slice(-20);
@@ -702,6 +702,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   const chartDataRef = useRef([]);
   const timerRef = useRef(null);
   const startTimeRef = useRef(null);
+  const sensorStartTimeRef = useRef(null);
 
   // Use shared connections instead of creating new ones
   const { sendMessage, lastMessage } = sharedWebSocket;
@@ -730,9 +731,27 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
 
   useEffect(() => {
     if (lastMessage?.data?.distance !== undefined) {
+      // Use firmware-provided timestamp if available; fallback to Date.now()
+      // Accept both nested and top-level timestamp/time and coerce to number
+      const timeCandidate = (lastMessage?.data?.time ?? lastMessage?.data?.timestamp ?? lastMessage?.timestamp);
+      const rawMs = Number(timeCandidate);
+      let elapsedMs;
+      if (Number.isFinite(rawMs)) {
+        // Initialize sensor baseline on first valid timestamp
+        if (sensorStartTimeRef.current === null) {
+          sensorStartTimeRef.current = rawMs;
+        }
+        elapsedMs = rawMs - sensorStartTimeRef.current;
+      } else {
+        // Fallback to UI-side elapsed time
+        elapsedMs = startTimeRef.current ? (Date.now() - startTimeRef.current) : 0;
+      }
+      if (!Number.isFinite(elapsedMs) || elapsedMs < 0) {
+        elapsedMs = 0;
+      }
       const newData = {
-        time: lastMessage.data.time || Date.now(),
-        timeDisplay: (lastMessage.data.time / 1000).toFixed(2),
+        time: elapsedMs,
+        timeDisplay: Number.isFinite(elapsedMs / 1000) ? (elapsedMs / 1000).toFixed(2) : '0.00',
         distance: lastMessage.data.distance,
         velocity: lastMessage.data.velocity || 0,
         acceleration: lastMessage.data.acceleration || 0
@@ -761,6 +780,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     setChartData([]);
     setIsRunning(true);
     setIsPaused(false);
+    sensorStartTimeRef.current = null;
     
     // Get duration from configuration
     try {

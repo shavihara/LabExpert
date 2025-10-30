@@ -39,6 +39,7 @@ class MQTTService:
     
     async def start(self):
         """Start MQTT service (async wrapper for connect)"""
+        self.loop = asyncio.get_event_loop()  # Store the main event loop
         self.connect()
         
     def connect(self):
@@ -74,7 +75,11 @@ class MQTTService:
             
             # Check if payload is empty
             if not msg.payload:
-                logger.warning(f"Empty payload received on topic: {topic}")
+                # Only log empty payloads for status topics as debug, not warning
+                if topic.endswith("/status"):
+                    logger.debug(f"Empty status payload received on topic: {topic} (device may be offline)")
+                else:
+                    logger.warning(f"Empty payload received on topic: {topic}")
                 return
                 
             payload = msg.payload.decode('utf-8')
@@ -107,10 +112,12 @@ class MQTTService:
             data = json.loads(payload)
             
             # Forward to WebSocket clients for real-time streaming
-            if self.client_ws_manager:
-                # Create a task to handle the async WebSocket forwarding
-                import asyncio
-                asyncio.create_task(self._forward_sensor_data_to_ws(device_id, data))
+            if self.client_ws_manager and self.loop:
+                # Use thread-safe method to schedule async task
+                asyncio.run_coroutine_threadsafe(
+                    self._forward_sensor_data_to_ws(device_id, data), 
+                    self.loop
+                )
             
             logger.info(f"Received sensor data from {device_id}: {data}")
             
@@ -123,14 +130,18 @@ class MQTTService:
             status_data = json.loads(payload)
             
             # Update session manager with device status
-            if self.session_manager:
-                import asyncio
-                asyncio.create_task(self._update_device_status_in_session(device_id, status_data))
+            if self.session_manager and self.loop:
+                asyncio.run_coroutine_threadsafe(
+                    self._update_device_status_in_session(device_id, status_data),
+                    self.loop
+                )
             
             # Forward to WebSocket clients for real-time status updates
-            if self.client_ws_manager:
-                import asyncio
-                asyncio.create_task(self._forward_status_update_to_ws(device_id, status_data))
+            if self.client_ws_manager and self.loop:
+                asyncio.run_coroutine_threadsafe(
+                    self._forward_status_update_to_ws(device_id, status_data),
+                    self.loop
+                )
             
             logger.info(f"Received status update from {device_id}: {status_data}")
             
@@ -239,7 +250,7 @@ class MQTTService:
                 "type": "sensor_data",
                 "device_id": device_id,
                 "data": data,
-                "timestamp": data.get("timestamp", data.get("time", 0))
+                "timestamp": int(data.get("timestamp", data.get("time", 0)))
             }
             
             # Find which user has this device allocated
