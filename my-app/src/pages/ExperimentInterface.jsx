@@ -25,6 +25,11 @@ const ConfigurationModal = ({ onComplete }) => {
     selectDevice,
   } = useDeviceManager(userToken);
 
+  const {
+    flashFirmware,
+    firmwareStatus
+  } = useExperimentManager(userToken);
+
   useEffect(() => {
     if (isConnected && !isScanning && devices.length === 0) {
       scanDevices();
@@ -41,30 +46,30 @@ const ConfigurationModal = ({ onComplete }) => {
 
       setFlashStatus('Flashing firmware via OTA...');
       
-      const response = await fetch(`http://${window.location.hostname}:5000/api/sensor/select_experiment`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${userToken}`
-        },
-        body: JSON.stringify({ 
-          experiment_type: experimentType,
-          device_id: device.id
-        })
-      });
-
-      const data = await response.json();
+      // Use WebSocket instead of HTTP
+      flashFirmware(device.id, experimentType);
       
-      if (!response.ok || !data.success) {
-        throw new Error(data.detail || data.message || data.error || 'Firmware flash failed');
-      }
-
-      setFlashStatus('✓ Firmware flashed successfully');
+      // Wait for WebSocket response
+      const checkStatus = () => {
+        if (firmwareStatus) {
+          if (firmwareStatus.success) {
+            setFlashStatus('✓ Firmware flashed successfully');
+            setTimeout(() => {
+              const expType = experimentType === 'distance' ? 'tof' : 'oscillation';
+              onComplete({ device, experimentType: expType, token: userToken });
+            }, 1000);
+          } else if (firmwareStatus.success === false) {
+            setFlashStatus(`✗ Error: ${firmwareStatus.message}`);
+            setIsFlashing(false);
+          }
+        } else {
+          // Check again after delay
+          setTimeout(checkStatus, 100);
+        }
+      };
       
-      setTimeout(() => {
-        const expType = experimentType === 'distance' ? 'tof' : 'oscillation';
-        onComplete({ device, experimentType: expType, token: userToken });
-      }, 1000);
+      // Start checking for status
+      setTimeout(checkStatus, 100);
 
     } catch (err) {
       console.error(err);
@@ -184,6 +189,11 @@ const ConfigurationModal = ({ onComplete }) => {
 const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
+  
+  const {
+    applyConfiguration,
+    configStatus
+  } = useExperimentManager(userToken);
 
   const handleApplyConfiguration = async () => {
     if (!selectedDevice) {
@@ -198,34 +208,34 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken }) =
       // Save config to localStorage for timer access
       localStorage.setItem('experimentConfig', JSON.stringify(config));
       
-      const response = await fetch(`http://${window.location.hostname}:5000/api/sensor/configure?device_id=${selectedDevice.id}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${userToken}`
-        },
-        body: JSON.stringify({
-          frequency: config.frequency_hz,
-          duration: config.duration_s,
-          mode: "distance"
-        })
-      });
-
-      const data = await response.json();
+      // Use WebSocket instead of HTTP
+      applyConfiguration(selectedDevice.id, config);
       
-      if (!response.ok || !data.success) {
-        throw new Error(data.detail || data.message || 'Configuration failed');
-      }
-
-      setStatusMessage('✓ Configuration applied successfully');
-      setTimeout(() => {
-        onClose();
-      }, 1500);
+      // Wait for WebSocket response
+      const checkStatus = () => {
+        if (configStatus) {
+          if (configStatus.success) {
+            setStatusMessage('✓ Configuration applied successfully');
+            setTimeout(() => {
+              onClose();
+            }, 1500);
+            setIsSubmitting(false);
+          } else if (configStatus.success === false) {
+            setStatusMessage(`❌ Error: ${configStatus.message}`);
+            setIsSubmitting(false);
+          }
+        } else {
+          // Check again after delay
+          setTimeout(checkStatus, 100);
+        }
+      };
+      
+      // Start checking for status
+      setTimeout(checkStatus, 100);
 
     } catch (err) {
       console.error(err);
       setStatusMessage(`❌ Error: ${err.message}`);
-    } finally {
       setIsSubmitting(false);
     }
   };
@@ -542,11 +552,13 @@ const ExperimentGraph = ({ experimentType, token }) => {
   const [zoomDomain, setZoomDomain] = useState(null);
   const [timeRemaining, setTimeRemaining] = useState(0);
   const [totalDuration, setTotalDuration] = useState(0);
+  const [saveStatus, setSaveStatus] = useState(null);
   const chartDataRef = useRef([]);
   const timerRef = useRef(null);
   const startTimeRef = useRef(null);
 
   const { sendMessage, lastMessage } = useWebSocket(token, false);
+  const { saveExperimentData, saveStatus: wsSaveStatus } = useExperimentManager();
 
   // Timer countdown effect
   useEffect(() => {
@@ -583,6 +595,19 @@ const ExperimentGraph = ({ experimentType, token }) => {
       setChartData(chartDataRef.current);
     }
   }, [lastMessage]);
+
+  // Monitor WebSocket save status
+  useEffect(() => {
+    if (wsSaveStatus) {
+      setSaveStatus(wsSaveStatus);
+      
+      if (wsSaveStatus.status === 'success') {
+        alert('✓ Experiment data saved to your profile successfully!');
+      } else if (wsSaveStatus.status === 'error') {
+        alert('❌ Error saving data: ' + wsSaveStatus.message);
+      }
+    }
+  }, [wsSaveStatus]);
 
   const handleStart = async () => {
     chartDataRef.current = [];
@@ -622,25 +647,27 @@ const ExperimentGraph = ({ experimentType, token }) => {
 
   const handleSaveToProfile = async () => {
     try {
-      const response = await fetch(`http://${window.location.hostname}:5000/api/experiment/save`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          experiment_type: experimentType,
-          graph_type: graphType,
-          data: chartData,
-          timestamp: new Date().toISOString()
-        })
+      // Use WebSocket for saving experiment data
+      saveExperimentData({
+        experiment_type: experimentType,
+        graph_type: graphType,
+        data: chartData,
+        timestamp: new Date().toISOString()
       });
-
-      if (response.ok) {
-        alert('✓ Experiment data saved to your profile successfully!');
-      } else {
-        throw new Error('Failed to save data');
-      }
+      
+      // Set initial status and start polling
+      setSaveStatus({ status: 'loading', message: 'Saving data...' });
+      
+      // Poll for status updates
+      const checkStatus = () => {
+        if (saveStatus && saveStatus.status !== 'loading') {
+          clearInterval(statusInterval);
+        }
+      };
+      
+      const statusInterval = setInterval(checkStatus, 100);
+      setTimeout(() => clearInterval(statusInterval), 5000); // Timeout after 5 seconds
+      
     } catch (error) {
       alert('❌ Error saving data: ' + error.message);
     }
@@ -1096,7 +1123,7 @@ const ExperimentInterface = () => {
               <span className="hidden sm:inline">Live Data Feed</span>
               <span className="sm:hidden">Live Data</span>
             </h2>
-            <ExperimentGraph experimentType={experimentType} token={userToken} />
+            <ExperimentGraph experimentType={experimentType} token={userToken} sendMessage={sendMessage} />
           </div>
 
         </div>

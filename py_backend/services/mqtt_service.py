@@ -157,6 +157,30 @@ class MQTTService:
         except Exception as e:
             logger.error(f"Error publishing stop command to {device_id}: {e}")
 
+    def publish_pause_command(self, device_id: str):
+        """Publish pause experiment command to device"""
+        try:
+            topic = f"sensors/{device_id}/command"
+            payload = json.dumps({"command": "pause_experiment"})
+            
+            self.client.publish(topic, payload, qos=1)
+            logger.info(f"Published pause command to {device_id}")
+            
+        except Exception as e:
+            logger.error(f"Error publishing pause command to {device_id}: {e}")
+
+    def publish_resume_command(self, device_id: str):
+        """Publish resume experiment command to device"""
+        try:
+            topic = f"sensors/{device_id}/command"
+            payload = json.dumps({"command": "resume_experiment"})
+        
+            self.client.publish(topic, payload, qos=1)
+            logger.info(f"Published resume command to {device_id}")
+        
+        except Exception as e:
+            logger.error(f"Error publishing resume command to {device_id}: {e}")
+
     def publish_disconnect_command(self, device_id: str):
         """Publish disconnect command to device - tells ESP32 to clean firmware and boot to OTA"""
         try:

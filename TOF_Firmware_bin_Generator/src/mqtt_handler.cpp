@@ -157,6 +157,16 @@ void handleMQTTCommands(char* topic, byte* payload, unsigned int length) {
             Serial.println("Experiment stopped via MQTT");
             publishStatus("experiment_stopped");
             
+        } else if (strcmp(command, "pause_experiment") == 0) {
+            experimentRunning = false;
+            Serial.println("Experiment paused via MQTT");
+            publishStatus("experiment_paused");
+            
+        } else if (strcmp(command, "resume_experiment") == 0) {
+            experimentRunning = true;
+            Serial.println("Experiment resumed via MQTT");
+            publishStatus("experiment_resumed");
+            
         } else if (strcmp(command, "disconnect_device") == 0) {
             Serial.println("Disconnect command received - cleaning firmware and booting to OTA");
             publishStatus("disconnecting", "Device disconnecting and booting to OTA");

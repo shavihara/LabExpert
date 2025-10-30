@@ -83,12 +83,8 @@ from services.oscillation_service import (
     get_osi_data
 )
 
-# Import MQTT services
+# Import MQTT service
 from services.mqtt_service import MQTTService
-from services.mqtt_broker import start_mqtt_broker, stop_mqtt_broker
-
-# Global MQTT server instance
-mqtt_server = None
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -102,13 +98,14 @@ app = FastAPI()
 # Initialize WebSocket/session managers
 session_manager = SessionManager()
 ota_manager = OTAManager()
+OTAManager.set_instance(ota_manager)
 client_ws_manager = ClientWebSocketManager(session_manager)
 ClientWebSocketManager.set_instance(client_ws_manager)
 device_ws_manager = DeviceWebSocketManager(session_manager, ota_manager)
 DeviceWebSocketManager.set_instance(device_ws_manager)
 
-# Initialize MQTT service
-mqtt_service = MQTTService(session_manager, client_ws_manager, broker_host="192.168.137.1")
+# Initialize MQTT service (connect to our MQTT broker directly)
+mqtt_service = MQTTService(session_manager, client_ws_manager, broker_host="localhost", broker_port=1883)
 MQTTService.set_instance(mqtt_service)
 
 async def periodic_cleanup():
@@ -126,17 +123,9 @@ async def startup_event():
     else:
         logger.error("❌ Failed to start UDP discovery service")
     
-    # Start MQTT broker
-    global mqtt_server
-    mqtt_server = await start_mqtt_broker()
-    if mqtt_server:
-        logger.info("✅ MQTT broker started successfully")
-        # Start serving MQTT connections in background
-        asyncio.create_task(mqtt_server.serve_forever())
-    else:
-        logger.error("❌ Failed to start MQTT broker")
+    # Mosquitto broker should be running externally - no need to start custom broker
     
-    # Start MQTT client service
+    # Start MQTT client service (connects to Mosquitto on localhost:1883)
     await mqtt_service.start()
     logger.info("✅ MQTT client service started successfully")
 
@@ -705,6 +694,28 @@ async def stop_sensor(current_user=Depends(get_current_user)):
     except Exception as e:
         logger.error(f"Failed to send stop command via MQTT: {e}")
         raise HTTPException(500, f"Failed to stop experiment: {str(e)}")
+
+
+@app.post("/api/sensor/pause")
+async def pause_sensor(current_user=Depends(get_current_user)):
+    user_id = current_user['id']
+    user_devices = await session_manager.get_user_devices(user_id)
+    if not user_devices:
+        raise HTTPException(403, "No device allocated to this user")
+    
+    selected_device = user_devices[0]  # Use first allocated device
+    
+    # Use MQTT to send pause command
+    mqtt_service = MQTTService.get_instance()
+    if not mqtt_service or not mqtt_service.connected:
+        raise HTTPException(500, "MQTT service not available")
+    
+    try:
+        mqtt_service.publish_pause_command(selected_device)
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Failed to send pause command via MQTT: {e}")
+        raise HTTPException(500, f"Failed to pause experiment: {str(e)}")
 
 
 # UPDATED: /stream now WS endpoint - connect via ws://localhost:5000/ws/sensor?token=...

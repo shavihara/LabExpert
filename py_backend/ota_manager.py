@@ -11,6 +11,18 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 class OTAManager:
+    _instance = None
+    
+    @classmethod
+    def get_instance(cls):
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+    
+    @classmethod
+    def set_instance(cls, instance):
+        cls._instance = instance
+    
     def __init__(self, firmware_registry_path: str = "firmware_registry.json", bin_dir: str = "bin"):
         self.firmware_registry_path = firmware_registry_path
         self.bin_dir = bin_dir

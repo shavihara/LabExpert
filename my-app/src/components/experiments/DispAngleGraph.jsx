@@ -147,7 +147,7 @@ const DispAngleGraph = ({ token, isActive, onDataUpdate }) => {
       oscillationFrequency: 0,
       maxAngularDisplacement: 0
     });
-    startExperiment(config);
+    startExperiment(config, 'displacement_angle');
   };
 
   const handlePause = () => {

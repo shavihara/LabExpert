@@ -29,8 +29,8 @@ IPAddress local_IP(192, 168, 137, 15);
 IPAddress gateway(192, 168, 137, 1);
 IPAddress subnet(255, 255, 255, 0);
 
-// MQTT configuration (replaces WebSocket backend)
-const char* mqttBroker = "192.168.137.1"; // Backend server IP
+// MQTT configuration (connect to Mosquitto broker)
+const char* mqttBroker = "192.168.137.1"; // Mosquitto broker IP (your computer)
 const uint16_t mqttPort = 1883;
 
 // Hardware serial for TOF sensor
