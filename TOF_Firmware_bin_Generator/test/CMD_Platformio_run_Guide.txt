@@ -1,4 +1,0 @@
-.venv/Scripts/Activate.ps1
-pip install platformio 
-pip install intelhex 
-pio run 
