@@ -13,6 +13,13 @@
     "size": 0,
     "checksum": ""
   },
+  "inclined_plane": {
+    "filename": "INC.bin",
+    "version": "1.0.0",
+    "description": "Inclined plane motion analysis firmware",
+    "size": 0,
+    "checksum": ""
+  },
   "angle": {
     "filename": "ANGLE.bin",
     "version": "1.0.0",

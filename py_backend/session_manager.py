@@ -288,11 +288,11 @@ class SessionManager:
         return self.devices.get(device_id)
 
     async def get_available_devices(self) -> List[Dict]:
-        # Get devices from database with online_status
+        # Get devices from database with online_status = 1 (only online devices)
         stmt = text("""
             SELECT sensor_id, availability, online_status, last_firmware, last_updated 
             FROM available_sensors 
-            WHERE availability = 1
+            WHERE availability = 1 AND online_status = 1
         """)
         
         result = []
@@ -346,6 +346,40 @@ class SessionManager:
                     entry["ip_address"] = ip
                 entry["status"] = "In Use" if device.get("allocated_to") else "online"
                 result.append(entry)
+        
+        # Add UDP discovered devices that aren't already in the result
+        try:
+            udp_devices = udp_discovery_service.get_online_devices()
+            existing_device_ids = {device["device_id"] for device in result}
+            
+            for udp_device in udp_devices:
+                device_id = udp_device.get("device_id")
+                if device_id and device_id not in existing_device_ids:
+                    # Get additional info from in-memory devices if available
+                    device = self.devices.get(device_id, {})
+                    
+                    entry = {
+                        "device_id": device_id,
+                        "id": device_id,
+                        "sensor_type": udp_device.get("sensor_type", "TOF"),  # Default to TOF for UDP devices
+                        "firmware": udp_device.get("firmware_version", "Unknown"),
+                        "last_seen": udp_device.get("last_seen"),
+                        "ip_address": udp_device.get("ip_address"),
+                        "availability": 1,  # UDP discovered devices are available
+                        "online_status": 1  # UDP discovered devices are online
+                    }
+                    
+                    # Set status based on allocation
+                    if device.get("allocated_to"):
+                        entry["status"] = "In Use"
+                    else:
+                        entry["status"] = "online"
+                    
+                    result.append(entry)
+                    logger.info(f"Added UDP discovered device {device_id} to available devices list")
+                    
+        except Exception as e:
+            logger.error(f"Failed to add UDP discovered devices: {e}")
         
         return result
 

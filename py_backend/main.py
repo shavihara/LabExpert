@@ -1115,6 +1115,49 @@ async def disconnect_user_devices(current_user=Depends(get_current_user)):
         raise HTTPException(500, f"Failed to disconnect devices: {str(e)}")
 
 
+@app.post("/api/user/scan-devices")
+async def scan_devices_endpoint(current_user=Depends(get_current_user)):
+    """
+    REST API endpoint to trigger device scanning.
+    This is a workaround for WebSocket connection issues.
+    """
+    try:
+        logger.info(f"Manual device scan triggered via REST API by user {current_user['id']}")
+        
+        # Use the session manager to scan for devices (same as WebSocket handler)
+        devices = await session_manager.scan_devices_for_experiment()
+        
+        # Normalize device data (same as in WebSocket handler)
+        normalized_devices = []
+        for device in devices:
+            normalized_device = {
+                'id': device.get('id', '') or device.get('device_id', ''),
+                'name': device.get('name', 'Unknown Device'),
+                'type': device.get('type', 'unknown'),
+                'status': device.get('status', 'available'),
+                'ip': device.get('ip', '') or device.get('ip_address', ''),
+                'port': device.get('port', 0),
+                'capabilities': device.get('capabilities', []),
+                'last_seen': device.get('last_seen', ''),
+                'firmware_version': device.get('firmware_version', ''),
+                'battery_level': device.get('battery_level', None)
+            }
+            normalized_devices.append(normalized_device)
+        
+        logger.info(f"Found {len(normalized_devices)} devices via REST API scan")
+        
+        return {
+            "success": True,
+            "devices": normalized_devices,
+            "count": len(normalized_devices),
+            "message": f"Found {len(normalized_devices)} devices"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error scanning devices via REST API: {e}")
+        raise HTTPException(500, f"Failed to scan devices: {str(e)}")
+
+
 # ------------------ Email Setup ------------------
 yag = None
 try:
