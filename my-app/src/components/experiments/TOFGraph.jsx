@@ -106,7 +106,7 @@ const TOFGraph = ({ token, isActive, onDataUpdate, externalConfig }) => {
       totalDistance: 0,
       motionType: 'stationary'
     });
-    startExperiment(config);
+    startExperiment(config, 'tof');
   };
 
   const handlePause = () => {

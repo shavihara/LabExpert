@@ -132,7 +132,7 @@ const OscillationGraph = ({ token, isActive, onDataUpdate }) => {
       oscillationCount: 0,
       phaseShift: 0
     });
-    startExperiment(config);
+    startExperiment(config, 'oscillation');
   };
 
   const handlePause = () => {

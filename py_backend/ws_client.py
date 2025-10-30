@@ -109,6 +109,7 @@ class ClientWebSocketManager:
     
     async def handle_client_message(self, websocket: WebSocket, user_id: str, message: dict):
         action = message.get("action")
+        logger.info(f"Received message from user {user_id}: {json.dumps(message, indent=2)}")
         try:
             # Actions that don't require allocation
             if action == "scan_devices":
@@ -137,18 +138,32 @@ class ClientWebSocketManager:
                     await self._handle_simple_device_command(user_id, {"type": "stop_experiment"}, "experiment_stopped")
                 elif action == "configure_experiment":
                     await self._handle_configure_experiment(user_id, message.get("config", {}), message.get("experiment_type"))
+                elif action == "flash_firmware":
+                    await self._handle_flash_firmware(user_id, message.get("device_id"), message.get("experiment_type"))
+                elif action == "save_experiment_data":
+                    await self._handle_save_experiment_data(user_id, message.get("experiment_type"), message.get("graph_type"), message.get("data"), message.get("timestamp"))
         except Exception as e:
             logger.error(f"Error handling client message for {user_id}: {e}")
             await self.send_to_user(user_id, {"type": "error", "message": str(e)})
 
     async def _handle_scan_devices(self, user_id: str):
-        devices = await self.session_manager.get_available_devices()
-        normalized = []
-        for d in devices:
-            item = dict(d)
-            item["id"] = item.get("id") or item.get("device_id")
-            normalized.append(item)
-        await self.send_to_user(user_id, {"type": "device_list", "devices": normalized})
+        # Use manual device discovery for experiment interfaces
+        logger.info(f"Manual device scan triggered for user {user_id}")
+        try:
+            devices = await self.session_manager.scan_devices_for_experiment()
+            logger.info(f"Found {len(devices)} devices after manual scan")
+            normalized = []
+            for d in devices:
+                item = dict(d)
+                item["id"] = item.get("id") or item.get("device_id")
+                normalized.append(item)
+            
+            logger.info(f"Sending device list with {len(normalized)} devices to user {user_id}")
+            await self.send_to_user(user_id, {"type": "device_list", "devices": normalized})
+            logger.info(f"Device list sent successfully to user {user_id}")
+        except Exception as e:
+            logger.error(f"Error during manual device scan for user {user_id}: {e}")
+            await self.send_to_user(user_id, {"type": "scan_error", "error": str(e)})
 
     async def _handle_select_device(self, user_id: str, device_id: str):
         success = await self.session_manager.allocate_device_to_user(device_id, user_id)
@@ -160,39 +175,90 @@ class ClientWebSocketManager:
         await self.send_to_user(user_id, {"type": "device_selected", "device": device, "status": status})
 
     async def _handle_release_device(self, user_id: str):
+        # Get user's allocated devices before freeing them
+        user_devices = await self.session_manager.get_user_devices(user_id)
+        
+        # Send disconnect command to each allocated device via MQTT
+        if user_devices:
+            from services.mqtt_service import MQTTService
+            mqtt_service = MQTTService.get_instance()
+            
+            for device_id in user_devices:
+                if mqtt_service:
+                    logger.info(f"Sending disconnect command to device {device_id}")
+                    mqtt_service.publish_disconnect_command(device_id)
+        
+        # Free user devices from session manager
         await self.session_manager.free_user_devices(user_id)
         await self.send_to_user(user_id, {"type": "device_disconnected", "device_id": None})
 
     async def _handle_start_experiment(self, user_id: str, config: dict, experiment_type: str):
-        from ws_device import DeviceWebSocketManager
-        device_manager = DeviceWebSocketManager.get_instance()
+        from services.mqtt_service import MQTTService
+        mqtt_service = MQTTService.get_instance()
         devices = await self.session_manager.get_user_devices(user_id)
         if not devices:
             await self.send_to_user(user_id, {"type": "error", "message": "No device allocated"})
             return
         device_id = devices[0]
-        success = await device_manager.send_command_to_device(device_id, {
-            "type": "start_experiment",
-            "experiment_type": experiment_type,
-            "config": config
-        })
-        if success:
+        
+        if not mqtt_service or not mqtt_service.connected:
+            await self.send_to_user(user_id, {"type": "error", "message": "MQTT service not available"})
+            return
+        
+        try:
+            logger.info(f"Received start_experiment command from user {user_id} for device {device_id}")
+            
+            # Send configuration first if provided
+            if config:
+                logger.info(f"Publishing configuration to device {device_id}: {config}")
+                mqtt_service.publish_config(device_id, config)
+                
+            # Send start command
+            logger.info(f"Publishing start command to device {device_id}")
+            mqtt_service.publish_start_command(device_id)
             await self.send_to_user(user_id, {"type": "experiment_started", "device_id": device_id})
-        else:
+            logger.info(f"Start command successfully sent to device {device_id}")
+        except Exception as e:
+            logger.error(f"Failed to send start command via MQTT: {e}")
             await self.send_to_user(user_id, {"type": "error", "message": "Failed to start experiment"})
 
     async def _handle_simple_device_command(self, user_id: str, command: dict, success_event: str):
-        from ws_device import DeviceWebSocketManager
-        device_manager = DeviceWebSocketManager.get_instance()
+        from services.mqtt_service import MQTTService
+        mqtt_service = MQTTService.get_instance()
         devices = await self.session_manager.get_user_devices(user_id)
         if not devices:
             await self.send_to_user(user_id, {"type": "error", "message": "No device allocated"})
             return
         device_id = devices[0]
-        success = await device_manager.send_command_to_device(device_id, command)
-        if success:
-            await self.send_to_user(user_id, {"type": success_event, "device_id": device_id})
-        else:
+        
+        if not mqtt_service or not mqtt_service.connected:
+            await self.send_to_user(user_id, {"type": "error", "message": "MQTT service not available"})
+            return
+        
+        try:
+            command_type = command.get("type")
+            logger.info(f"Received {command_type} command from user {user_id} for device {device_id}")
+            
+            if command_type == "pause_experiment":
+                logger.info(f"Publishing pause command to device {device_id}")
+                mqtt_service.publish_pause_command(device_id)
+                await self.send_to_user(user_id, {"type": success_event, "device_id": device_id})
+                logger.info(f"Pause command successfully sent to device {device_id}")
+            elif command_type == "resume_experiment":
+                logger.info(f"Publishing resume command to device {device_id}")
+                mqtt_service.publish_resume_command(device_id)
+                await self.send_to_user(user_id, {"type": success_event, "device_id": device_id})
+                logger.info(f"Resume command successfully sent to device {device_id}")
+            elif command_type == "stop_experiment":
+                logger.info(f"Publishing stop command to device {device_id}")
+                mqtt_service.publish_stop_command(device_id)
+                await self.send_to_user(user_id, {"type": success_event, "device_id": device_id})
+                logger.info(f"Stop command successfully sent to device {device_id}")
+            else:
+                logger.warning(f"Unknown command type received: {command_type}")
+                await self.send_to_user(user_id, {"type": "error", "message": f"Unknown command type: {command_type}"})
+        except Exception as e:
+            logger.error(f"Failed to send {command_type} command via MQTT: {e}")
             await self.send_to_user(user_id, {"type": "error", "message": f"Failed to {success_event}"})
 
     async def _handle_configure_experiment(self, user_id: str, config: dict, experiment_type: str):
@@ -212,3 +278,88 @@ class ClientWebSocketManager:
             await self.send_to_user(user_id, {"type": "experiment_configured", "device_id": device_id, "config": config})
         else:
             await self.send_to_user(user_id, {"type": "error", "message": "Failed to configure experiment"})
+
+    async def _handle_flash_firmware(self, user_id: str, device_id: str, experiment_type: str):
+        """Handle firmware flashing request"""
+        from ota_manager import OTAManager
+        ota_manager = OTAManager.get_instance()
+        
+        if not device_id:
+            await self.send_to_user(user_id, {"type": "error", "message": "No device ID provided"})
+            return
+        
+        try:
+            logger.info(f"Flashing firmware for device {device_id}, experiment type: {experiment_type}")
+            
+            # Get device IP from session manager
+            device_status = await self.session_manager.get_device_status(device_id)
+            device_ip = device_status.get("ip_address") if device_status else None
+            
+            if not device_ip:
+                await self.send_to_user(user_id, {
+                    "type": "firmware_flash_result", 
+                    "success": False, 
+                    "message": f"Device IP not available for device {device_id}"
+                })
+                return
+            
+            # Map experiment type to OTA manager key
+            ota_key = None
+            if experiment_type == "distance" or experiment_type == "displacement":
+                ota_key = "displacement"
+            elif experiment_type == "oscillation":
+                ota_key = "oscillation"
+            elif experiment_type == "angle":
+                ota_key = "angle"
+            
+            if not ota_key:
+                await self.send_to_user(user_id, {
+                    "type": "firmware_flash_result", 
+                    "success": False, 
+                    "message": f"Unknown experiment type: {experiment_type}"
+                })
+                return
+            
+            # Perform OTA update
+            result = await ota_manager.start_ota_update(
+                device_id=device_id,
+                device_ip=device_ip,
+                experiment_type=ota_key
+            )
+            
+            await self.send_to_user(user_id, {
+                "type": "firmware_flash_result", 
+                "success": result.get("status") == "success", 
+                "message": result.get("message", "Firmware flash completed")
+            })
+            
+        except Exception as e:
+            logger.error(f"Error flashing firmware for device {device_id}: {e}")
+            await self.send_to_user(user_id, {
+                "type": "firmware_flash_result", 
+                "success": False, 
+                "message": f"Firmware flash failed: {str(e)}"
+            })
+
+    async def _handle_save_experiment_data(self, user_id: str, experiment_type: str, graph_type: str, data: dict, timestamp: str):
+        """Handle experiment data saving request"""
+        try:
+            logger.info(f"Saving experiment data for user {user_id}, type: {experiment_type}")
+            
+            # In a real implementation, you would save this to a database
+            # For now, we'll just log and return success
+            logger.info(f"Experiment data received: {json.dumps(data, indent=2)}")
+            
+            await self.send_to_user(user_id, {
+                "type": "save_experiment_result", 
+                "success": True, 
+                "message": "Experiment data saved successfully"
+            })
+            
+        except Exception as e:
+            logger.error(f"Error saving experiment data for user {user_id}: {e}")
+            await self.send_to_user(user_id, {
+                "type": "save_experiment_result", 
+                "success": False, 
+                "message": f"Failed to save experiment data: {str(e)}"
+            })

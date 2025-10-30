@@ -158,6 +158,7 @@ function UserDashboard() {
 
   // Detect when user navigates back to dashboard and trigger device disconnection
   useEffect(() => {
+    // Only run this effect once when the component mounts (user navigates to dashboard)
     if (isConnected && currentUser.id) {
       console.log('User navigated back to dashboard - triggering device disconnection');
       
@@ -173,7 +174,7 @@ function UserDashboard() {
         console.warn('Failed to send dashboard navigation message - WebSocket not connected');
       }
     }
-  }, [isConnected, currentUser.id, sendMessage]);
+  }, []); // Empty dependency array - run only once on mount
 
   // Updated startExperiment function with routing
   const startExperiment = (experiment) => {
