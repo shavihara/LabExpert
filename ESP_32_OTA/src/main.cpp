@@ -6,12 +6,11 @@
 #include <EEPROM.h>
 #include "esp_partition.h"
 #include "esp_ota_ops.h"
-#include <WebSocketsClient.h>
+#include <WiFiUdp.h>
 #include <vector>
 // Forward declarations
 static bool hexToBytes(const String& hex, std::vector<uint8_t>& out);
 static String getDeviceIDFromMAC();
-void webSocketEvent(WStype_t type, uint8_t *payload, size_t length);
 // GPIO pin setup
 #define WIFI_LED 2
 #define SENSOR_LED 15
@@ -20,18 +19,16 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t length);
 #define EEPROM_SENSOR_ADDR 0x50
 #define EEPROM_SIZE 3 // Only read 3 bytes for sensor type
 
-// Wi-Fi credentials
-const char *ssid = "LabExpert_1.0";
-const char *password = "11111111";
-IPAddress local_IP(192, 168, 137, 15);
-IPAddress gateway(192, 168, 137, 1);
-IPAddress subnet(255, 255, 255, 0);
+// Wi-Fi credentials - Connect to device hotspot
+const char *ssid = "LabExpert_1.0"; // Change this to your device hotspot name
+const char *password = "11111111";   // Change this to your hotspot password
+// Use DHCP to get IP from hotspot
 
 // Web server
 WebServer server(80);
-WebSocketsClient webSocket;
 String deviceID = "ESP32";
-const char* backendHost = "192.168.137.1"; // Backend server IP - Connect to hotspot interface
+const char* backendHost = "192.168.1.198"; // Backend server IP - Use the IP of your device running the backend
+//const char* backendHost = "192.168.137.1";  Backend server IP - Connect to hotspot interface
 const uint16_t backendPort = 5000;
 
 // OTA state
@@ -53,9 +50,20 @@ const unsigned long ledInterval = 3000;
 bool wifiLedState = false;
 bool sensorLedState = false;
 
+
+
 // Retry mechanism for EEPROM detection
 #define EEPROM_RETRY_COUNT 3
 #define EEPROM_RETRY_DELAY 1000 // 1 second between retries
+
+// UDP Discovery configuration
+WiFiUDP udp;
+const unsigned int UDP_DISCOVERY_PORT = 8888;
+const unsigned int UDP_RESPONSE_PORT = 8889;
+const char* UDP_DISCOVERY_MAGIC = "LABEXPERT_DISCOVERY";
+const char* UDP_RESPONSE_MAGIC = "LABEXPERT_RESPONSE";
+unsigned long lastUDPCheck = 0;
+const unsigned long UDP_CHECK_INTERVAL = 1000; // Check for UDP packets every second
 
 // ========== Erase inactive OTA partition ==========
 void eraseInactivePartition()
@@ -247,6 +255,11 @@ void setupRoutes()
     serializeJson(doc, jsonResp);
     server.send(200, "application/json", jsonResp); });
 
+  // Lightweight ping endpoint for device status checking
+  server.on("/ping", HTTP_GET, []()
+            {
+    server.send(200, "text/plain", "pong"); });
+
   server.on("/id", HTTP_GET, []()
             {
     JsonDocument doc;
@@ -331,6 +344,56 @@ void setupRoutes()
   });
 }
 
+// ========== UDP Discovery Functions ==========
+void handleUDPDiscovery()
+{
+  unsigned long currentMillis = millis();
+  if (currentMillis - lastUDPCheck >= UDP_CHECK_INTERVAL)
+  {
+    lastUDPCheck = currentMillis;
+    
+    // Check for incoming UDP packets
+    int packetSize = udp.parsePacket();
+    if (packetSize)
+    {
+      char packetBuffer[255];
+      int len = udp.read(packetBuffer, sizeof(packetBuffer) - 1);
+      if (len > 0)
+      {
+        packetBuffer[len] = '\0';
+        
+        // Check if this is a discovery packet
+        if (strcmp(packetBuffer, UDP_DISCOVERY_MAGIC) == 0)
+        {
+          Serial.println("Received UDP discovery request");
+          
+          // Get device ID from MAC address (last 5 digits)
+          String deviceID = getDeviceIDFromMAC();
+          
+          // Create response JSON
+          JsonDocument doc;
+          doc["device_id"] = deviceID;
+          doc["ip_address"] = WiFi.localIP().toString();
+          doc["firmware_version"] = "OTA_BOOTLOADER";
+          doc["sensor_type"] = sensorType;
+          doc["availability"] = 1; // Always available in OTA mode
+          doc["magic"] = UDP_RESPONSE_MAGIC;
+          
+          String response;
+          serializeJson(doc, response);
+          
+          // Send response back to sender
+          udp.beginPacket(udp.remoteIP(), UDP_RESPONSE_PORT);
+          udp.write((const uint8_t*)response.c_str(), response.length());
+          udp.endPacket();
+          
+          Serial.printf("Sent UDP discovery response: %s\n", response.c_str());
+        }
+      }
+    }
+  }
+}
+
 // ========== Setup ==========
 void setup()
 {
@@ -384,7 +447,9 @@ void setup()
   // Erase inactive partition to allow clean OTA
   eraseInactivePartition();
 
+  // Use DHCP for network compatibility
   WiFi.mode(WIFI_STA);
+  
   WiFi.begin(ssid, password);
   Serial.printf("Connecting to WiFi SSID: %s\n", ssid);
   while (WiFi.status() != WL_CONNECTED)
@@ -397,12 +462,17 @@ void setup()
 
   deviceID = getDeviceIDFromMAC();
   Serial.printf("DeviceID: %s\n", deviceID.c_str());
-  webSocket.begin(backendHost, backendPort, String("/ws/device?device_id=") + deviceID);
-  webSocket.onEvent(webSocketEvent);
-  webSocket.setReconnectInterval(5000);
 
   setupRoutes();
   server.begin();
+  
+  // Initialize UDP for discovery
+  if (udp.begin(UDP_DISCOVERY_PORT)) {
+    Serial.printf("✓ UDP discovery server started on port %d\n", UDP_DISCOVERY_PORT);
+  } else {
+    Serial.println("✘ Failed to start UDP discovery server");
+  }
+  
   Serial.println("✓ OTA Server ready.");
 }
 
@@ -412,7 +482,7 @@ void loop()
   server.handleClient();
   handleWifiLed();
   handleSensorLed();
-  webSocket.loop();
+  handleUDPDiscovery();
 
   if (WiFi.status() != WL_CONNECTED)
   {
@@ -429,23 +499,9 @@ void loop()
     bool ok = detectSensor();
     
     if (sensorType != prev) {
-      JsonDocument doc;
-      doc["type"] = "sensor_id";
-      doc["sensor_id"] = sensorType;
-      doc["device_id"] = deviceID;
-      doc["ip"] = WiFi.localIP().toString();
-      String msg; serializeJson(doc, msg);
-      webSocket.sendTXT(msg);
+      Serial.printf("Sensor type changed: %s -> %s\n", prev.c_str(), sensorType.c_str());
       
       if (sensorType == "UNKNOWN") {
-        // Send disconnection message to backend for DB cleanup
-        JsonDocument disconnectDoc;
-        disconnectDoc["type"] = "sensor_disconnected";
-        disconnectDoc["device_id"] = deviceID;
-        String disconnectMsg; serializeJson(disconnectDoc, disconnectMsg);
-        webSocket.sendTXT(disconnectMsg);
-        Serial.println("Sent sensor_disconnected message to backend");
-        
         Serial.println("Sensor unplug detected; erasing inactive OTA partition and rebooting to bootloader mode");
         eraseInactivePartition();
         // Force reboot to ensure we're in bootloader mode when sensor is unplugged
@@ -454,6 +510,8 @@ void loop()
       }
     }
   }
+
+
 }
 
 // ========== Utils ==========
@@ -481,31 +539,4 @@ static String getDeviceIDFromMAC() {
   mac.replace(":", "");
   if (mac.length() >= 5) return mac.substring(mac.length()-5);
   return mac;
-}
-
-// WebSocket event handler
-void webSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
-  switch (type) {
-    case WStype_CONNECTED: {
-      Serial.println("WS connected to backend");
-      JsonDocument doc;
-      doc["type"] = "sensor_id";
-      doc["sensor_id"] = sensorType;
-      doc["device_id"] = deviceID;
-      doc["ip"] = WiFi.localIP().toString();
-      String msg; serializeJson(doc, msg);
-      webSocket.sendTXT(msg);
-      break;
-    }
-    case WStype_TEXT: {
-      Serial.printf("WS message: %.*s\n", (int)length, (const char*)payload);
-      // OTA is pushed via HTTP by backend; we just log WS commands here.
-      break;
-    }
-    case WStype_DISCONNECTED:
-      Serial.println("WS disconnected");
-      break;
-    default:
-      break;
-  }
 }

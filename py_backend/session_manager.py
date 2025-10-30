@@ -1,14 +1,26 @@
 # session_manager.py
 import asyncio
 import logging
+import aiohttp
 from typing import Dict, Optional, List
-from datetime import datetime
-from sqlalchemy import text  # Add this import
-from config.database import engine  # Add this import assuming engine is defined there
+from datetime import datetime, timedelta
+from sqlalchemy import text
+from config.database import engine
+
+# Import UDP discovery service
+from services.udp_discovery_service import udp_discovery_service
 
 logger = logging.getLogger(__name__)
 
 class SessionManager:
+    _instance = None
+    
+    @classmethod
+    def get_instance(cls):
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+    
     def __init__(self):
         self.devices: Dict[str, Dict] = {}
         self.user_allocations: Dict[str, List[str]] = {}
@@ -33,6 +45,8 @@ class SessionManager:
                 })
                 self.user_allocations.setdefault(user_id, []).append(device_id)
             logger.info(f"Loaded {len(self.devices)} persistent device allocations from DB")
+        
+   
         
     async def register_device(self, device_id: str):
         self.devices.setdefault(device_id, {
@@ -195,7 +209,35 @@ class SessionManager:
         except Exception as e:
             logger.error(f"Failed to update available_sensors for {device_id}: {e}")
         
+        # Send disconnect_and_cleanup command to ESP32 device
+        await self._send_cleanup_command_to_device(device_id)
+        
         logger.info(f"Freed device {device_id} from user {user_id}. Remaining allocations: {self.user_allocations.get(user_id, [])}")
+    
+    async def _send_cleanup_command_to_device(self, device_id: str):
+        """Send disconnect_and_cleanup command to ESP32 device via WebSocket"""
+        try:
+            # Import here to avoid circular imports
+            from ws_device import DeviceWebSocketManager
+            
+            device_manager = DeviceWebSocketManager.get_instance()
+            if device_manager:
+                # Check if device is currently connected
+                if device_id in device_manager.active_connections:
+                    websocket = device_manager.active_connections[device_id]
+                    cleanup_command = {
+                        "type": "disconnect_and_cleanup",
+                        "device_id": device_id,
+                        "message": "Device allocation freed - cleaning up firmware"
+                    }
+                    await websocket.send_json(cleanup_command)
+                    logger.info(f"Sent disconnect_and_cleanup command to device {device_id}")
+                else:
+                    logger.warning(f"Device {device_id} not connected - cannot send cleanup command")
+            else:
+                logger.warning("DeviceWebSocketManager instance not available")
+        except Exception as e:
+            logger.error(f"Failed to send cleanup command to device {device_id}: {e}")
         
     async def get_user_devices(self, user_id: str):
         devices = [did for did, info in self.devices.items() if info.get("allocated_to") == user_id]
@@ -246,21 +288,99 @@ class SessionManager:
         return self.devices.get(device_id)
 
     async def get_available_devices(self) -> List[Dict]:
-        # Return simplified list for UI, including IP if known
+        # Get devices from database with online_status = 1 (only online devices)
+        stmt = text("""
+            SELECT sensor_id, availability, online_status, last_firmware, last_updated 
+            FROM available_sensors 
+            WHERE availability = 1 AND online_status = 1
+        """)
+        
         result = []
-        for device_id, device in self.devices.items():
-            entry = {
-                "device_id": device_id,
-                "id": device_id,
-                "sensor_type": device.get("sensor_id") or device.get("status", {}).get("sensor_type", "Unknown"),
-                "firmware": device.get("status", {}).get("firmware_version", "Unknown"),
-                "last_seen": device.get("last_seen"),
-            }
-            ip = device.get("status", {}).get("ip_address")
-            if ip:
-                entry["ip_address"] = ip
-            entry["status"] = "In Use" if device.get("allocated_to") else "online"
-            result.append(entry)
+        try:
+            with engine.connect() as conn:
+                db_result = conn.execute(stmt)
+                for row in db_result.fetchall():
+                    sensor_id, availability, online_status, last_firmware, last_updated = row
+                    
+                    # Get additional info from in-memory devices if available
+                    device = self.devices.get(sensor_id, {})
+                    
+                    entry = {
+                        "device_id": sensor_id,
+                        "id": sensor_id,
+                        "sensor_type": device.get("sensor_id") or device.get("status", {}).get("sensor_type", "Unknown"),
+                        "firmware": device.get("status", {}).get("firmware_version", last_firmware or "Unknown"),
+                        "last_seen": device.get("last_seen"),
+                        "availability": availability,
+                        "online_status": online_status
+                    }
+                    
+                    # Add IP if available
+                    ip = device.get("status", {}).get("ip_address")
+                    if ip:
+                        entry["ip_address"] = ip
+                    
+                    # Set status based on allocation and online status
+                    if device.get("allocated_to"):
+                        entry["status"] = "In Use"
+                    elif online_status == 1:
+                        entry["status"] = "online"
+                    else:
+                        entry["status"] = "offline"
+                    
+                    result.append(entry)
+                    
+        except Exception as e:
+            logger.error(f"Failed to get available devices: {e}")
+            # Fallback to old method if database query fails
+            for device_id, device in self.devices.items():
+                entry = {
+                    "device_id": device_id,
+                    "id": device_id,
+                    "sensor_type": device.get("sensor_id") or device.get("status", {}).get("sensor_type", "Unknown"),
+                    "firmware": device.get("status", {}).get("firmware_version", "Unknown"),
+                    "last_seen": device.get("last_seen"),
+                }
+                ip = device.get("status", {}).get("ip_address")
+                if ip:
+                    entry["ip_address"] = ip
+                entry["status"] = "In Use" if device.get("allocated_to") else "online"
+                result.append(entry)
+        
+        # Add UDP discovered devices that aren't already in the result
+        try:
+            udp_devices = udp_discovery_service.get_online_devices()
+            existing_device_ids = {device["device_id"] for device in result}
+            
+            for udp_device in udp_devices:
+                device_id = udp_device.get("device_id")
+                if device_id and device_id not in existing_device_ids:
+                    # Get additional info from in-memory devices if available
+                    device = self.devices.get(device_id, {})
+                    
+                    entry = {
+                        "device_id": device_id,
+                        "id": device_id,
+                        "sensor_type": udp_device.get("sensor_type", "TOF"),  # Default to TOF for UDP devices
+                        "firmware": udp_device.get("firmware_version", "Unknown"),
+                        "last_seen": udp_device.get("last_seen"),
+                        "ip_address": udp_device.get("ip_address"),
+                        "availability": 1,  # UDP discovered devices are available
+                        "online_status": 1  # UDP discovered devices are online
+                    }
+                    
+                    # Set status based on allocation
+                    if device.get("allocated_to"):
+                        entry["status"] = "In Use"
+                    else:
+                        entry["status"] = "online"
+                    
+                    result.append(entry)
+                    logger.info(f"Added UDP discovered device {device_id} to available devices list")
+                    
+        except Exception as e:
+            logger.error(f"Failed to add UDP discovered devices: {e}")
+        
         return result
 
     async def cleanup_expired_allocations(self):
@@ -286,3 +406,199 @@ class SessionManager:
         # Free devices for affected users
         for user_id in unique_users:
             await self.free_user_devices(user_id)
+
+    async def _ping_device(self, device_ip: str, timeout: int = 3) -> bool:
+        """
+        Check if ESP32 device is online using UDP broadcast discovery.
+        Returns True if device responds to UDP discovery, False otherwise.
+        """
+        try:
+            logger.info(f"Attempting UDP discovery for device at {device_ip}")
+            
+            # Perform immediate discovery with timeout
+            discovered_devices = await udp_discovery_service.discover_devices(timeout)
+            
+            # Check if the specific device IP is in discovered devices
+            for device in discovered_devices:
+                if device.get('ip_address') == device_ip:
+                    logger.info(f"UDP discovery found device at {device_ip}: {device}")
+                    return True
+            
+            logger.warning(f"UDP discovery failed for device {device_ip}: not found in discovered devices")
+            return False
+            
+        except Exception as e:
+            logger.warning(f"UDP discovery failed for device {device_ip}: {e}")
+            return False
+
+    async def _update_device_online_status(self, sensor_id: str, online_status: int):
+        """
+        Update the online_status column in available_sensors table.
+        """
+        try:
+            stmt = text("""
+                UPDATE available_sensors 
+                SET online_status = :online_status 
+                WHERE sensor_id = :sensor_id
+            """)
+            with engine.connect() as conn:
+                conn.execute(stmt, {"online_status": online_status, "sensor_id": sensor_id})
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to update online status for {sensor_id}: {e}")
+
+    async def check_device_online_status(self, sensor_id: str) -> bool:
+        """
+        Check if a specific device is online using UDP discovery and update database.
+        Returns True if online, False if offline.
+        """
+        logger.info(f"=== Checking online status for sensor_id: {sensor_id} ===")
+        
+        # Use UDP discovery to find all available devices
+        try:
+            discovered_devices = await udp_discovery_service.discover_devices()
+            
+            # Check if our specific device is in the discovered devices
+            device_found = False
+            for device in discovered_devices:
+                if device.get('device_id') == sensor_id:
+                    device_found = True
+                    
+                    # Update device information in memory
+                    device_info = self.devices.setdefault(sensor_id, {
+                        "device_id": sensor_id,
+                        "status": {},
+                        "sensor_id": None,
+                        "allocated_to": None,
+                        "last_seen": asyncio.get_event_loop().time()
+                    })
+                    
+                    # Update device status with discovered information
+                    device_info["status"].update({
+                        "ip_address": device.get('ip_address'),
+                        "firmware_version": device.get('firmware_version', 'unknown'),
+                        "sensor_type": device.get('sensor_type', 'unknown'),
+                        "availability": device.get('availability', 1)
+                    })
+                    
+                    device_info["last_seen"] = asyncio.get_event_loop().time()
+                    
+                    logger.info(f"Device {sensor_id} discovered at {device.get('ip_address')}")
+                    break
+            
+            if device_found:
+                # Device is online
+                await self._update_device_online_status(sensor_id, 1)
+                logger.info(f"Device {sensor_id} is online")
+                return True
+            else:
+                # Device not found in discovery
+                logger.warning(f"Device {sensor_id} not found in UDP discovery, marking as offline")
+                await self._update_device_online_status(sensor_id, 0)
+                return False
+                
+        except Exception as e:
+            logger.error(f"UDP discovery failed for device {sensor_id}: {e}")
+            await self._update_device_online_status(sensor_id, 0)
+            return False
+
+    async def check_all_available_devices_online_status(self):
+        """
+        Check online status for all devices with availability=1 using UDP discovery and update database.
+        Also set online_status=0 for devices with availability=0.
+        """
+        logger.info("=== Checking online status for all available devices using UDP discovery ===")
+        
+        try:
+            # First, set online_status=0 for all devices with availability=0
+            with engine.connect() as conn:
+                conn.execute(
+                    text("""
+                        UPDATE available_sensors 
+                        SET online_status = 0 
+                        WHERE availability = 0
+                    """)
+                )
+                conn.commit()
+                
+                # Get all devices with availability=1
+                result = conn.execute(
+                    text("SELECT sensor_id FROM available_sensors WHERE availability = 1")
+                )
+                available_devices = result.fetchall()
+                
+            logger.info(f"Found {len(available_devices)} devices with availability=1 in database")
+            
+            # Use UDP discovery to find all online devices
+            discovered_devices = await udp_discovery_service.discover_devices()
+            logger.info(f"UDP discovery found {len(discovered_devices)} devices")
+            
+            # Create a set of discovered device IDs for fast lookup
+            discovered_device_ids = {device.get('device_id') for device in discovered_devices}
+            
+            # Update database based on discovery results
+            with engine.begin() as conn:
+                for device_row in available_devices:
+                    sensor_id = device_row[0]
+                    
+                    if sensor_id in discovered_device_ids:
+                        # Device is online
+                        conn.execute(
+                            text("UPDATE available_sensors SET online_status = 1 WHERE sensor_id = :sensor_id"),
+                            {"sensor_id": sensor_id}
+                        )
+                        logger.info(f"Device {sensor_id} is online (UDP discovery)")
+                        
+                        # Update device information in memory
+                        for device in discovered_devices:
+                            if device.get('device_id') == sensor_id:
+                                device_info = self.devices.setdefault(sensor_id, {
+                                    "device_id": sensor_id,
+                                    "status": {},
+                                    "sensor_id": None,
+                                    "allocated_to": None,
+                                    "last_seen": asyncio.get_event_loop().time()
+                                })
+                                
+                                device_info["status"].update({
+                                    "ip_address": device.get('ip_address'),
+                                    "firmware_version": device.get('firmware_version', 'unknown'),
+                                    "sensor_type": device.get('sensor_type', 'unknown'),
+                                    "availability": device.get('availability', 1)
+                                })
+                                
+                                device_info["last_seen"] = asyncio.get_event_loop().time()
+                                break
+                    else:
+                        # Device is offline
+                        conn.execute(
+                            text("UPDATE available_sensors SET online_status = 0 WHERE sensor_id = :sensor_id"),
+                            {"sensor_id": sensor_id}
+                        )
+                        logger.info(f"Device {sensor_id} is offline (not found in UDP discovery)")
+                        
+        except Exception as e:
+            logger.error(f"Error checking all available devices online status: {e}")
+        finally:
+            # Broadcast updated device list to all frontend clients
+            try:
+                from ws_client import ClientWebSocketManager
+                client_manager = ClientWebSocketManager.get_instance()
+                if client_manager:
+                    await client_manager.broadcast_device_list()
+                    logger.info("Broadcasted updated device list to all clients")
+            except Exception as e:
+                logger.error(f"Failed to broadcast device list: {e}")
+
+    async def scan_devices_for_experiment(self) -> List[Dict]:
+        """
+        Manual device discovery for experiment interfaces only.
+        Performs UDP discovery and returns available devices.
+        """
+        logger.info("=== Manual device scan triggered for experiment interface ===")
+        
+        # Perform device discovery
+        await self.check_all_available_devices_online_status()
+        
+        # Return the updated device list
+        return await self.get_available_devices()

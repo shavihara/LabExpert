@@ -11,6 +11,18 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 class OTAManager:
+    _instance = None
+    
+    @classmethod
+    def get_instance(cls):
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+    
+    @classmethod
+    def set_instance(cls, instance):
+        cls._instance = instance
+    
     def __init__(self, firmware_registry_path: str = "firmware_registry.json", bin_dir: str = "bin"):
         self.firmware_registry_path = firmware_registry_path
         self.bin_dir = bin_dir
@@ -65,6 +77,14 @@ class OTAManager:
     async def start_ota_update(self, device_id: str, device_ip: str, experiment_type: Optional[str] = None, firmware_path: Optional[str] = None) -> Dict:
         if not device_ip:
             return {"status": "error", "message": "Device IP not provided"}
+        
+        # Update global ESP32 IP for other services
+        from sensor_service import set_esp32_ip
+        from services.oscillation_service import set_esp32_ip as set_osi_esp32_ip
+        
+        set_esp32_ip(device_ip)
+        set_osi_esp32_ip(device_ip)
+        
         # Resolve firmware path: explicit path wins, else by experiment type
         if firmware_path is None:
             if not experiment_type:
@@ -123,8 +143,8 @@ class OTAManager:
             logger.warning(f"ESP32 at {device_ip} not reachable: {e}")
             return False
 
-    async def _upload_firmware_chunks(self, device_ip: str, firmware_path: str) -> bool:
-        """Upload firmware to ESP32 via HTTP OTA"""
+    async def _upload_firmware_chunks(self, device_ip: str, firmware_path: str, progress_callback=None) -> bool:
+        """Upload firmware to ESP32 via HTTP OTA with progress tracking"""
         import aiohttp
         from aiohttp import FormData
         
@@ -137,12 +157,15 @@ class OTAManager:
             data = FormData()
             data.add_field('update', firmware_data, filename=os.path.basename(firmware_path), content_type='application/octet-stream')
             
+            # Increase timeout to 30 seconds for large firmware files (1MB+)
             async with aiohttp.ClientSession() as session:
-                async with session.post(f"http://{device_ip}/update", data=data, timeout=aiohttp.ClientTimeout(total=8)) as response:
+                async with session.post(f"http://{device_ip}/update", data=data, timeout=aiohttp.ClientTimeout(total=30)) as response:
                     response_text = await response.text()
                     success = response.status == 200 and "OK" in response_text
                     if success:
                         logger.info(f"Firmware upload successful to {device_ip}")
+                        if progress_callback:
+                            await progress_callback(80, "Firmware upload completed, finalizing...")
                     else:
                         logger.error(f"Firmware upload failed to {device_ip}: HTTP {response.status}, {response_text}")
                     return success

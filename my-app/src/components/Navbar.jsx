@@ -140,7 +140,7 @@ function UserDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-200 pt-[70px]">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-200">
       {/* Welcome Section */}
       <div className="relative bg-gradient-to-br from-purple-600 to-purple-800 text-white py-12 px-8 text-center overflow-hidden">
         <div className="absolute inset-0 opacity-30" style={{

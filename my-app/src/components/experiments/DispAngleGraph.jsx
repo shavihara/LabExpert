@@ -5,7 +5,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { useExperimentManager } from '../../hooks/useWebSocket';
 import './ExperimentGraph.css';
 
-const DispAngleGraph = ({ token, isActive, onDataUpdate }) => {
+const DispAngleGraph = ({ webSocketInstance, isActive, onDataUpdate }) => {
   const [config, setConfig] = useState({
     samplingRate: 100,
     accelerometerRange: 2, // ±2g
@@ -41,7 +41,19 @@ const DispAngleGraph = ({ token, isActive, onDataUpdate }) => {
     configureExperiment,
     resetExperiment,
     isConnected
-  } = useExperimentManager(token, 'displacement_angle');
+  } = webSocketInstance ? useExperimentManager(webSocketInstance) : {
+    startExperiment: () => {},
+    stopExperiment: () => {},
+    saveExperimentData: () => {},
+    experimentData: [],
+    isRunning: false,
+    experimentError: null,
+    saveStatus: null,
+    firmwareStatus: null,
+    configStatus: null,
+    flashFirmware: () => {},
+    applyConfiguration: () => {}
+  };
 
   // Process and format data for chart
   const chartData = useMemo(() => {
@@ -147,7 +159,7 @@ const DispAngleGraph = ({ token, isActive, onDataUpdate }) => {
       oscillationFrequency: 0,
       maxAngularDisplacement: 0
     });
-    startExperiment(config);
+    startExperiment(config, 'displacement_angle');
   };
 
   const handlePause = () => {

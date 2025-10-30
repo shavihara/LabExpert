@@ -5,7 +5,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { useExperimentManager } from '../../hooks/useWebSocket';
 import './ExperimentGraph.css';
 
-const OscillationGraph = ({ token, isActive, onDataUpdate }) => {
+const OscillationGraph = ({ webSocketInstance, isActive, onDataUpdate }) => {
   const [config, setConfig] = useState({
     samplingRate: 200,
     threshold: 512,
@@ -132,7 +132,7 @@ const OscillationGraph = ({ token, isActive, onDataUpdate }) => {
       oscillationCount: 0,
       phaseShift: 0
     });
-    startExperiment(config);
+    startExperiment(config, 'oscillation');
   };
 
   const handlePause = () => {

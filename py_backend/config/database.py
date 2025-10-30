@@ -97,6 +97,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             sensor_id TEXT NOT NULL UNIQUE,
             availability INTEGER DEFAULT 1,
+            online_status INTEGER DEFAULT 0,
             last_firmware TEXT,
             last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
         );

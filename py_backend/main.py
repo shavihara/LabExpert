@@ -72,6 +72,7 @@ from session_manager import SessionManager
 from ws_client import ClientWebSocketManager
 from ws_device import DeviceWebSocketManager
 from ota_manager import OTAManager
+from services.udp_discovery_service import udp_discovery_service
 from services.oscillation_service import (
     check_osi_connection,
     configure_osi_experiment,
@@ -81,6 +82,9 @@ from services.oscillation_service import (
     live_oscillation_generator,
     get_osi_data
 )
+
+# Import MQTT service
+from services.mqtt_service import MQTTService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -94,10 +98,15 @@ app = FastAPI()
 # Initialize WebSocket/session managers
 session_manager = SessionManager()
 ota_manager = OTAManager()
+OTAManager.set_instance(ota_manager)
 client_ws_manager = ClientWebSocketManager(session_manager)
 ClientWebSocketManager.set_instance(client_ws_manager)
 device_ws_manager = DeviceWebSocketManager(session_manager, ota_manager)
 DeviceWebSocketManager.set_instance(device_ws_manager)
+
+# Initialize MQTT service (connect to our MQTT broker directly)
+mqtt_service = MQTTService(session_manager, client_ws_manager, broker_host="localhost", broker_port=1883)
+MQTTService.set_instance(mqtt_service)
 
 async def periodic_cleanup():
     while True:
@@ -107,6 +116,18 @@ async def periodic_cleanup():
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(periodic_cleanup())
+    
+    # Start UDP discovery service
+    if await udp_discovery_service.start():
+        logger.info("✅ UDP discovery service started successfully")
+    else:
+        logger.error("❌ Failed to start UDP discovery service")
+    
+    # Mosquitto broker should be running externally - no need to start custom broker
+    
+    # Start MQTT client service (connects to Mosquitto on localhost:1883)
+    await mqtt_service.start()
+    logger.info("✅ MQTT client service started successfully")
 
 # Add this at the top with other constants
 ESP32_IP = "192.168.137.15"  # Add this line
@@ -127,8 +148,9 @@ def get_local_ip():
         return "127.0.0.1"
 
 
-LOCAL_IP = get_local_ip()
-logger.info(f"🌐 Local IP Address: {LOCAL_IP}")
+# Use the specific IP that ESP32 devices are configured to connect to
+LOCAL_IP = "192.168.137.1"
+logger.info(f"🌐 Local IP Address: {LOCAL_IP} (ESP32-compatible)")
 
 # ------------------ CORS ------------------
 # UPDATED: Allow WS upgrades
@@ -611,30 +633,89 @@ async def configure_sensor(
         selected_device = user_devices[0]  # Default to first allocated
     
     device_status = await session_manager.get_device_status(selected_device)
-    device_ip = device_status.get("ip_address")
-    logger.info(f"Device {selected_device} status: {device_status}, IP: {device_ip}")
-    if not device_ip:
-        raise HTTPException(500, "Device IP not available")
-    result = await configure_experiment(config.frequency, config.duration, device_ip, config.mode)
-    if result["success"]:
-        return {"success": True, "config": result["config"]}
-    raise HTTPException(500, result.get("error", "Configuration failed"))
+    logger.info(f"Device {selected_device} status: {device_status}")
+    
+    # Use MQTT to send configuration to device
+    mqtt_config = {
+        "frequency": config.frequency,
+        "duration": config.duration,
+        "mode": config.mode,
+        "averagingSamples": 1
+    }
+    
+    # Use MQTT to send configuration to device
+    mqtt_service = MQTTService.get_instance()
+    if not mqtt_service or not mqtt_service.connected:
+        raise HTTPException(500, "MQTT service not available")
+    
+    mqtt_service.publish_config(selected_device, mqtt_config)
+    return {"success": True, "config": mqtt_config}
 
 
 @app.post("/api/sensor/start")
 async def start_sensor(current_user=Depends(get_current_user)):
-    result = await start_experiment()
-    if result["success"]:
+    user_id = current_user['id']
+    user_devices = await session_manager.get_user_devices(user_id)
+    if not user_devices:
+        raise HTTPException(403, "No device allocated to this user")
+    
+    selected_device = user_devices[0]  # Use first allocated device
+    
+    # Use MQTT to send start command
+    mqtt_service = MQTTService.get_instance()
+    if not mqtt_service or not mqtt_service.connected:
+        raise HTTPException(500, "MQTT service not available")
+    
+    try:
+        mqtt_service.publish_start_command(selected_device)
         return {"success": True}
-    raise HTTPException(500, result.get("error", "Failed to start experiment"))
+    except Exception as e:
+        logger.error(f"Failed to send start command via MQTT: {e}")
+        raise HTTPException(500, f"Failed to start experiment: {str(e)}")
 
 
 @app.post("/api/sensor/stop")
 async def stop_sensor(current_user=Depends(get_current_user)):
-    result = await stop_experiment()
-    if result["success"]:
+    user_id = current_user['id']
+    user_devices = await session_manager.get_user_devices(user_id)
+    if not user_devices:
+        raise HTTPException(403, "No device allocated to this user")
+    
+    selected_device = user_devices[0]  # Use first allocated device
+    
+    # Use MQTT to send stop command
+    mqtt_service = MQTTService.get_instance()
+    if not mqtt_service or not mqtt_service.connected:
+        raise HTTPException(500, "MQTT service not available")
+    
+    try:
+        mqtt_service.publish_stop_command(selected_device)
         return {"success": True}
-    raise HTTPException(500, result.get("error", "Failed to stop experiment"))
+    except Exception as e:
+        logger.error(f"Failed to send stop command via MQTT: {e}")
+        raise HTTPException(500, f"Failed to stop experiment: {str(e)}")
+
+
+@app.post("/api/sensor/pause")
+async def pause_sensor(current_user=Depends(get_current_user)):
+    user_id = current_user['id']
+    user_devices = await session_manager.get_user_devices(user_id)
+    if not user_devices:
+        raise HTTPException(403, "No device allocated to this user")
+    
+    selected_device = user_devices[0]  # Use first allocated device
+    
+    # Use MQTT to send pause command
+    mqtt_service = MQTTService.get_instance()
+    if not mqtt_service or not mqtt_service.connected:
+        raise HTTPException(500, "MQTT service not available")
+    
+    try:
+        mqtt_service.publish_pause_command(selected_device)
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Failed to send pause command via MQTT: {e}")
+        raise HTTPException(500, f"Failed to pause experiment: {str(e)}")
 
 
 # UPDATED: /stream now WS endpoint - connect via ws://localhost:5000/ws/sensor?token=...
@@ -884,7 +965,7 @@ async def select_experiment(
         # Try device-specific firmware first (e.g., 834E8.bin / 834E8_OSC.bin)
         device_fw_map = {
             ExperimentType.DISTANCE: f"{device_id}.bin",
-            ExperimentType.OSCILLATION: f"{device_id}_OSC.bin",
+            ExperimentType.OSCILLATION: f"{device_id}.bin",
             ExperimentType.DISPLACEMENT: f"{device_id}.bin"
         }
         firmware_file = device_fw_map.get(exp)
@@ -906,7 +987,8 @@ async def select_experiment(
             device_id=device_id,
             device_ip=device_ip,
             experiment_type=ota_key,
-            firmware_path=firmware_path_override
+            firmware_path=firmware_path_override,
+            #user_id=current_user['id']
         )
         
         if result.get("status") == "success" or result.get("success"):
@@ -938,8 +1020,8 @@ async def select_experiment(
                 now = datetime.now().isoformat()
                 firmware_name = expected_sensor_type
                 update_stmt = text("""
-                    UPDATE available_sensors 
-                    SET availability = 0, last_firmware = :firmware, last_updated = :now
+                    UPDATE available_sensors
+                    SET availability = 0, online_status = 0, last_firmware = :firmware, last_updated = :now
                     WHERE sensor_id = :device_id
                 """)
                 with engine.begin() as conn:
@@ -1031,6 +1113,49 @@ async def disconnect_user_devices(current_user=Depends(get_current_user)):
     except Exception as e:
         logger.error(f"Error disconnecting devices for user {current_user['id']}: {e}")
         raise HTTPException(500, f"Failed to disconnect devices: {str(e)}")
+
+
+@app.post("/api/user/scan-devices")
+async def scan_devices_endpoint(current_user=Depends(get_current_user)):
+    """
+    REST API endpoint to trigger device scanning.
+    This is a workaround for WebSocket connection issues.
+    """
+    try:
+        logger.info(f"Manual device scan triggered via REST API by user {current_user['id']}")
+        
+        # Use the session manager to scan for devices (same as WebSocket handler)
+        devices = await session_manager.scan_devices_for_experiment()
+        
+        # Normalize device data (same as in WebSocket handler)
+        normalized_devices = []
+        for device in devices:
+            normalized_device = {
+                'id': device.get('id', '') or device.get('device_id', ''),
+                'name': device.get('name', 'Unknown Device'),
+                'type': device.get('type', 'unknown'),
+                'status': device.get('status', 'available'),
+                'ip': device.get('ip', '') or device.get('ip_address', ''),
+                'port': device.get('port', 0),
+                'capabilities': device.get('capabilities', []),
+                'last_seen': device.get('last_seen', ''),
+                'firmware_version': device.get('firmware_version', ''),
+                'battery_level': device.get('battery_level', None)
+            }
+            normalized_devices.append(normalized_device)
+        
+        logger.info(f"Found {len(normalized_devices)} devices via REST API scan")
+        
+        return {
+            "success": True,
+            "devices": normalized_devices,
+            "count": len(normalized_devices),
+            "message": f"Found {len(normalized_devices)} devices"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error scanning devices via REST API: {e}")
+        raise HTTPException(500, f"Failed to scan devices: {str(e)}")
 
 
 # ------------------ Email Setup ------------------

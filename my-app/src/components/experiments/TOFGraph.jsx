@@ -5,7 +5,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { useExperimentManager } from '../../hooks/useWebSocket';
 import './ExperimentGraph.css';
 
-const TOFGraph = ({ token, isActive, onDataUpdate, externalConfig }) => {
+const TOFGraph = ({ webSocketInstance, isActive, onDataUpdate, externalConfig }) => {
   const [config, setConfig] = useState({
     samplingRate: 100,
     maxDistance: 400,
@@ -36,7 +36,20 @@ const TOFGraph = ({ token, isActive, onDataUpdate, externalConfig }) => {
     configureExperiment,
     resetExperiment,
     isConnected
-  } = useExperimentManager(token, 'tof');
+  } = webSocketInstance ? useExperimentManager(webSocketInstance) : {
+    isRunning: false,
+    isPaused: false,
+    experimentData: [],
+    experimentStatus: 'idle',
+    experimentError: null,
+    startExperiment: () => {},
+    pauseExperiment: () => {},
+    resumeExperiment: () => {},
+    stopExperiment: () => {},
+    configureExperiment: () => {},
+    resetExperiment: () => {},
+    isConnected: false
+  };
 
   // Sync external config from parent (frequency, max distance, duration)
   useEffect(() => {
@@ -106,7 +119,7 @@ const TOFGraph = ({ token, isActive, onDataUpdate, externalConfig }) => {
       totalDistance: 0,
       motionType: 'stationary'
     });
-    startExperiment(config);
+    startExperiment(config, 'tof');
   };
 
   const handlePause = () => {

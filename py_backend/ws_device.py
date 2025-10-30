@@ -78,7 +78,7 @@ class DeviceWebSocketManager:
         try:
             message_type = message.get("type")
             
-            if message_type == "sensor_id":
+            if message_type == "sensor_id" or message_type == "sensor_identify":
                 # ESP32 sends sensor ID, backend selects firmware
                 sensor_id = message.get("sensor_id")
                 device_ip = message.get("ip")
@@ -139,11 +139,11 @@ class DeviceWebSocketManager:
                 # DISABLED: Automatic OTA updates - now handled manually through frontend UI
                 # Users will manually trigger OTA through the frontend device list interface
                 logger.info(f"Firmware available for {device_id} ({sensor_id}), but automatic OTA is disabled. User must manually trigger OTA through frontend UI.")
-                
-                # Initialize appropriate processor
-                self._initialize_processor(device_id, sensor_id)
             else:
                 logger.warning(f"No firmware found for sensor {sensor_id}; OTA not initiated")
+            
+            # Initialize appropriate processor for ALL devices (required for configuration)
+            self._initialize_processor(device_id, sensor_id)
                 
             # Special handling for UNKNOWN sensor_id (bootloader/available state) - preserved allocation
             if sensor_id.upper() == "UNKNOWN":
@@ -272,3 +272,12 @@ class DeviceWebSocketManager:
     def is_device_connected(self, device_id: str) -> bool:
         """Check if device is connected"""
         return device_id in self.active_connections
+    
+    async def is_device_ready_for_configuration(self, device_id: str) -> bool:
+        """Check if device is ready for configuration (connected and has completed identification)"""
+        if device_id not in self.active_connections:
+            return False
+        
+        # Check if device has completed identification by checking if it has a processor
+        # Devices get a processor assigned after successful identification
+        return device_id in self.device_processors
