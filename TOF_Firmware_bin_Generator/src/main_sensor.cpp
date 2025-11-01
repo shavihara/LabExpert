@@ -7,7 +7,6 @@
 #include "esp_ota_ops.h"
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
-#include <AsyncWebSocket.h>
 #include <Update.h>
 #include <Wire.h>
 
@@ -60,6 +59,13 @@ void setup() {
         Serial.println("WARNING: Sensor init issues");
     }
     
+    // Initialize hardware timer for interrupt-driven 50Hz sampling
+    if (initHardwareTimer()) {
+        Serial.println("Hardware timer initialized successfully");
+    } else {
+        Serial.println("ERROR: Hardware timer initialization failed");
+    }
+    
     // Network setup
     WiFi.mode(WIFI_STA);
     WiFi.config(local_IP, gateway, subnet);
@@ -109,17 +115,17 @@ void setup() {
 }
 
 void loop() {
-    // MQTT maintenance
-    mqttLoop();
-
     // Check sensor status periodically
     checkSensorStatus();
+
+    // Handle backend cleanup requests
+    handleBackendCleanup();
+
+    // MQTT maintenance
+    mqttLoop();
     
     // Manage experiment execution
     manageExperimentLoop();
-    
-    // Handle backend cleanup requests
-    handleBackendCleanup();
     
     delay(1);
 }

@@ -22,6 +22,7 @@ export const useWebSocket = (token, isActive = true) => {
   const reconnectTimeoutRef = useRef(null);
   const reconnectAttemptsRef = useRef(0);
   const messageHandlersRef = useRef(new Set());
+  const messageQueueRef = useRef([]);
   const isActiveRef = useRef(isActive);
   const tokenRef = useRef(token);
 
@@ -68,6 +69,13 @@ export const useWebSocket = (token, isActive = true) => {
     setIsConnecting(false);
     setError(null);
     reconnectAttemptsRef.current = 0;
+  }, []);
+
+  // Get and clear queued real-time data messages
+  const getQueuedMessages = useCallback(() => {
+    const messages = [...messageQueueRef.current];
+    messageQueueRef.current = [];
+    return messages;
   }, []);
 
   // Connect to WebSocket
@@ -122,6 +130,14 @@ export const useWebSocket = (token, isActive = true) => {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          console.log('WebSocket received message:', data);
+          
+          // Queue real-time data messages to prevent loss
+          if (data.type === 'real_time_data' || data.type === 'sensor_data') {
+            messageQueueRef.current.push(data);
+            console.log('Queued data message, queue size:', messageQueueRef.current.length, 'Message:', data);
+          }
+          
           setLastMessage(data);
           
           // Notify all message handlers
@@ -173,6 +189,14 @@ export const useWebSocket = (token, isActive = true) => {
                 ws.onmessage = (event) => {
                   try {
                     const data = JSON.parse(event.data);
+                    console.log('WebSocket received message (reconnect):', data);
+                    
+                    // Queue real-time data messages to prevent loss
+                    if (data.type === 'real_time_data' || data.type === 'sensor_data') {
+                      messageQueueRef.current.push(data);
+                      console.log('Queued data message (reconnect), queue size:', messageQueueRef.current.length, 'Message:', data);
+                    }
+                    
                     setLastMessage(data);
                     
                     messageHandlersRef.current.forEach(handler => {
@@ -261,6 +285,7 @@ export const useWebSocket = (token, isActive = true) => {
     lastMessage,
     sendMessage,
     addMessageHandler,
+    getQueuedMessages,
     connect,
     disconnect
   };
@@ -368,6 +393,7 @@ export const useExperimentManager = (webSocketInstance) => {
   // Handle experiment-related messages
   useEffect(() => {
     const handleMessage = (data) => {
+      console.log('useExperimentManager received message:', data);
       switch (data.type) {
         case 'experiment_data':
           setExperimentData(prev => [...prev, data.data]);
@@ -394,11 +420,32 @@ export const useExperimentManager = (webSocketInstance) => {
             message: data.message || data.detail || 'Firmware operation completed'
           });
           break;
+        case 'experiment_configured':
+          console.log('Received experiment_configured:', data);
+          setConfigStatus({
+            success: true,
+            message: data.message || 'Configuration applied successfully'
+          });
+          break;
         case 'configuration_result':
           setConfigStatus({
             success: data.success,
             message: data.message || data.detail || 'Configuration applied'
           });
+          break;
+        case 'error':
+          console.log('Received error message:', data);
+          // Check if this error is related to configuration by checking the message content
+          if (data.message && (data.message.includes('configure') || data.message.includes('Configuration'))) {
+            console.log('Setting configStatus to error:', data.message);
+            setConfigStatus({
+              success: false,
+              message: data.message
+            });
+          } else {
+            // Handle other types of errors
+            setExperimentError(data.message);
+          }
           break;
         case 'save_experiment_result':
           setSaveStatus({
@@ -458,10 +505,22 @@ export const useExperimentManager = (webSocketInstance) => {
     }
 
     setConfigStatus({ success: null, message: 'Applying configuration...' });
+    
+    // Map frontend field names to backend expected format
+    const backendConfig = {
+      frequency: config.frequency_hz || config.frequency || 50,
+      duration: config.duration_s || config.duration || 60,
+      mode: config.mode || 'distance'
+    };
+    // Only include maxRange if explicitly provided to avoid forcing unsupported range modes
+    if (config.max_distance_cm != null && !Number.isNaN(config.max_distance_cm)) {
+      backendConfig.maxRange = Math.round(config.max_distance_cm * 10); // Convert cm to mm
+    }
+    
     sendMessage({ 
       action: 'configure_experiment', 
       device_id: deviceId, 
-      config: config 
+      config: backendConfig 
     });
   }, [isConnected, sendMessage]);
 

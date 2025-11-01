@@ -52,24 +52,18 @@ class ClientWebSocketManager:
         # Get user's allocated devices
         user_devices = await self.session_manager.get_user_devices(user_id)
         if user_devices:
-            # Send user_disconnected message to each device
-            from ws_device import DeviceWebSocketManager
-            device_manager = DeviceWebSocketManager.get_instance()
+            # Send user_disconnected message to each device via MQTT
+            from services.mqtt_service import MQTTService
+            mqtt_service = MQTTService.get_instance()
             
             for device_id in user_devices:
-                if device_manager and device_manager.is_device_connected(device_id):
-                    logger.info(f"Sending user_disconnected message to device {device_id}")
-                    await device_manager.send_command_to_device(device_id, {
-                        "type": "user_disconnected",
-                        "message": "User disconnected from the application",
-                        "user_id": user_id
-                    })
+                if mqtt_service and mqtt_service.connected:
+                    logger.info(f"Sending user_disconnected message to device {device_id} via MQTT")
+                    mqtt_service.publish_user_disconnected(device_id, user_id)
                     
                     # Also send the original disconnect_and_cleanup command
-                    logger.info(f"Sending disconnect_and_cleanup command to device {device_id}")
-                    await device_manager.send_command_to_device(device_id, {
-                        "type": "disconnect_and_cleanup"
-                    })
+                    logger.info(f"Sending disconnect_and_cleanup command to device {device_id} via MQTT")
+                    mqtt_service.publish_disconnect_command(device_id)
         
         await self.handle_dashboard_disconnect(user_id)
         
@@ -267,22 +261,73 @@ class ClientWebSocketManager:
             await self.send_to_user(user_id, {"type": "error", "message": f"Failed to {success_event}"})
 
     async def _handle_configure_experiment(self, user_id: str, config: dict, experiment_type: str):
-        from ws_device import DeviceWebSocketManager
-        device_manager = DeviceWebSocketManager.get_instance()
+        from services.mqtt_service import MQTTService
         devices = await self.session_manager.get_user_devices(user_id)
         if not devices:
             await self.send_to_user(user_id, {"type": "error", "message": "No device allocated"})
             return
         device_id = devices[0]
-        success = await device_manager.send_command_to_device(device_id, {
-            "type": "configure_experiment",
-            "experiment_type": experiment_type,
-            "config": config
-        })
-        if success:
+
+        # Normalize incoming config keys to backend expectations
+        try:
+            freq = config.get("frequency")
+            if freq is None:
+                freq = config.get("frequency_hz") or config.get("samplingRate")
+            dur = config.get("duration")
+            if dur is None:
+                dur = config.get("duration_s") or config.get("timeLimit")
+
+            # Coerce to integers when provided
+            if freq is not None:
+                try:
+                    freq = int(freq)
+                except Exception:
+                    pass
+            if dur is not None:
+                try:
+                    dur = int(dur)
+                except Exception:
+                    pass
+
+            normalized_config = {
+                "frequency": freq if freq is not None else 50,
+                "duration": dur if dur is not None else 60,
+                "mode": config.get("mode") or "distance",
+                "averagingSamples": config.get("averagingSamples") if config.get("averagingSamples") is not None else 1,
+            }
+
+            # Include maxRange only when explicitly provided
+            if config.get("maxRange") is not None:
+                try:
+                    normalized_config["maxRange"] = int(config.get("maxRange"))
+                except Exception:
+                    normalized_config["maxRange"] = config.get("maxRange")
+            elif config.get("max_distance_cm") is not None:
+                try:
+                    normalized_config["maxRange"] = int(round(float(config.get("max_distance_cm")) * 10))
+                except Exception:
+                    pass
+
+            config = normalized_config
+        except Exception as e:
+            # Fall back to the original config if normalization fails
+            logger.warning(f"Config normalization failed: {e}. Using raw config: {config}")
+
+        try:
+            # Use MQTT for configuration (WebSocket removed)
+            mqtt_service = MQTTService.get_instance()
+            if not mqtt_service or not mqtt_service.connected:
+                await self.send_to_user(user_id, {"type": "error", "message": "MQTT service not available"})
+                return
+
+            logger.info(f"Publishing configuration via MQTT to device {device_id}: {config}")
+            mqtt_service.publish_config(device_id, config)
             await self.send_to_user(user_id, {"type": "experiment_configured", "device_id": device_id, "config": config})
-        else:
+            await self.send_to_user(user_id, {"type": "configuration_result", "success": True, "message": "Configuration applied", "device_id": device_id, "config": config})
+        except Exception as e:
+            logger.error(f"Failed to configure experiment: {e}")
             await self.send_to_user(user_id, {"type": "error", "message": "Failed to configure experiment"})
+            await self.send_to_user(user_id, {"type": "configuration_result", "success": False, "message": str(e) or "Failed to configure experiment"})
 
     async def _handle_flash_firmware(self, user_id: str, device_id: str, experiment_type: str):
         """Handle firmware flashing request"""

@@ -32,4 +32,8 @@ void manageExperimentLoop();
 void checkSensorStatus();
 void handleBackendCleanup();
 
+// Hardware timer functions
+bool initHardwareTimer();
+void updateTimerFrequency(int frequency);
+
 #endif
