@@ -217,25 +217,8 @@ class SessionManager:
     async def _send_cleanup_command_to_device(self, device_id: str):
         """Send disconnect_and_cleanup command to ESP32 device via WebSocket"""
         try:
-            # Import here to avoid circular imports
-            from ws_device import DeviceWebSocketManager
-            
-            device_manager = DeviceWebSocketManager.get_instance()
-            if device_manager:
-                # Check if device is currently connected
-                if device_id in device_manager.active_connections:
-                    websocket = device_manager.active_connections[device_id]
-                    cleanup_command = {
-                        "type": "disconnect_and_cleanup",
-                        "device_id": device_id,
-                        "message": "Device allocation freed - cleaning up firmware"
-                    }
-                    await websocket.send_json(cleanup_command)
-                    logger.info(f"Sent disconnect_and_cleanup command to device {device_id}")
-                else:
-                    logger.warning(f"Device {device_id} not connected - cannot send cleanup command")
-            else:
-                logger.warning("DeviceWebSocketManager instance not available")
+            # Device cleanup command sending removed - MQTT-only architecture
+            logger.info(f"Device {device_id} allocation freed - cleanup command not sent (MQTT-only)")
         except Exception as e:
             logger.error(f"Failed to send cleanup command to device {device_id}: {e}")
         

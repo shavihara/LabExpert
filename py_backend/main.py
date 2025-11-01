@@ -70,7 +70,6 @@ from enum import Enum
 import socket
 from session_manager import SessionManager
 from ws_client import ClientWebSocketManager
-from ws_device import DeviceWebSocketManager
 from ota_manager import OTAManager
 from services.udp_discovery_service import udp_discovery_service
 from services.oscillation_service import (
@@ -101,8 +100,7 @@ ota_manager = OTAManager()
 OTAManager.set_instance(ota_manager)
 client_ws_manager = ClientWebSocketManager(session_manager)
 ClientWebSocketManager.set_instance(client_ws_manager)
-device_ws_manager = DeviceWebSocketManager(session_manager, ota_manager)
-DeviceWebSocketManager.set_instance(device_ws_manager)
+
 
 # Initialize MQTT service (connect to our MQTT broker directly)
 mqtt_service = MQTTService(session_manager, client_ws_manager, broker_host="localhost", broker_port=1883)
