@@ -86,7 +86,7 @@ uint16_t modbusCRC(uint8_t *buf, int len) {
 
 // Read TOF distance (raw)
 uint16_t readTOFDistanceRaw() {
-    const int MAX_RETRIES = 1;
+    const int MAX_RETRIES = 3;  // Increased from 1 to 3 retries
     const uint8_t SLAVE_ADDR = 0x01;
     
     for (int retry = 0; retry < MAX_RETRIES; retry++) {
@@ -106,7 +106,7 @@ uint16_t readTOFDistanceRaw() {
         int bytesRead = 0;
         unsigned long startTime = millis();
         
-        while (bytesRead < 7 && millis() - startTime < 20) { 
+        while (bytesRead < 7 && millis() - startTime < 50) {  // Increased timeout from 20ms to 50ms
             if (TOFSerial.available()) {
                 response[bytesRead++] = TOFSerial.read();
             }
@@ -115,12 +115,12 @@ uint16_t readTOFDistanceRaw() {
 
         if (bytesRead != 7) {
             diagnostics.timeouts++;
-            delay(5);
+            delay(10);  // Increased delay for better recovery
             continue;
         }
         
         if (response[0] != SLAVE_ADDR || response[1] != 0x03 || response[2] != 0x02) {
-            delay(5);
+            delay(10);  // Increased delay
             continue;
         }
         
@@ -129,7 +129,7 @@ uint16_t readTOFDistanceRaw() {
         
         if (receivedCRC != calculatedCRC) {
             diagnostics.crcErrors++;
-            delay(5);
+            delay(10);  // Increased delay
             continue;
         }
         

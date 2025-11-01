@@ -7,7 +7,6 @@
 #include "esp_ota_ops.h"
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
-#include <AsyncWebSocket.h>
 #include <Update.h>
 #include <Wire.h>
 

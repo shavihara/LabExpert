@@ -1,6 +1,5 @@
 #include "config_handler.h"
 #include "sensor_communication.h"
-#include "websocket_handler.h"
 #include "experiment_manager.h"
 #include <ArduinoJson.h>
 #include <Update.h>

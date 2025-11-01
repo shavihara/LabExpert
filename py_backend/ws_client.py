@@ -52,24 +52,18 @@ class ClientWebSocketManager:
         # Get user's allocated devices
         user_devices = await self.session_manager.get_user_devices(user_id)
         if user_devices:
-            # Send user_disconnected message to each device
-            from ws_device import DeviceWebSocketManager
-            device_manager = DeviceWebSocketManager.get_instance()
+            # Send user_disconnected message to each device via MQTT
+            from services.mqtt_service import MQTTService
+            mqtt_service = MQTTService.get_instance()
             
             for device_id in user_devices:
-                if device_manager and device_manager.is_device_connected(device_id):
-                    logger.info(f"Sending user_disconnected message to device {device_id}")
-                    await device_manager.send_command_to_device(device_id, {
-                        "type": "user_disconnected",
-                        "message": "User disconnected from the application",
-                        "user_id": user_id
-                    })
+                if mqtt_service and mqtt_service.connected:
+                    logger.info(f"Sending user_disconnected message to device {device_id} via MQTT")
+                    mqtt_service.publish_user_disconnected(device_id, user_id)
                     
                     # Also send the original disconnect_and_cleanup command
-                    logger.info(f"Sending disconnect_and_cleanup command to device {device_id}")
-                    await device_manager.send_command_to_device(device_id, {
-                        "type": "disconnect_and_cleanup"
-                    })
+                    logger.info(f"Sending disconnect_and_cleanup command to device {device_id} via MQTT")
+                    mqtt_service.publish_disconnect_command(device_id)
         
         await self.handle_dashboard_disconnect(user_id)
         
@@ -267,9 +261,7 @@ class ClientWebSocketManager:
             await self.send_to_user(user_id, {"type": "error", "message": f"Failed to {success_event}"})
 
     async def _handle_configure_experiment(self, user_id: str, config: dict, experiment_type: str):
-        from ws_device import DeviceWebSocketManager
         from services.mqtt_service import MQTTService
-        device_manager = DeviceWebSocketManager.get_instance()
         devices = await self.session_manager.get_user_devices(user_id)
         if not devices:
             await self.send_to_user(user_id, {"type": "error", "message": "No device allocated"})
@@ -322,22 +314,7 @@ class ClientWebSocketManager:
             logger.warning(f"Config normalization failed: {e}. Using raw config: {config}")
 
         try:
-            # Prefer WebSocket if device is connected
-            if device_manager and device_manager.is_device_connected(device_id):
-                success = await device_manager.send_command_to_device(device_id, {
-                    "type": "configure_experiment",
-                    "experiment_type": experiment_type,
-                    "config": config
-                })
-                if success:
-                    await self.send_to_user(user_id, {"type": "experiment_configured", "device_id": device_id, "config": config})
-                    await self.send_to_user(user_id, {"type": "configuration_result", "success": True, "message": "Configuration applied", "device_id": device_id, "config": config})
-                    return
-                else:
-                    # Fall through to MQTT if WS send fails
-                    logger.warning(f"WS config send failed for {device_id}, attempting MQTT fallback")
-
-            # MQTT fallback when WS is not connected
+            # Use MQTT for configuration (WebSocket removed)
             mqtt_service = MQTTService.get_instance()
             if not mqtt_service or not mqtt_service.connected:
                 await self.send_to_user(user_id, {"type": "error", "message": "MQTT service not available"})

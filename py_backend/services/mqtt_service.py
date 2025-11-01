@@ -210,12 +210,15 @@ class MQTTService:
             for i in range(sample_count):
                 offset = BINARY_HEADER_SIZE + i * BINARY_SAMPLE_SIZE
                 sample_data = struct.unpack('<LHH', payload[offset:offset + BINARY_SAMPLE_SIZE])
-                timestamp_ms, distance, sample_num = sample_data
+                timestamp_ms, distance_mm, sample_num = sample_data
+                
+                # Convert distance from millimeters to centimeters for frontend display
+                distance_cm = distance_mm / 10.0
                 
                 # Convert to JSON-compatible format
                 sample = {
                     "timestamp": timestamp_ms,  # Relative timestamp (milliseconds since experiment start)
-                    "distance": distance,
+                    "distance": distance_cm,   # Converted to centimeters
                     "sample": sample_num,
                     "sensor_type": sensor_type,
                     "packet_id": packet_id
