@@ -120,11 +120,11 @@ void handleMQTTCommands(char* topic, byte* payload, unsigned int length) {
         if (doc.containsKey("freq")) {
             config.frequency = doc["freq"];
             Serial.printf("Frequency updated to: %d\n", config.frequency);
+            updateTimerFrequency(config.frequency);
         }
         
         if (doc.containsKey("maxRange")) {
             config.maxRange = doc["maxRange"];
-            configureSensorForMaxRange(config.maxRange);
             Serial.printf("Max range updated to: %d\n", config.maxRange);
         }
         

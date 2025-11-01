@@ -77,6 +77,9 @@ void handleConfigure(AsyncWebServerRequest *request) {
         Serial.printf("Configured: freq=%dHz, dur=%ds, interval=%dms, avg=%d\n", 
             config.frequency, config.duration, sampleInterval, config.averagingSamples);
         
+        // Update hardware timer with new frequency
+        updateTimerFrequency(config.frequency);
+        
         // Send proper JSON response
         String response;
         DynamicJsonDocument respDoc(200);

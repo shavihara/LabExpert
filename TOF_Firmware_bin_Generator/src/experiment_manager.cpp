@@ -141,8 +141,28 @@ bool initHardwareTimer() {
     timer_start(TIMER_GROUP_0, TIMER_0);
     
     timerInitialized = true;
-    Serial.println("Hardware timer initialized for 50Hz sampling");
+    Serial.printf("Hardware timer initialized for %dHz sampling\n", ::config.frequency);
     return true;
+}
+
+// Update timer frequency dynamically
+void updateTimerFrequency(int frequency) {
+    if (!timerInitialized) {
+        Serial.println("ERROR: Timer not initialized, cannot update frequency");
+        return;
+    }
+    
+    // Stop timer temporarily
+    timer_pause(TIMER_GROUP_0, TIMER_0);
+    
+    // Set new alarm value based on new frequency
+    int intervalMicroseconds = 1000000 / frequency; // Convert Hz to microseconds
+    timer_set_alarm_value(TIMER_GROUP_0, TIMER_0, intervalMicroseconds);
+    
+    // Restart timer
+    timer_start(TIMER_GROUP_0, TIMER_0);
+    
+    Serial.printf("Timer frequency updated to %dHz\n", frequency);
 }
 
 // Flush buffered samples to MQTT

@@ -115,17 +115,17 @@ void setup() {
 }
 
 void loop() {
-    // MQTT maintenance
-    mqttLoop();
-
     // Check sensor status periodically
     checkSensorStatus();
+
+    // Handle backend cleanup requests
+    handleBackendCleanup();
+
+    // MQTT maintenance
+    mqttLoop();
     
     // Manage experiment execution
     manageExperimentLoop();
-    
-    // Handle backend cleanup requests
-    handleBackendCleanup();
     
     delay(1);
 }
