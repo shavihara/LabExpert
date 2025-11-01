@@ -180,24 +180,25 @@ void processSensorDataQueue() {
         sampleRequested = false;
         
         // Read sensor data (in main loop, not ISR)
-        uint16_t distance = readTOFDistance();
+        // readTOFDistanceMM() returns distance in millimeters (mm) - raw data without smoothing
+        uint16_t distance_mm = readTOFDistanceMM();
         uint32_t timestamp = millis();
         
-        // Store data in arrays
+        // Store data in arrays (distances are in mm for physics precision)
         if (sampleCount < MAX_SAMPLES) {
             timestamps[sampleCount] = timestamp - experimentStartTime;
-            distances[sampleCount] = distance;
+            distances[sampleCount] = distance_mm;  // Store as millimeters
         }
         
-        // Add to binary sample buffer
+        // Add to binary sample buffer (distance in mm)
         if (bufferedSampleCount < BINARY_MAX_SAMPLES_PER_PACKET) {
             sampleBuffer[bufferedSampleCount].timestamp = timestamp - experimentStartTime;
-            sampleBuffer[bufferedSampleCount].distance = distance;
+            sampleBuffer[bufferedSampleCount].distance = distance_mm;  // Store as millimeters
             sampleBuffer[bufferedSampleCount].sample_number = sampleCount;
             bufferedSampleCount++;
         }
         
-        // Flush buffer if full
+        // Flush buffer if full (optimized for 200cm range - smaller batches)
         if (bufferedSampleCount >= BINARY_MAX_SAMPLES_PER_PACKET) {
             flushSampleBuffer();
         }
@@ -205,14 +206,19 @@ void processSensorDataQueue() {
         // Increment sample count
         sampleCount++;
         
-        // Toggle status LED
+        // Toggle status LED for visual feedback
         digitalWrite(STATUS_LED, !digitalRead(STATUS_LED));
+        
+        // Debug output for first few samples (optional)
+        if (sampleCount <= 10) {
+            Serial.printf("Sample %d: %umm @ %ums\n", sampleCount, distance_mm, timestamps[sampleCount-1]);
+        }
     }
     
-    // Flush any remaining samples at the end
+    // Flush any remaining samples periodically (optimized for 200cm range)
     static unsigned long lastFlushTime = 0;
     unsigned long currentTime = millis();
-    if (bufferedSampleCount > 0 && (currentTime - lastFlushTime > 100)) { // Flush every 100ms
+    if (bufferedSampleCount > 0 && (currentTime - lastFlushTime > 50)) { // Flush every 50ms for better real-time
         flushSampleBuffer();
         lastFlushTime = currentTime;
     }

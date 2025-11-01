@@ -33,6 +33,7 @@ String getDeviceIDFromMAC();
 uint16_t modbusCRC(uint8_t *buf, int len);
 uint16_t readTOFDistanceRaw();
 float readTOFDistance();
+uint16_t readTOFDistanceMM();  // Millimeter precision without filtering
 bool setRangingMode(bool longDistance);
 bool configureSensorForMaxRange(uint16_t maxRange);
 

@@ -212,13 +212,13 @@ class MQTTService:
                 sample_data = struct.unpack('<LHH', payload[offset:offset + BINARY_SAMPLE_SIZE])
                 timestamp_ms, distance_mm, sample_num = sample_data
                 
-                # Convert distance from millimeters to centimeters for frontend display
-                distance_cm = distance_mm / 10.0
+                # Firmware now sends millimeter data directly - no conversion needed
+                distance_mm = distance_mm  # Keep as millimeters for physics experiments
                 
                 # Convert to JSON-compatible format
                 sample = {
                     "timestamp": timestamp_ms,  # Relative timestamp (milliseconds since experiment start)
-                    "distance": distance_cm,   # Converted to centimeters
+                    "distance": distance_mm,   # Now in millimeters for physics experiments
                     "sample": sample_num,
                     "sensor_type": sensor_type,
                     "packet_id": packet_id
