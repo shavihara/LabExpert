@@ -22,6 +22,7 @@ export const useWebSocket = (token, isActive = true) => {
   const reconnectTimeoutRef = useRef(null);
   const reconnectAttemptsRef = useRef(0);
   const messageHandlersRef = useRef(new Set());
+  const messageQueueRef = useRef([]);
   const isActiveRef = useRef(isActive);
   const tokenRef = useRef(token);
 
@@ -68,6 +69,13 @@ export const useWebSocket = (token, isActive = true) => {
     setIsConnecting(false);
     setError(null);
     reconnectAttemptsRef.current = 0;
+  }, []);
+
+  // Get and clear queued real-time data messages
+  const getQueuedMessages = useCallback(() => {
+    const messages = [...messageQueueRef.current];
+    messageQueueRef.current = [];
+    return messages;
   }, []);
 
   // Connect to WebSocket
@@ -122,6 +130,14 @@ export const useWebSocket = (token, isActive = true) => {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          console.log('WebSocket received message:', data);
+          
+          // Queue real-time data messages to prevent loss
+          if (data.type === 'real_time_data' || data.type === 'sensor_data') {
+            messageQueueRef.current.push(data);
+            console.log('Queued data message, queue size:', messageQueueRef.current.length, 'Message:', data);
+          }
+          
           setLastMessage(data);
           
           // Notify all message handlers
@@ -173,6 +189,14 @@ export const useWebSocket = (token, isActive = true) => {
                 ws.onmessage = (event) => {
                   try {
                     const data = JSON.parse(event.data);
+                    console.log('WebSocket received message (reconnect):', data);
+                    
+                    // Queue real-time data messages to prevent loss
+                    if (data.type === 'real_time_data' || data.type === 'sensor_data') {
+                      messageQueueRef.current.push(data);
+                      console.log('Queued data message (reconnect), queue size:', messageQueueRef.current.length, 'Message:', data);
+                    }
+                    
                     setLastMessage(data);
                     
                     messageHandlersRef.current.forEach(handler => {
@@ -261,6 +285,7 @@ export const useWebSocket = (token, isActive = true) => {
     lastMessage,
     sendMessage,
     addMessageHandler,
+    getQueuedMessages,
     connect,
     disconnect
   };

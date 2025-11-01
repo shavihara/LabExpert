@@ -4,12 +4,37 @@ import json
 import logging
 import asyncio
 import threading
+import struct
 import paho.mqtt.client as mqtt
-from typing import Dict, Optional, Callable
+from typing import Dict, Optional, Callable, List
+from datetime import datetime
 from session_manager import SessionManager
 from ws_client import ClientWebSocketManager
 
 logger = logging.getLogger(__name__)
+
+# Binary protocol constants (must match firmware)
+BINARY_PROTOCOL_VERSION = 1
+BINARY_HEADER_SIZE = 12  # Fixed: version(1) + sensor_type(1) + packet_id(2) + sample_count(2) + total_samples(2) + start_timestamp(4)
+BINARY_SAMPLE_SIZE = 8
+BINARY_MAX_SAMPLES_PER_PACKET = 10
+
+# Binary packet header structure
+# struct BinaryPacketHeader {
+#   uint8_t version;      // Protocol version (1)
+#   uint8_t sensorType;   // 1=TOF, 2=Displacement, 3=Oscillation, 4=Angle
+#   uint16_t packetId;    // Sequential packet counter
+#   uint16_t sampleCount; // Number of samples in this packet
+#   uint16_t totalSamples;// Total samples in experiment
+#   uint32_t startTime;   // Experiment start timestamp (ms)
+# };
+
+# Binary sample structure  
+# struct BinarySample {
+#   uint32_t timestamp;  // Sample timestamp (ms since start)
+#   uint16_t distance;    // Distance measurement (mm)
+#   uint16_t sampleNum;   // Sequential sample number
+# };
 
 class MQTTService:
     _instance = None
@@ -28,6 +53,9 @@ class MQTTService:
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
         self.client.on_disconnect = self._on_disconnect
+        
+        # Binary data processing state
+        self.binary_packet_counter = 0
     
     @classmethod
     def get_instance(cls):
@@ -59,6 +87,7 @@ class MQTTService:
             
             # Subscribe to all sensor data topics
             self.client.subscribe("sensors/+/data", qos=1)
+            self.client.subscribe("sensors/+/binary_data", qos=1)
             self.client.subscribe("sensors/+/status", qos=1)
             logger.info("Subscribed to sensor topics")
         else:
@@ -81,17 +110,24 @@ class MQTTService:
                 else:
                     logger.warning(f"Empty payload received on topic: {topic}")
                 return
-                
-            payload = msg.payload.decode('utf-8')
-            logger.debug(f"Payload content: {payload}")
             
             # Extract device ID from topic
             if topic.startswith("sensors/") and "/" in topic[8:]:
                 device_id = topic.split("/")[1]
                 
                 if topic.endswith("/data"):
+                    # JSON data - decode as UTF-8
+                    payload = msg.payload.decode('utf-8')
+                    logger.debug(f"JSON payload content: {payload}")
                     self._handle_sensor_data(device_id, payload)
+                elif topic.endswith("/binary_data"):
+                    # Binary data - pass raw bytes
+                    logger.debug(f"Binary payload received: {len(msg.payload)} bytes")
+                    self._handle_binary_sensor_data(device_id, msg.payload)
                 elif topic.endswith("/status"):
+                    # JSON status - decode as UTF-8
+                    payload = msg.payload.decode('utf-8')
+                    logger.debug(f"Status payload content: {payload}")
                     self._handle_status_update(device_id, payload)
                     
         except Exception as e:
@@ -147,6 +183,72 @@ class MQTTService:
             
         except Exception as e:
             logger.error(f"Error handling status update from {device_id}: {e}")
+    
+    def _parse_binary_sensor_data(self, payload: bytes) -> List[dict]:
+        """Parse binary sensor data packet"""
+        try:
+            if len(payload) < BINARY_HEADER_SIZE:
+                logger.error(f"Binary packet too small: {len(payload)} bytes")
+                return []
+            
+            # Parse header (12 bytes)
+            header = struct.unpack('<BBHHHL', payload[:BINARY_HEADER_SIZE])
+            version, sensor_type, packet_id, sample_count, total_samples, start_time = header
+            
+            if version != BINARY_PROTOCOL_VERSION:
+                logger.error(f"Unsupported binary protocol version: {version}")
+                return []
+            
+            # Validate packet size
+            expected_size = BINARY_HEADER_SIZE + sample_count * BINARY_SAMPLE_SIZE
+            if len(payload) != expected_size:
+                logger.error(f"Invalid binary packet size: got {len(payload)}, expected {expected_size}")
+                return []
+            
+            # Parse samples
+            samples = []
+            for i in range(sample_count):
+                offset = BINARY_HEADER_SIZE + i * BINARY_SAMPLE_SIZE
+                sample_data = struct.unpack('<LHH', payload[offset:offset + BINARY_SAMPLE_SIZE])
+                timestamp_ms, distance, sample_num = sample_data
+                
+                # Convert to JSON-compatible format
+                sample = {
+                    "timestamp": timestamp_ms,  # Relative timestamp (milliseconds since experiment start)
+                    "distance": distance,
+                    "sample": sample_num,
+                    "sensor_type": sensor_type,
+                    "packet_id": packet_id
+                }
+                samples.append(sample)
+            
+            logger.debug(f"Parsed binary packet {packet_id} with {sample_count} samples")
+            return samples
+            
+        except Exception as e:
+            logger.error(f"Error parsing binary sensor data: {e}")
+            return []
+    
+    def _handle_binary_sensor_data(self, device_id: str, payload: bytes):
+        """Handle binary sensor data from MQTT"""
+        try:
+            samples = self._parse_binary_sensor_data(payload)
+            if not samples:
+                return
+            
+            # Process each sample
+            for sample in samples:
+                # Forward to WebSocket clients for real-time streaming
+                if self.client_ws_manager and self.loop:
+                    asyncio.run_coroutine_threadsafe(
+                        self._forward_sensor_data_to_ws(device_id, sample), 
+                        self.loop
+                    )
+                
+                logger.info(f"Received binary sensor data from {device_id}: {sample}")
+                
+        except Exception as e:
+            logger.error(f"Error handling binary sensor data from {device_id}: {e}")
     
     def publish_config(self, device_id: str, config: dict):
         """Publish configuration to device"""

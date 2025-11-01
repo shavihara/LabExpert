@@ -60,6 +60,13 @@ void setup() {
         Serial.println("WARNING: Sensor init issues");
     }
     
+    // Initialize hardware timer for interrupt-driven 50Hz sampling
+    if (initHardwareTimer()) {
+        Serial.println("Hardware timer initialized successfully");
+    } else {
+        Serial.println("ERROR: Hardware timer initialization failed");
+    }
+    
     // Network setup
     WiFi.mode(WIFI_STA);
     WiFi.config(local_IP, gateway, subnet);

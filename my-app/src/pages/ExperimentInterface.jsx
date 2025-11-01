@@ -705,7 +705,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   const sensorStartTimeRef = useRef(null);
 
   // Use shared connections instead of creating new ones
-  const { sendMessage, lastMessage } = sharedWebSocket;
+  const { sendMessage, lastMessage, addMessageHandler, getQueuedMessages } = sharedWebSocket;
   const { saveExperimentData, saveStatus: wsSaveStatus } = sharedExperimentManager;
 
   // Timer countdown effect
@@ -716,8 +716,16 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         const remaining = Math.max(0, totalDuration - elapsed);
         setTimeRemaining(remaining);
         
+        // ESP32 firmware now handles automatic experiment stop when duration is reached
+        // We only update the UI timer, the firmware will send experiment_completed status
         if (remaining <= 0) {
-          handleStop();
+          // Clear the timer but don't send stop command - ESP32 handles this
+          setIsRunning(false);
+          setIsPaused(false);
+          setTimeRemaining(0);
+          if (timerRef.current) {
+            clearInterval(timerRef.current);
+          }
         }
       }, 100);
       
@@ -730,37 +738,93 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   }, [isRunning, isPaused, totalDuration]);
 
   useEffect(() => {
-    if (lastMessage?.data?.distance !== undefined) {
-      // Use firmware-provided timestamp if available; fallback to Date.now()
-      // Accept both nested and top-level timestamp/time and coerce to number
-      const timeCandidate = (lastMessage?.data?.time ?? lastMessage?.data?.timestamp ?? lastMessage?.timestamp);
-      const rawMs = Number(timeCandidate);
-      let elapsedMs;
-      if (Number.isFinite(rawMs)) {
-        // Initialize sensor baseline on first valid timestamp
-        if (sensorStartTimeRef.current === null) {
-          sensorStartTimeRef.current = rawMs;
-        }
-        elapsedMs = rawMs - sensorStartTimeRef.current;
-      } else {
-        // Fallback to UI-side elapsed time
-        elapsedMs = startTimeRef.current ? (Date.now() - startTimeRef.current) : 0;
-      }
-      if (!Number.isFinite(elapsedMs) || elapsedMs < 0) {
-        elapsedMs = 0;
-      }
-      const newData = {
-        time: elapsedMs,
-        timeDisplay: Number.isFinite(elapsedMs / 1000) ? (elapsedMs / 1000).toFixed(2) : '0.00',
-        distance: lastMessage.data.distance,
-        velocity: lastMessage.data.velocity || 0,
-        acceleration: lastMessage.data.acceleration || 0
-      };
+    // Process all queued real-time data messages to prevent data loss
+    const processQueuedMessages = () => {
+      const queuedMessages = getQueuedMessages();
+      console.log('Processing queued messages, count:', queuedMessages.length);
       
-      chartDataRef.current = [...chartDataRef.current, newData];
-      setChartData(chartDataRef.current);
-    }
-  }, [lastMessage]);
+      queuedMessages.forEach((message, index) => {
+        console.log(`Processing message ${index + 1}:`, message);
+        const messageData = message?.data || message;
+        if (messageData?.distance !== undefined) {
+          // Use firmware-provided timestamp if available; fallback to Date.now()
+          const timeCandidate = (messageData?.time ?? messageData?.timestamp ?? message?.timestamp);
+          const rawMs = Number(timeCandidate);
+          let elapsedMs;
+          
+          if (Number.isFinite(rawMs)) {
+            // Initialize sensor baseline on first valid timestamp
+            if (sensorStartTimeRef.current === null) {
+              sensorStartTimeRef.current = rawMs;
+            }
+            elapsedMs = rawMs - sensorStartTimeRef.current;
+          } else {
+            // Fallback to UI-side elapsed time
+            elapsedMs = startTimeRef.current ? (Date.now() - startTimeRef.current) : 0;
+          }
+          
+          if (!Number.isFinite(elapsedMs) || elapsedMs < 0) {
+            elapsedMs = 0;
+          }
+          
+          const newData = {
+            time: elapsedMs,
+            timeDisplay: Number.isFinite(elapsedMs / 1000) ? (elapsedMs / 1000).toFixed(2) : '0.00',
+            distance: messageData.distance,
+            velocity: messageData.velocity || 0,
+            acceleration: messageData.acceleration || 0
+          };
+          
+          chartDataRef.current = [...chartDataRef.current, newData];
+          console.log('Added data point:', newData, 'Total points:', chartDataRef.current.length);
+        } else {
+          console.log('Message has no distance data:', messageData);
+        }
+      });
+      
+      if (queuedMessages.length > 0) {
+        console.log('Updating chart data, total points:', chartDataRef.current.length);
+        setChartData([...chartDataRef.current]);
+      }
+    };
+
+    // Process queued messages every 50ms to batch updates
+    const interval = setInterval(processQueuedMessages, 50);
+    
+    return () => clearInterval(interval);
+  }, [getQueuedMessages]);
+
+  // Handle device status messages (experiment_completed, etc.)
+  useEffect(() => {
+    const handleDeviceStatus = (message) => {
+      if (message.type === 'device_status' && message.data) {
+        const { status, device_id, timestamp } = message.data;
+        console.log('Received device status:', { status, device_id, timestamp });
+        
+        if (status === 'experiment_completed') {
+          // ESP32 firmware has completed the experiment automatically
+          console.log('Experiment completed by ESP32 firmware');
+          setIsRunning(false);
+          setIsPaused(false);
+          setTimeRemaining(0);
+          if (timerRef.current) {
+            clearInterval(timerRef.current);
+          }
+          
+          // Show completion message to user
+          alert('✓ Experiment completed successfully by the ESP32 firmware!');
+        }
+      }
+    };
+
+    // Add message handler for device status
+    const removeHandler = addMessageHandler(handleDeviceStatus);
+    
+    // Cleanup on component unmount
+    return () => {
+      removeHandler();
+    };
+  }, [addMessageHandler]);
 
   // Monitor WebSocket save status
   useEffect(() => {
