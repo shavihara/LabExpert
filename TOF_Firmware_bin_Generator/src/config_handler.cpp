@@ -1,6 +1,5 @@
 #include "config_handler.h"
 #include "sensor_communication.h"
-#include "websocket_handler.h"
 #include "experiment_manager.h"
 #include <ArduinoJson.h>
 #include <Update.h>
@@ -77,6 +76,9 @@ void handleConfigure(AsyncWebServerRequest *request) {
         
         Serial.printf("Configured: freq=%dHz, dur=%ds, interval=%dms, avg=%d\n", 
             config.frequency, config.duration, sampleInterval, config.averagingSamples);
+        
+        // Update hardware timer with new frequency
+        updateTimerFrequency(config.frequency);
         
         // Send proper JSON response
         String response;

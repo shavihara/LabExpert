@@ -2,12 +2,39 @@
 # MQTT service for ESP32 device communication
 import json
 import logging
+import asyncio
+import threading
+import struct
 import paho.mqtt.client as mqtt
-from typing import Dict, Optional, Callable
+from typing import Dict, Optional, Callable, List
+from datetime import datetime
 from session_manager import SessionManager
 from ws_client import ClientWebSocketManager
 
 logger = logging.getLogger(__name__)
+
+# Binary protocol constants (must match firmware)
+BINARY_PROTOCOL_VERSION = 1
+BINARY_HEADER_SIZE = 12  # Fixed: version(1) + sensor_type(1) + packet_id(2) + sample_count(2) + total_samples(2) + start_timestamp(4)
+BINARY_SAMPLE_SIZE = 8
+BINARY_MAX_SAMPLES_PER_PACKET = 10
+
+# Binary packet header structure
+# struct BinaryPacketHeader {
+#   uint8_t version;      // Protocol version (1)
+#   uint8_t sensorType;   // 1=TOF, 2=Displacement, 3=Oscillation, 4=Angle
+#   uint16_t packetId;    // Sequential packet counter
+#   uint16_t sampleCount; // Number of samples in this packet
+#   uint16_t totalSamples;// Total samples in experiment
+#   uint32_t startTime;   // Experiment start timestamp (ms)
+# };
+
+# Binary sample structure  
+# struct BinarySample {
+#   uint32_t timestamp;  // Sample timestamp (ms since start)
+#   uint16_t distance;    // Distance measurement (mm)
+#   uint16_t sampleNum;   // Sequential sample number
+# };
 
 class MQTTService:
     _instance = None
@@ -20,11 +47,15 @@ class MQTTService:
         self.client_ws_manager = client_ws_manager
         self.message_handlers: Dict[str, Callable] = {}
         self.connected = False
+        self.loop = None  # Will store the main event loop
         
         # Setup MQTT callbacks
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
         self.client.on_disconnect = self._on_disconnect
+        
+        # Binary data processing state
+        self.binary_packet_counter = 0
     
     @classmethod
     def get_instance(cls):
@@ -36,6 +67,7 @@ class MQTTService:
     
     async def start(self):
         """Start MQTT service (async wrapper for connect)"""
+        self.loop = asyncio.get_event_loop()  # Store the main event loop
         self.connect()
         
     def connect(self):
@@ -55,6 +87,7 @@ class MQTTService:
             
             # Subscribe to all sensor data topics
             self.client.subscribe("sensors/+/data", qos=1)
+            self.client.subscribe("sensors/+/binary_data", qos=1)
             self.client.subscribe("sensors/+/status", qos=1)
             logger.info("Subscribed to sensor topics")
         else:
@@ -64,19 +97,43 @@ class MQTTService:
         """Handle incoming MQTT messages"""
         try:
             topic = msg.topic
-            payload = msg.payload.decode('utf-8')
+            
+            # Debug: log raw message details
+            logger.debug(f"MQTT message received on topic: {topic}")
+            logger.debug(f"Message QoS: {msg.qos}, Retained: {msg.retain}")
+            
+            # Check if payload is empty
+            if not msg.payload:
+                # Only log empty payloads for status topics as debug, not warning
+                if topic.endswith("/status"):
+                    logger.debug(f"Empty status payload received on topic: {topic} (device may be offline)")
+                else:
+                    logger.warning(f"Empty payload received on topic: {topic}")
+                return
             
             # Extract device ID from topic
             if topic.startswith("sensors/") and "/" in topic[8:]:
                 device_id = topic.split("/")[1]
                 
                 if topic.endswith("/data"):
+                    # JSON data - decode as UTF-8
+                    payload = msg.payload.decode('utf-8')
+                    logger.debug(f"JSON payload content: {payload}")
                     self._handle_sensor_data(device_id, payload)
+                elif topic.endswith("/binary_data"):
+                    # Binary data - pass raw bytes
+                    logger.debug(f"Binary payload received: {len(msg.payload)} bytes")
+                    self._handle_binary_sensor_data(device_id, msg.payload)
                 elif topic.endswith("/status"):
+                    # JSON status - decode as UTF-8
+                    payload = msg.payload.decode('utf-8')
+                    logger.debug(f"Status payload content: {payload}")
                     self._handle_status_update(device_id, payload)
                     
         except Exception as e:
-            logger.error(f"Error processing MQTT message: {e}")
+            logger.error(f"Error processing MQTT message on topic {msg.topic}: {e}")
+            if hasattr(msg, 'payload') and msg.payload:
+                logger.error(f"Problematic payload: {msg.payload[:100]}")  # First 100 chars
     
     def _on_disconnect(self, client, userdata, rc):
         """MQTT disconnection callback"""
@@ -91,10 +148,12 @@ class MQTTService:
             data = json.loads(payload)
             
             # Forward to WebSocket clients for real-time streaming
-            if self.client_ws_manager:
-                # Create a task to handle the async WebSocket forwarding
-                import asyncio
-                asyncio.create_task(self._forward_sensor_data_to_ws(device_id, data))
+            if self.client_ws_manager and self.loop:
+                # Use thread-safe method to schedule async task
+                asyncio.run_coroutine_threadsafe(
+                    self._forward_sensor_data_to_ws(device_id, data), 
+                    self.loop
+                )
             
             logger.info(f"Received sensor data from {device_id}: {data}")
             
@@ -107,31 +166,119 @@ class MQTTService:
             status_data = json.loads(payload)
             
             # Update session manager with device status
-            if self.session_manager:
-                import asyncio
-                asyncio.create_task(self._update_device_status_in_session(device_id, status_data))
+            if self.session_manager and self.loop:
+                asyncio.run_coroutine_threadsafe(
+                    self._update_device_status_in_session(device_id, status_data),
+                    self.loop
+                )
             
             # Forward to WebSocket clients for real-time status updates
-            if self.client_ws_manager:
-                import asyncio
-                asyncio.create_task(self._forward_status_update_to_ws(device_id, status_data))
+            if self.client_ws_manager and self.loop:
+                asyncio.run_coroutine_threadsafe(
+                    self._forward_status_update_to_ws(device_id, status_data),
+                    self.loop
+                )
             
             logger.info(f"Received status update from {device_id}: {status_data}")
             
         except Exception as e:
             logger.error(f"Error handling status update from {device_id}: {e}")
     
+    def _parse_binary_sensor_data(self, payload: bytes) -> List[dict]:
+        """Parse binary sensor data packet"""
+        try:
+            if len(payload) < BINARY_HEADER_SIZE:
+                logger.error(f"Binary packet too small: {len(payload)} bytes")
+                return []
+            
+            # Parse header (12 bytes)
+            header = struct.unpack('<BBHHHL', payload[:BINARY_HEADER_SIZE])
+            version, sensor_type, packet_id, sample_count, total_samples, start_time = header
+            
+            if version != BINARY_PROTOCOL_VERSION:
+                logger.error(f"Unsupported binary protocol version: {version}")
+                return []
+            
+            # Validate packet size
+            expected_size = BINARY_HEADER_SIZE + sample_count * BINARY_SAMPLE_SIZE
+            if len(payload) != expected_size:
+                logger.error(f"Invalid binary packet size: got {len(payload)}, expected {expected_size}")
+                return []
+            
+            # Parse samples
+            samples = []
+            for i in range(sample_count):
+                offset = BINARY_HEADER_SIZE + i * BINARY_SAMPLE_SIZE
+                sample_data = struct.unpack('<LHH', payload[offset:offset + BINARY_SAMPLE_SIZE])
+                timestamp_ms, distance_mm, sample_num = sample_data
+                
+                # Convert distance from millimeters to centimeters for frontend display
+                distance_cm = distance_mm / 10.0
+                
+                # Convert to JSON-compatible format
+                sample = {
+                    "timestamp": timestamp_ms,  # Relative timestamp (milliseconds since experiment start)
+                    "distance": distance_cm,   # Converted to centimeters
+                    "sample": sample_num,
+                    "sensor_type": sensor_type,
+                    "packet_id": packet_id
+                }
+                samples.append(sample)
+            
+            logger.debug(f"Parsed binary packet {packet_id} with {sample_count} samples")
+            return samples
+            
+        except Exception as e:
+            logger.error(f"Error parsing binary sensor data: {e}")
+            return []
+    
+    def _handle_binary_sensor_data(self, device_id: str, payload: bytes):
+        """Handle binary sensor data from MQTT"""
+        try:
+            samples = self._parse_binary_sensor_data(payload)
+            if not samples:
+                return
+            
+            # Process each sample
+            for sample in samples:
+                # Forward to WebSocket clients for real-time streaming
+                if self.client_ws_manager and self.loop:
+                    asyncio.run_coroutine_threadsafe(
+                        self._forward_sensor_data_to_ws(device_id, sample), 
+                        self.loop
+                    )
+                
+                logger.info(f"Received binary sensor data from {device_id}: {sample}")
+                
+        except Exception as e:
+            logger.error(f"Error handling binary sensor data from {device_id}: {e}")
+    
     def publish_config(self, device_id: str, config: dict):
         """Publish configuration to device"""
         try:
-            topic = f"sensors/{device_id}/config"
-            payload = json.dumps(config)
+            # Convert field names to match ESP32 firmware expectations
+            esp32_config = {
+                "freq": config.get("frequency", 50),  # ESP32 expects "freq" not "frequency"
+                "duration": config.get("duration", 60),
+                "averagingSamples": config.get("averagingSamples", 1)
+            }
+            # Only include maxRange if explicitly provided to avoid forcing unsupported range
+            if "maxRange" in config and config["maxRange"] is not None:
+                esp32_config["maxRange"] = config["maxRange"]
             
-            self.client.publish(topic, payload, qos=1)
-            logger.info(f"Published config to {device_id}: {config}")
+            topic = f"sensors/{device_id}/config"
+            payload = json.dumps(esp32_config)
+            
+            result = self.client.publish(topic, payload, qos=1)
+            if result.rc != mqtt.MQTT_ERR_SUCCESS:
+                logger.error(f"Failed to publish config to {device_id}: RC {result.rc}")
+                raise ValueError(f"MQTT publish failed with RC {result.rc}")
+            
+            logger.info(f"Successfully published config to {device_id}: {esp32_config}")
             
         except Exception as e:
             logger.error(f"Error publishing config to {device_id}: {e}")
+            raise
 
     def publish_start_command(self, device_id: str):
         """Publish start experiment command to device"""
@@ -208,7 +355,7 @@ class MQTTService:
                 "type": "sensor_data",
                 "device_id": device_id,
                 "data": data,
-                "timestamp": data.get("timestamp", data.get("time", 0))
+                "timestamp": int(data.get("timestamp", data.get("time", 0)))
             }
             
             # Find which user has this device allocated

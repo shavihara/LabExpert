@@ -86,7 +86,7 @@ uint16_t modbusCRC(uint8_t *buf, int len) {
 
 // Read TOF distance (raw)
 uint16_t readTOFDistanceRaw() {
-    const int MAX_RETRIES = 1;
+    const int MAX_RETRIES = 5;  // Increased retries for better reliability
     const uint8_t SLAVE_ADDR = 0x01;
     
     for (int retry = 0; retry < MAX_RETRIES; retry++) {
@@ -97,47 +97,60 @@ uint16_t readTOFDistanceRaw() {
         cmd[6] = crc & 0xFF;
         cmd[7] = (crc >> 8) & 0xFF;
 
+        // Clear serial buffer before sending command
         while (TOFSerial.available()) TOFSerial.read();
         
+        // Send command with proper timing
         TOFSerial.write(cmd, 8);
         TOFSerial.flush();
+
+        // Small delay to allow sensor to process
+        delay(2);
 
         uint8_t response[7];
         int bytesRead = 0;
         unsigned long startTime = millis();
         
-        while (bytesRead < 7 && millis() - startTime < 20) { 
+        // Wait for complete response with timeout
+        while (bytesRead < 7 && millis() - startTime < 100) {  // Increased timeout to 100ms
             if (TOFSerial.available()) {
                 response[bytesRead++] = TOFSerial.read();
+                startTime = millis(); // Reset timeout on each byte received
             }
             yield();
         }
 
+        // Check if we got complete response
         if (bytesRead != 7) {
             diagnostics.timeouts++;
-            delay(5);
+            delay(15);  // Longer delay for recovery
             continue;
         }
         
+        // Validate response header
         if (response[0] != SLAVE_ADDR || response[1] != 0x03 || response[2] != 0x02) {
-            delay(5);
+            delay(15);
             continue;
         }
         
+        // Validate CRC
         uint16_t receivedCRC = response[5] | (response[6] << 8);
         uint16_t calculatedCRC = modbusCRC(response, 5);
         
         if (receivedCRC != calculatedCRC) {
             diagnostics.crcErrors++;
-            delay(5);
+            delay(15);
             continue;
         }
         
+        // Extract distance
         uint16_t dist = (response[3] << 8) | response[4];
         
-        if (dist < calibration.minValidReading || dist > calibration.maxValidReading) {
+        // Validate distance range with more reasonable limits
+        if (dist < 50 || dist > 8000) {  // More reasonable range for TOF sensor
             diagnostics.outOfRange++;
-            return 65535;
+            delay(10);
+            continue;
         }
         
         diagnostics.successfulReadings++;
@@ -147,48 +160,79 @@ uint16_t readTOFDistanceRaw() {
     return 65535;
 }
 
-// Read TOF distance (processed)
+// Read TOF distance with advanced filtering and smoothing
 float readTOFDistance() {
-    if (config.averagingSamples <= 1) {
-        uint16_t raw = readTOFDistanceRaw();
-        if (raw == 65535) return 65535.0;
-        return (raw * calibration.scaleFactor) + calibration.offsetMM;
-    }
+    const int NUM_SAMPLES = config.averagingSamples;
+    const int MAX_INVALID = 2;  // Maximum allowed invalid readings
     
-    const int maxSamples = min(config.averagingSamples, 10);
-    uint16_t samples[10];
-    int validCount = 0;
+    uint16_t samples[NUM_SAMPLES];
+    int validSamples = 0;
     
-    for (int i = 0; i < maxSamples; i++) {
-        uint16_t raw = readTOFDistanceRaw();
-        if (raw != 65535) {
-            samples[validCount++] = raw;
+    // Collect samples with validation
+    for (int i = 0; i < NUM_SAMPLES; i++) {
+        uint16_t reading = readTOFDistanceRaw();
+        
+        // Skip invalid readings (65535 indicates error)
+        if (reading != 65535) {
+            samples[validSamples++] = reading;
         }
-        if (i < maxSamples - 1) delay(10);
+        
+        // Small delay between samples for better stability
+        delay(8);
     }
     
-    if (validCount == 0) return 65535.0;
+    // If we don't have enough valid samples, return last valid reading
+    static float lastValidReading = 0.0f;
+    if (validSamples < NUM_SAMPLES - MAX_INVALID) {
+        return lastValidReading;
+    }
     
-    for (int i = 0; i < validCount - 1; i++) {
-        for (int j = 0; j < validCount - i - 1; j++) {
-            if (samples[j] > samples[j + 1]) {
-                uint16_t temp = samples[j];
-                samples[j] = samples[j + 1];
-                samples[j + 1] = temp;
+    // Sort samples for median filtering
+    for (int i = 0; i < validSamples - 1; i++) {
+        for (int j = i + 1; j < validSamples; j++) {
+            if (samples[j] < samples[i]) {
+                uint16_t temp = samples[i];
+                samples[i] = samples[j];
+                samples[j] = temp;
             }
         }
     }
     
-    float result;
-    if (validCount >= 3) {
-        result = (validCount % 2 == 0) ? (samples[validCount/2 - 1] + samples[validCount/2]) / 2.0 : samples[validCount/2];
+    // Take median value from valid samples
+    uint16_t median = samples[validSamples / 2];
+    
+    // Apply moving average filter for smoother transitions
+    static float movingAverage = 0.0f;
+    const float ALPHA = 0.2f;  // Reduced smoothing for better responsiveness
+    
+    // Convert raw mm to cm and apply calibration
+    float currentReading = median / 10.0f;  // Convert mm to cm
+    currentReading = (currentReading * calibration.scaleFactor) + calibration.offsetMM;
+    
+    // Initialize moving average if first reading
+    if (movingAverage == 0.0f) {
+        movingAverage = currentReading;
     } else {
-        float sum = 0;
-        for (int i = 0; i < validCount; i++) sum += samples[i];
-        result = sum / validCount;
+        // Apply exponential smoothing with bounds checking
+        float newAverage = ALPHA * currentReading + (1 - ALPHA) * movingAverage;
+        
+        // Prevent large jumps - limit maximum change per reading
+        float maxChange = 2.0f;  // Maximum allowed change in cm per reading
+        if (abs(newAverage - movingAverage) > maxChange) {
+            if (newAverage > movingAverage) {
+                movingAverage += maxChange;
+            } else {
+                movingAverage -= maxChange;
+            }
+        } else {
+            movingAverage = newAverage;
+        }
     }
     
-    return (result * calibration.scaleFactor) + calibration.offsetMM;
+    // Store last valid reading
+    lastValidReading = movingAverage;
+    
+    return movingAverage;
 }
 
 // Set ranging mode

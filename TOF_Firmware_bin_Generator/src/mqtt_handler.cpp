@@ -120,11 +120,11 @@ void handleMQTTCommands(char* topic, byte* payload, unsigned int length) {
         if (doc.containsKey("freq")) {
             config.frequency = doc["freq"];
             Serial.printf("Frequency updated to: %d\n", config.frequency);
+            updateTimerFrequency(config.frequency);
         }
         
         if (doc.containsKey("maxRange")) {
             config.maxRange = doc["maxRange"];
-            configureSensorForMaxRange(config.maxRange);
             Serial.printf("Max range updated to: %d\n", config.maxRange);
         }
         
@@ -201,6 +201,44 @@ void publishSensorData(uint32_t timestamp, uint16_t distance, uint16_t sampleNum
     snprintf(dataTopic, sizeof(dataTopic), MQTT_DATA_TOPIC, sensorID.c_str());
     
     mqttClient.publish(dataTopic, payload.c_str());
+}
+
+void publishBinarySensorData(const BinarySample* samples, uint16_t count, uint32_t start_time, uint16_t total_samples) {
+    if (!mqttClient.connected() || count == 0) {
+        return;
+    }
+    
+    // Calculate packet size
+    size_t packet_size = BINARY_HEADER_SIZE + (count * sizeof(BinarySample));
+    
+    // Allocate buffer for binary packet
+    uint8_t* packet_buffer = (uint8_t*)malloc(packet_size);
+    if (!packet_buffer) {
+        Serial.println("ERROR: Failed to allocate memory for binary packet");
+        return;
+    }
+    
+    // Fill packet header
+    BinaryPacketHeader* header = (BinaryPacketHeader*)packet_buffer;
+    header->version = BINARY_PROTOCOL_VERSION;
+    header->sensor_type = (sensorType == "TOF") ? 1 : 0; // 1=TOF, 0=other
+    header->packet_id = (uint16_t)(millis() & 0xFFFF); // Simple packet ID
+    header->sample_count = count;
+    header->total_samples = total_samples;
+    header->start_timestamp = start_time;
+    
+    // Copy sample data
+    BinarySample* packet_samples = (BinarySample*)(packet_buffer + BINARY_HEADER_SIZE);
+    memcpy(packet_samples, samples, count * sizeof(BinarySample));
+    
+    // Publish to binary data topic
+    char binaryTopic[50];
+    snprintf(binaryTopic, sizeof(binaryTopic), MQTT_BINARY_DATA_TOPIC, sensorID.c_str());
+    
+    mqttClient.publish(binaryTopic, packet_buffer, packet_size);
+    
+    // Free buffer
+    free(packet_buffer);
 }
 
 void publishStatus(const char* status, const char* message) {

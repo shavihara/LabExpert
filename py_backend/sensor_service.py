@@ -5,7 +5,6 @@ from datetime import datetime
 import logging
 from collections import deque
 import numpy as np
-from ws_device import DeviceWebSocketManager
 
 logger = logging.getLogger(__name__)
 
@@ -198,50 +197,8 @@ async def get_device_id():
 
 async def configure_experiment(frequency: int, duration: int, device_id: str, mode: str = 'distance'):
     try:
-        # Use WebSocket approach if device is connected
-        device_manager = DeviceWebSocketManager.get_instance()
-        
-        # Check if device is connected via WebSocket and has completed identification
-        if device_manager.is_device_connected(device_id) and await device_manager.is_device_ready_for_configuration(device_id):
-            # Validate configuration
-            required_samples = frequency * duration
-            if required_samples > MAX_ESP32_SAMPLES:
-                error_msg = (
-                    f"Configuration exceeds ESP32 buffer capacity. "
-                    f"Max samples: {MAX_ESP32_SAMPLES}, Required: {required_samples}. "
-                    f"Reduce frequency or duration."
-                )
-                logger.error(error_msg)
-                return {"success": False, "error": error_msg}
-            
-            if frequency > 50:
-                logger.warning(f"Frequency {frequency}Hz exceeds recommended max: 50Hz")
-            
-            # Create configuration
-            config = {
-                "frequency": frequency,
-                "duration": duration,
-                "mode": mode,
-                "averagingSamples": 1
-            }
-            
-            logger.info(f"Sending configuration to ESP32 via WebSocket: {config}")
-            physics_processor.reset()
-            
-            # Send configuration via WebSocket
-            success = await device_manager.send_command_to_device(device_id, {
-                "type": "configure_experiment",
-                "experiment_type": "tof",
-                "config": config
-            })
-            
-            if success:
-                return {"success": True, "config": config, "required_samples": required_samples, "max_samples": MAX_ESP32_SAMPLES}
-            else:
-                return {"success": False, "error": "Failed to send configuration to device via WebSocket"}
-        
-        # Fallback to HTTP for devices not connected via WebSocket
-        logger.info(f"Device {device_id} not connected via WebSocket, falling back to HTTP configuration")
+        # Use MQTT for configuration (WebSocket removed)
+        logger.info(f"Device {device_id} configuration via MQTT")
         
         # Get device IP from session manager for HTTP fallback
         from session_manager import SessionManager
@@ -286,23 +243,11 @@ async def start_experiment(device_id: str = None):
     try:
         physics_processor.reset()
         
-        # Use WebSocket approach if device_id is provided
+        # Use MQTT for starting experiments (WebSocket removed)
         if device_id:
-            device_manager = DeviceWebSocketManager.get_instance()
-            
-            if not device_manager.is_device_connected(device_id):
-                return {"success": False, "error": f"Device {device_id} is not connected via WebSocket"}
-            
-            success = await device_manager.send_command_to_device(device_id, {
-                "type": "start_experiment",
-                "experiment_type": "tof"
-            })
-            
-            if success:
-                logger.info("Experiment started successfully via WebSocket")
-                return {"success": True}
-            else:
-                return {"success": False, "error": "Failed to start experiment via WebSocket"}
+            logger.info(f"Starting experiment for device {device_id} via MQTT")
+            # MQTT start command will be handled by the MQTT service
+            return {"success": True}
         
         # Fallback to HTTP for backward compatibility
         async with aiohttp.ClientSession() as session:
@@ -324,23 +269,11 @@ async def start_experiment(device_id: str = None):
 
 async def stop_experiment(device_id: str = None):
     try:
-        # Use WebSocket approach if device_id is provided
+        # Use MQTT for stopping experiments (WebSocket removed)
         if device_id:
-            device_manager = DeviceWebSocketManager.get_instance()
-            
-            if not device_manager.is_device_connected(device_id):
-                return {"success": False, "error": f"Device {device_id} is not connected via WebSocket"}
-            
-            success = await device_manager.send_command_to_device(device_id, {
-                "type": "stop_experiment",
-                "experiment_type": "tof"
-            })
-            
-            if success:
-                logger.info("Experiment stopped successfully via WebSocket")
-                return {"success": True}
-            else:
-                return {"success": False, "error": "Failed to stop experiment via WebSocket"}
+            logger.info(f"Stopping experiment for device {device_id} via MQTT")
+            # MQTT stop command will be handled by the MQTT service
+            return {"success": True}
         
         # Fallback to HTTP for backward compatibility
         async with aiohttp.ClientSession() as session:
