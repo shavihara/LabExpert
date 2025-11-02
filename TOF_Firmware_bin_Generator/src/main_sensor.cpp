@@ -1,6 +1,4 @@
-// TOF400F Firmware - Modular Refactored Version
-// Main entry point that connects all modular components
-
+// TOF400F Firmware - I2C Version with Core-Based Processing
 #include <WiFi.h>
 #include <ArduinoJson.h>
 #include "esp_partition.h"
@@ -9,6 +7,7 @@
 #include <ESPAsyncWebServer.h>
 #include <Update.h>
 #include <Wire.h>
+#include <VL53L1X.h>
 
 // Include modular headers
 #include "../include/sensor_communication.h"
@@ -16,10 +15,12 @@
 #include "../include/experiment_manager.h"
 #include "../include/mqtt_handler.h"
 
-// Hardware configuration
+// Hardware configuration - I2C Pins
 #define STATUS_LED 2
-#define TOF_RXD 16
-#define TOF_TXD 17
+#define EEPROM_SDA 18
+#define EEPROM_SCL 19
+#define TOF_SDA 21
+#define TOF_SCL 22
 
 // Network configuration
 const char *ssid = "LabExpert_1.0";
@@ -28,38 +29,35 @@ IPAddress local_IP(192, 168, 137, 15);
 IPAddress gateway(192, 168, 137, 1);
 IPAddress subnet(255, 255, 255, 0);
 
-// MQTT configuration (connect to Mosquitto broker)
-const char* mqttBroker = "192.168.137.1"; // Mosquitto broker IP (your computer)
+// MQTT configuration
+const char* mqttBroker = "192.168.137.1";
 const uint16_t mqttPort = 1883;
-
-// Hardware serial for TOF sensor
-HardwareSerial TOFSerial(2);
 
 void setup() {
     Serial.begin(115200);
-    Serial.println("\n=== TOF400F Firmware - Modular Refactored Version ===");
+    Serial.println("\n=== TOF400F Firmware - I2C Version with Core-Based Processing ===");
     
-    // Initialize I2C for EEPROM
-    Wire.begin();
+    // Initialize I2C buses
+    Wire.begin(EEPROM_SDA, EEPROM_SCL);
+    Wire1.begin(TOF_SDA, TOF_SCL);
+    
+    Serial.printf("I2C Buses Initialized:\n");
+    Serial.printf("  - EEPROM: SDA=%d, SCL=%d\n", EEPROM_SDA, EEPROM_SCL);
+    Serial.printf("  - TOF Sensor: SDA=%d, SCL=%d\n", TOF_SDA, TOF_SCL);
     
     pinMode(STATUS_LED, OUTPUT);
     digitalWrite(STATUS_LED, HIGH);
     
-    // Initialize TOF serial communication for TOF 400F Sensor
-    // Sensor TX -> ESP32 GPIO16 (TOF_RXD), Sensor RX -> ESP32 GPIO17 (TOF_TXD)
-    TOFSerial.begin(115200, SERIAL_8N1, TOF_RXD, TOF_TXD);
-    Serial.printf("TOF 400F Sensor UART configured - RX: GPIO%d, TX: GPIO%d @ 115200 baud\n", TOF_RXD, TOF_TXD);
-    
     delay(300);
     
-    // Configure sensor for maximum range
-    if (configureSensorForMaxRange(8000)) {
-        Serial.println("Sensor initialization successful");
+    // Initialize TOF sensor
+    if (initializeTOFSensor()) {
+        Serial.println("TOF Sensor initialization successful");
     } else {
-        Serial.println("WARNING: Sensor init issues");
+        Serial.println("WARNING: TOF Sensor init issues - check wiring");
     }
     
-    // Initialize hardware timer for interrupt-driven 50Hz sampling
+    // Initialize hardware timer for interrupt-driven sampling
     if (initHardwareTimer()) {
         Serial.println("Hardware timer initialized successfully");
     } else {
@@ -89,7 +87,7 @@ void setup() {
         sensorID = getDeviceIDFromMAC();
         Serial.printf("Device ID: %s\n", sensorID.c_str());
         
-        // Initialize MQTT connection (replaces WebSocket backend)
+        // Initialize MQTT connection
         setupMQTT();
         Serial.printf("MQTT configured for broker at %s:%d\n", mqttBroker, mqttPort);
         
@@ -97,7 +95,7 @@ void setup() {
         Serial.println("\nWiFi connection failed!");
     }
     
-    // Setup HTTP routes (minimal for OTA updates only)
+    // Setup HTTP routes
     server.on("/update", HTTP_POST, handleUpdate, handleUpdateUpload);
     
     // CORS handling
@@ -110,7 +108,7 @@ void setup() {
     });
     
     server.begin();
-    Serial.println("HTTP server started (OTA only)");
+    Serial.println("HTTP server started");
     digitalWrite(STATUS_LED, LOW);
 }
 

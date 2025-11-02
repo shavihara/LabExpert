@@ -407,7 +407,7 @@ void setup()
   digitalWrite(WIFI_LED, HIGH);
   digitalWrite(SENSOR_LED, HIGH);
 
-  Wire.begin(21, 22); // SDA, SCL
+  Wire.begin(18, 19); // SDA, SCL
 
   if (!detectSensor())
   {

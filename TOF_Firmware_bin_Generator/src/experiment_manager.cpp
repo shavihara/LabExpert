@@ -7,8 +7,8 @@
 #include <driver/timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
+#include <freertos/task.h>
 
-// Define STATUS_LED here since it's a macro defined in main_sensor.cpp
 #define STATUS_LED 2
 
 // Experiment data arrays
@@ -16,23 +16,21 @@ float distances[MAX_SAMPLES];
 unsigned long timestamps[MAX_SAMPLES];
 int sampleCount = 0;
 
-// Experiment state variables (defined here, declared as extern in headers)
+// Experiment state variables
 bool experimentRunning = false;
 bool dataReady = false;
 unsigned long experimentStartTime = 0;
 unsigned long lastSampleTime = 0;
-int sampleInterval = 1000 / 50; // Default 50Hz
+int sampleInterval = 1000 / 50;
 
 // Sensor detection variables
 unsigned long lastSensorCheck = 0;
 const unsigned long SENSOR_CHECK_INTERVAL = 5000;
 bool sensorWasPresent = false;
 unsigned long lastExperimentEnd = 0;
-
-// Backend cleanup flag
 bool backendCleanupRequested = false;
 
-// Hardware timer and queue for interrupt-driven sampling
+// Hardware timer and queue
 QueueHandle_t sensorDataQueue = NULL;
 volatile bool timerInitialized = false;
 volatile bool sampleRequested = false;
@@ -41,131 +39,177 @@ volatile bool sampleRequested = false;
 BinarySample sampleBuffer[BINARY_MAX_SAMPLES_PER_PACKET];
 uint16_t bufferedSampleCount = 0;
 
+// CRITICAL FIX: Pre-captured timestamps
+volatile unsigned long preCapturedTimestamp = 0;
+TaskHandle_t sensorTaskHandle = NULL;
+
 // Forward declarations
-void processSensorDataQueue();
 void flushSampleBuffer();
+void sensorReadingTask(void* parameter);
 
-// Sensor data structure for queue
-struct SensorData {
-    uint32_t timestamp;
-    uint16_t distance;
-    uint16_t sampleNumber;
-};
-
-// Timer interrupt service routine (ISR)
+// Timer ISR - captures timestamp FIRST
 void IRAM_ATTR timerISR(void* arg) {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     
     if (experimentRunning) {
-        // Set flag to request sample (don't read sensor in ISR)
+        // CRITICAL: Capture timestamp IMMEDIATELY
+        preCapturedTimestamp = millis();
         sampleRequested = true;
+        
+        // Wake sensor task
+        if (sensorTaskHandle != NULL) {
+            vTaskNotifyGiveFromISR(sensorTaskHandle, &xHigherPriorityTaskWoken);
+        }
     }
     
-    // Clear interrupt flag
     timer_group_clr_intr_status_in_isr(TIMER_GROUP_0, TIMER_0);
     timer_group_enable_alarm_in_isr(TIMER_GROUP_0, TIMER_0);
     
-    // Yield if higher priority task woken
     if (xHigherPriorityTaskWoken) {
         portYIELD_FROM_ISR();
     }
 }
 
-// Manage experiment loop
+// Dedicated sensor task on Core 0
+void sensorReadingTask(void* parameter) {
+    Serial.println("Sensor task started on Core 0");
+    
+    while (true) {
+        // Wait for timer trigger
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10));
+        
+        if (sampleRequested && experimentRunning) {
+            // Use pre-captured timestamp
+            unsigned long timestamp = preCapturedTimestamp;
+            sampleRequested = false;
+            
+            // Read sensor (safe now, timestamp already captured)
+            uint16_t distance_mm = readTOFDistanceMM();
+            
+            if (distance_mm != 65535 && sampleCount < MAX_SAMPLES) {
+                // Store directly (avoid queue overhead for simplicity)
+                timestamps[sampleCount] = timestamp - experimentStartTime;
+                distances[sampleCount] = distance_mm;
+                
+                // Add to buffer for MQTT
+                if (bufferedSampleCount < BINARY_MAX_SAMPLES_PER_PACKET) {
+                    sampleBuffer[bufferedSampleCount].timestamp = timestamps[sampleCount];
+                    sampleBuffer[bufferedSampleCount].distance = distance_mm;
+                    sampleBuffer[bufferedSampleCount].sample_number = sampleCount;
+                    bufferedSampleCount++;
+                }
+                
+                sampleCount++;
+                digitalWrite(STATUS_LED, !digitalRead(STATUS_LED));
+                
+                // Debug first few samples
+                if (sampleCount <= 5) {
+                    Serial.printf("Sample %d: %umm @ %ums\n", 
+                                 sampleCount, distance_mm, timestamps[sampleCount-1]);
+                }
+            }
+        }
+        
+        vTaskDelay(1);
+    }
+}
+
+// Process data in main loop
+void processSensorDataQueue() {
+    static unsigned long lastFlushTime = 0;
+    
+    // Flush buffer periodically
+    if (bufferedSampleCount > 0 && (millis() - lastFlushTime > 50)) {
+        flushSampleBuffer();
+        lastFlushTime = millis();
+    }
+}
+
+// Main experiment loop
 void manageExperimentLoop() {
-    // Process any sensor data from the interrupt-driven queue
     processSensorDataQueue();
     
     if (experimentRunning) {
         unsigned long currentTime = millis();
         unsigned long elapsedTime = currentTime - experimentStartTime;
         
-        // Check if experiment should stop
         if (config.duration > 0 && elapsedTime >= config.duration * 1000) {
             experimentRunning = false;
             dataReady = true;
-            
-            // Set cooldown period
             lastExperimentEnd = millis();
             
-            Serial.printf("Experiment COMPLETED. Collected %d samples in %lu ms\n", sampleCount, elapsedTime);
+            flushSampleBuffer();
             
-            // Notify backend about experiment completion via MQTT
+            Serial.printf("Experiment COMPLETED. Collected %d samples in %lu ms\n", 
+                         sampleCount, elapsedTime);
+            
             if (mqttConnected) {
-                String completionMsg = "Experiment completed with " + String(sampleCount) + " samples";
-                publishStatus("experiment_completed", completionMsg.c_str());
+                String msg = "Completed with " + String(sampleCount) + " samples";
+                publishStatus("experiment_completed", msg.c_str());
             }
-            
-            return;
         }
     } else {
         digitalWrite(STATUS_LED, LOW);
     }
 }
 
-// Initialize hardware timer for 50Hz sampling
+// Initialize hardware timer
 bool initHardwareTimer() {
-    if (timerInitialized) {
-        return true;
-    }
+    if (timerInitialized) return true;
     
-    // Create queue for sensor data
-    sensorDataQueue = xQueueCreate(100, sizeof(SensorData));
-    if (sensorDataQueue == NULL) {
-        Serial.println("ERROR: Failed to create sensor data queue");
+    // Create sensor task on Core 0
+    xTaskCreatePinnedToCore(
+        sensorReadingTask,
+        "SensorTask",
+        4096,
+        NULL,
+        configMAX_PRIORITIES-1,
+        &sensorTaskHandle,
+        0  // Core 0
+    );
+    
+    if (sensorTaskHandle == NULL) {
+        Serial.println("ERROR: Failed to create sensor task");
         return false;
     }
     
-    // Configure timer - initialize in declaration order to avoid compiler errors
-    timer_config_t timerConfig;
-    timerConfig.divider = 80; // 80MHz / 80 = 1MHz (1 microsecond per tick)
-    timerConfig.counter_dir = TIMER_COUNT_UP;
-    timerConfig.counter_en = TIMER_PAUSE;
-    timerConfig.alarm_en = TIMER_ALARM_EN;
-    timerConfig.intr_type = TIMER_INTR_LEVEL;
-    timerConfig.auto_reload = TIMER_AUTORELOAD_EN;
+    // Configure timer
+    timer_config_t timerConfig = {
+        .alarm_en = TIMER_ALARM_EN,
+        .counter_en = TIMER_PAUSE,
+        .intr_type = TIMER_INTR_LEVEL,
+        .counter_dir = TIMER_COUNT_UP,
+        .auto_reload = TIMER_AUTORELOAD_EN,
+        .divider = 80
+    };
     
     timer_init(TIMER_GROUP_0, TIMER_0, &timerConfig);
     
-    // Set alarm value based on configured frequency
-    int intervalMicroseconds = 1000000 / ::config.frequency; // Convert Hz to microseconds
+    int intervalMicroseconds = 1000000 / config.frequency;
     timer_set_alarm_value(TIMER_GROUP_0, TIMER_0, intervalMicroseconds);
-    
-    // Enable timer interrupt
     timer_enable_intr(TIMER_GROUP_0, TIMER_0);
-    
-    // Register ISR
     timer_isr_register(TIMER_GROUP_0, TIMER_0, timerISR, NULL, ESP_INTR_FLAG_IRAM, NULL);
-    
-    // Start timer
     timer_start(TIMER_GROUP_0, TIMER_0);
     
     timerInitialized = true;
-    Serial.printf("Hardware timer initialized for %dHz sampling\n", ::config.frequency);
+    Serial.printf("Timer initialized for %dHz\n", config.frequency);
     return true;
 }
 
-// Update timer frequency dynamically
+// Update timer frequency
 void updateTimerFrequency(int frequency) {
-    if (!timerInitialized) {
-        Serial.println("ERROR: Timer not initialized, cannot update frequency");
-        return;
-    }
+    if (!timerInitialized) return;
     
-    // Stop timer temporarily
     timer_pause(TIMER_GROUP_0, TIMER_0);
-    
-    // Set new alarm value based on new frequency
-    int intervalMicroseconds = 1000000 / frequency; // Convert Hz to microseconds
+    int intervalMicroseconds = 1000000 / frequency;
     timer_set_alarm_value(TIMER_GROUP_0, TIMER_0, intervalMicroseconds);
-    
-    // Restart timer
+    sampleInterval = 1000 / frequency;
     timer_start(TIMER_GROUP_0, TIMER_0);
     
     Serial.printf("Timer frequency updated to %dHz\n", frequency);
 }
 
-// Flush buffered samples to MQTT
+// Flush sample buffer
 void flushSampleBuffer() {
     if (bufferedSampleCount > 0) {
         publishBinarySensorData(sampleBuffer, bufferedSampleCount, experimentStartTime, sampleCount);
@@ -173,124 +217,35 @@ void flushSampleBuffer() {
     }
 }
 
-// Process sensor data from queue in main loop
-void processSensorDataQueue() {
-    // Check if sample was requested by timer ISR
-    if (sampleRequested && experimentRunning) {
-        sampleRequested = false;
-        
-        // Read sensor data (in main loop, not ISR)
-        // readTOFDistanceMM() returns distance in millimeters (mm) - raw data without smoothing
-        uint16_t distance_mm = readTOFDistanceMM();
-        uint32_t timestamp = millis();
-        
-        // Store data in arrays (distances are in mm for physics precision)
-        if (sampleCount < MAX_SAMPLES) {
-            timestamps[sampleCount] = timestamp - experimentStartTime;
-            distances[sampleCount] = distance_mm;  // Store as millimeters
-        }
-        
-        // Add to binary sample buffer (distance in mm)
-        if (bufferedSampleCount < BINARY_MAX_SAMPLES_PER_PACKET) {
-            sampleBuffer[bufferedSampleCount].timestamp = timestamp - experimentStartTime;
-            sampleBuffer[bufferedSampleCount].distance = distance_mm;  // Store as millimeters
-            sampleBuffer[bufferedSampleCount].sample_number = sampleCount;
-            bufferedSampleCount++;
-        }
-        
-        // Flush buffer if full (optimized for 200cm range - smaller batches)
-        if (bufferedSampleCount >= BINARY_MAX_SAMPLES_PER_PACKET) {
-            flushSampleBuffer();
-        }
-        
-        // Increment sample count
-        sampleCount++;
-        
-        // Toggle status LED for visual feedback
-        digitalWrite(STATUS_LED, !digitalRead(STATUS_LED));
-        
-        // Debug output for first few samples (optional)
-        if (sampleCount <= 10) {
-            Serial.printf("Sample %d: %umm @ %ums\n", sampleCount, distance_mm, timestamps[sampleCount-1]);
-        }
-    }
-    
-    // Flush any remaining samples periodically (optimized for 200cm range)
-    static unsigned long lastFlushTime = 0;
-    unsigned long currentTime = millis();
-    if (bufferedSampleCount > 0 && (currentTime - lastFlushTime > 50)) { // Flush every 50ms for better real-time
-        flushSampleBuffer();
-        lastFlushTime = currentTime;
-    }
-}
-
-// Check sensor status periodically
+// Check sensor status
 void checkSensorStatus() {
     if (millis() - lastSensorCheck > SENSOR_CHECK_INTERVAL) {
         lastSensorCheck = millis();
-        
         bool sensorCurrentlyPresent = detectSensorFromEEPROM();
         
-        // If sensor was previously present but is now missing
         if (sensorWasPresent && !sensorCurrentlyPresent) {
-            Serial.println("⚠️  Sensor unplugged detected! Returning to bootloader mode...");
-            
-            // Send notification to backend via MQTT
+            Serial.println("Sensor unplugged! Rebooting...");
             if (mqttConnected) {
-                publishStatus("sensor_unplugged", "Rebooting to bootloader mode");
+                publishStatus("sensor_unplugged", "Rebooting to bootloader");
             }
-            
-            // Wait a moment for messages to be sent
             delay(1000);
-            
-            // Reboot into bootloader mode
-            Serial.println("🔄 Rebooting into bootloader mode...");
-            
-            // For ESP32 with OTA partitions, set the boot partition to ota_0 (bootloader)
-            const esp_partition_t* boot_partition = esp_partition_find_first(
-                ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL);
-            
-            if (boot_partition != NULL) {
-                esp_ota_set_boot_partition(boot_partition);
-                Serial.println("✓ Boot partition set to ota_0 (bootloader)");
-            }
-            
-            // Perform a clean reboot
             ESP.restart();
         }
         
-        // Update sensor presence state
         sensorWasPresent = sensorCurrentlyPresent;
     }
 }
 
-// Handle backend-initiated cleanup
+// Handle backend cleanup
 void handleBackendCleanup() {
     if (backendCleanupRequested) {
-        Serial.println("Executing backend-initiated cleanup: rebooting to bootloader mode");
-        backendCleanupRequested = false; // Reset flag
+        Serial.println("Backend cleanup requested");
+        backendCleanupRequested = false;
         
-        // Send notification to backend via MQTT
         if (mqttConnected) {
-            publishStatus("disconnected", "Rebooting to bootloader mode");
+            publishStatus("disconnected", "Rebooting to bootloader");
         }
-        
-        // Wait a moment for messages to be sent
         delay(1000);
-        
-        // Reboot into bootloader mode
-        Serial.println("🔄 Rebooting into bootloader mode...");
-        
-        // For ESP32 with OTA partitions, set the boot partition to ota_0 (bootloader)
-        const esp_partition_t* boot_partition = esp_partition_find_first(
-            ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL);
-        
-        if (boot_partition != NULL) {
-            esp_ota_set_boot_partition(boot_partition);
-            Serial.println("✓ Boot partition set to ota_0 (bootloader)");
-        }
-        
-        // Perform a clean reboot
         ESP.restart();
     }
 }
