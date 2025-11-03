@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWebSocket } from '../hooks/useWebSocket';
 import '../styles/UserDashboard.css';
+import pendulumGif from '../assets/images/pendulum.gif';
 
 function UserDashboard() {
   const [activeSection, setActiveSection] = useState('experiments');
@@ -36,7 +37,7 @@ function UserDashboard() {
       id: 2,
       name: 'Oscillation Counter',
       description: 'Count oscillations and measure frequency',
-      icon: '🌊',
+      icon: pendulumGif,
       difficulty: 'Available',
       duration: '25+ min',
       category: 'Physics',
@@ -272,7 +273,13 @@ function UserDashboard() {
                   style={{ '--accent-color': experiment.color }}
                 >
                   <div className="experiment-header">
-                    <div className="experiment-icon">{experiment.icon}</div>
+                    <div className="experiment-icon">
+                      {experiment.icon.includes('.gif') || experiment.icon.includes('.png') || experiment.icon.includes('.jpg') ? (
+                        <img src={experiment.icon} alt={experiment.name} style={{ width: '20%', height: '20%', objectFit: 'contain' }} />
+                      ) : (
+                        experiment.icon
+                      )}
+                    </div>
                     <div className="experiment-meta">
                       <span className={`sensor-status online ${experiment.difficulty.toLowerCase()}`}>
                         {experiment.difficulty}
