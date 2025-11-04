@@ -82,6 +82,11 @@ class SessionManager:
         device["last_seen"] = asyncio.get_event_loop().time()
         logger.debug(f"Updated status for {device_id}: {device['status']}")
         
+        # Handle disconnecting status - automatically free the device
+        if status.get("status") == "disconnecting":
+            logger.info(f"Device {device_id} is disconnecting - automatically freeing device")
+            await self.free_device(device_id, send_cleanup_command=False)
+        
     async def allocate_device_to_user(self, device_id: str, user_id: str) -> bool:
         device = self.devices.get(device_id)
         if not device:
@@ -170,7 +175,7 @@ class SessionManager:
         logger.info(f"Allocated device {device_id} to user {user_id} until {expires_at}. Current allocations: {self.user_allocations.get(user_id)}")
         return True
             
-    async def free_device(self, device_id: str):
+    async def free_device(self, device_id: str, send_cleanup_command: bool = True):
         device = self.devices.get(device_id)
         if not device or not device.get("allocated_to"):
             return
@@ -209,8 +214,9 @@ class SessionManager:
         except Exception as e:
             logger.error(f"Failed to update available_sensors for {device_id}: {e}")
         
-        # Send disconnect_and_cleanup command to ESP32 device
-        await self._send_cleanup_command_to_device(device_id)
+        # Send disconnect_and_cleanup command to ESP32 device (only if requested)
+        if send_cleanup_command:
+            await self._send_cleanup_command_to_device(device_id)
         
         logger.info(f"Freed device {device_id} from user {user_id}. Remaining allocations: {self.user_allocations.get(user_id, [])}")
     
@@ -229,6 +235,16 @@ class SessionManager:
     
     async def free_user_devices(self, user_id: str):
         to_free = [did for did, info in self.devices.items() if info.get("allocated_to") == user_id]
+        
+        # Send disconnect commands to ESP32 devices before freeing them
+        if to_free:
+            from services.mqtt_service import MQTTService
+            mqtt_service = MQTTService.get_instance()
+            
+            for device_id in to_free:
+                if mqtt_service and mqtt_service.connected:
+                    logger.info(f"Sending disconnect command to device {device_id} due to user logout")
+                    mqtt_service.publish_disconnect_command(device_id)
         
         # Delete from DB
         delete_stmt = text("""

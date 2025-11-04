@@ -7,10 +7,10 @@
 
 // Experiment configuration structure
 struct ExperimentConfig {
-    int frequency = 50;           // Hz
-    int duration = 60;            // seconds
+    int frequency = 30;           // Hz (default 30Hz, supports 10-50Hz)
+    int duration = 10;            // seconds (default 10s)
     int maxRange = 8000;          // mm
-    String mode = "long";
+    String mode = "medium";       // Default to medium for 30Hz
     bool configured = false;
     int averagingSamples = 1;
     String pairedUserID = "";     // User ID this sensor is paired with

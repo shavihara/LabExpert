@@ -214,7 +214,7 @@ function UserDashboard() {
       <div className="dashboard-welcome">
         <div className="welcome-content">
           <h1 className="welcome-title">Welcome back, {currentUser.name}! 🧪</h1>
-          <p className="welcome-subtitle">Ready to explore some amazing experiments?</p>
+          <p className="welcome-subtitle">Ready to explore experiments?</p>
         </div>
       </div>
 

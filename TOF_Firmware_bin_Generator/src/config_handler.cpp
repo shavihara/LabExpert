@@ -12,7 +12,7 @@ AsyncWebServer server(80);
 void handleStatus(AsyncWebServerRequest *request) {
     DynamicJsonDocument doc(1024);
     doc["connected"] = true;
-    doc["sensor_type"] = sensorType + "_UART_HS";
+    doc["sensor_type"] = sensorType + "_I2C_HS";
     doc["sensor_id"] = sensorType;
     doc["experiment_running"] = experimentRunning;
     doc["ready"] = dataReady;
@@ -23,7 +23,7 @@ void handleStatus(AsyncWebServerRequest *request) {
     JsonObject diag = doc["diagnostics"].to<JsonObject>();
     diag["total_readings"] = diagnostics.totalReadings;
     diag["successful"] = diagnostics.successfulReadings;
-    diag["crc_errors"] = diagnostics.crcErrors;
+    diag["crc_errors"] = diagnostics.readErrors;
     diag["timeouts"] = diagnostics.timeouts;
     diag["out_of_range"] = diagnostics.outOfRange;
     
@@ -59,10 +59,27 @@ void handleConfigure(AsyncWebServerRequest *request) {
         if (doc.containsKey("mode")) Serial.printf("mode: %s\n", doc["mode"].as<const char*>());
         if (doc.containsKey("averagingSamples")) Serial.printf("averagingSamples: %d\n", doc["averagingSamples"].as<int>());
         
-        // Process configuration
-        config.frequency = doc["frequency"] | 50;
-        config.duration = doc["duration"] | 60;
-        config.mode = doc["mode"] | "long";
+        // Process configuration with validation
+        int requestedFreq = doc["frequency"] | 30;  // Default 30Hz
+        int requestedDuration = doc["duration"] | 10;  // Default 10s
+        
+        // Validate frequency range (10-50Hz)
+        if (requestedFreq < 10 || requestedFreq > 50) {
+            Serial.printf("Invalid frequency: %d Hz (must be 10-50Hz)\n", requestedFreq);
+            request->send(400, "application/json", "{\"error\":\"Frequency must be 10-50Hz\"}");
+            return;
+        }
+        
+        // Validate duration (1-300s)
+        if (requestedDuration < 1 || requestedDuration > 300) {
+            Serial.printf("Invalid duration: %d s (must be 1-300s)\n", requestedDuration);
+            request->send(400, "application/json", "{\"error\":\"Duration must be 1-300s\"}");
+            return;
+        }
+        
+        config.frequency = requestedFreq;
+        config.duration = requestedDuration;
+        config.mode = doc["mode"] | "medium";  // Default medium for 30Hz
         config.averagingSamples = doc["averagingSamples"] | 1;
         
         if (doc.containsKey("calibration")) {
@@ -76,6 +93,11 @@ void handleConfigure(AsyncWebServerRequest *request) {
         
         Serial.printf("Configured: freq=%dHz, dur=%ds, interval=%dms, avg=%d\n", 
             config.frequency, config.duration, sampleInterval, config.averagingSamples);
+        
+        // Configure sensor for the requested frequency
+        if (!configureSensorForFrequency(config.frequency)) {
+            Serial.println("WARNING: Sensor configuration failed");
+        }
         
         // Update hardware timer with new frequency
         updateTimerFrequency(config.frequency);
