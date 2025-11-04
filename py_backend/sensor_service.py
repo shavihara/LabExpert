@@ -5,6 +5,7 @@ from datetime import datetime
 import logging
 from collections import deque
 import numpy as np
+from processor.sensor_displacement import DisplacementProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -52,16 +53,17 @@ class PhysicsDataProcessor:
             return 0.0
         return sum(buffer) / len(buffer)
 
-    def process_reading(self, distance_mm, timestamp_ms):
+    def process_reading(self, distance_cm, timestamp_ms):
         self.total_count += 1
         
-        if distance_mm == 65535:
+        if distance_cm == 65535:
             self.error_count += 1
             logger.warning(f"Invalid reading rejected (error {self.error_count}/{self.total_count})")
             return None
 
         timestamp_s = timestamp_ms / 1000.0
-        displacement_m = distance_mm / 1000.0
+        # Convert from centimeters to meters (ESP32 sends cm)
+        displacement_m = distance_cm / 100.0
 
         self.raw_displacement_buffer.append(displacement_m)
         smoothed_displacement = self._smooth_value(self.raw_displacement_buffer)
@@ -87,12 +89,11 @@ class PhysicsDataProcessor:
         self.last_velocity = smoothed_velocity
         self.last_timestamp = timestamp_s
 
+        # Return data in format expected by DisplacementProcessor: {"t": float, "x": float}
         return {
-            "time": round(timestamp_s, 3),
-            "displacement": round(smoothed_displacement, 4),
-            "velocity": round(smoothed_velocity, 3),
-            "acceleration": round(smoothed_acceleration, 3),
-            "raw_distance_mm": distance_mm,
+            "t": round(timestamp_s, 3),
+            "x": round(smoothed_displacement, 4),
+            "raw_distance_cm": distance_cm,
             "sample_quality": "live_smoothed"
         }
     
@@ -156,6 +157,7 @@ def analyze_data_with_best_fit(all_data_points: list):
 
 
 physics_processor = PhysicsDataProcessor(window_size=3)
+displacement_processor = DisplacementProcessor("global_ws_displacement")
 
 
 async def check_esp32_connection():

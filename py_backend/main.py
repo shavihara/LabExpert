@@ -64,7 +64,9 @@ from sensor_service import (
     configure_experiment,
     start_experiment,
     stop_experiment,
-    analyze_data_with_best_fit
+    analyze_data_with_best_fit,
+    physics_processor,
+    displacement_processor
 )
 from enum import Enum
 import socket
@@ -329,7 +331,6 @@ async def websocket_sensor(websocket: WebSocket, token: str = Query(...)):
         return
 
     try:
-        from sensor_service import physics_processor
         physics_processor.reset()
         logger.info("Attempting to connect to ESP32 WebSocket...")
         try:
@@ -347,13 +348,16 @@ async def websocket_sensor(websocket: WebSocket, token: str = Query(...)):
                                 logger.info(f"Received from ESP32: {data}")
                                 if "distance" in data and "timestamp" in data:
                                     timestamp_ms = data["timestamp"]
-                                    processed = physics_processor.process_reading(
+                                    # First process with PhysicsDataProcessor to get raw data in correct format
+                                    raw_processed = physics_processor.process_reading(
                                         data["distance"],
                                         timestamp_ms
                                     )
-                                    if processed:
-                                        logger.info(f"Sending processed data: {processed}")
-                                        await manager.broadcast(processed)
+                                    if raw_processed:
+                                        # Then process with DisplacementProcessor for motion analysis
+                                        displacement_processed = displacement_processor.process_data(raw_processed)
+                                        logger.info(f"Sending displacement processed data: {displacement_processed}")
+                                        await manager.broadcast(displacement_processed)
                                 else:
                                     await manager.broadcast(data)
                             except json.JSONDecodeError as e:
