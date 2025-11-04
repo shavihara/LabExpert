@@ -24,7 +24,7 @@ TOF_Firmware_bin_Generator/.cache/
 TOF_Firmware_bin_Generator/compile_commands.json
 ESP_32_OTA/.cache/
 ESP_32_OTA/compile_commands.json
-
+esp32s/
 
 # -------------------------
 # Environment & secret files

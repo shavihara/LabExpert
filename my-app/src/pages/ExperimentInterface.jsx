@@ -207,17 +207,17 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
   const flashStatusDisplay = getFlashStatusDisplay();
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm p-2">
       <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full mx-4 overflow-hidden transform transition-all animate-fade-in">
         
-        <div className="bg-gradient-to-r from-purple-600 to-purple-800 p-6">
+        <div className="bg-gradient-to-r from-purple-600 to-purple-800 p-3">
           <h2 className="text-3xl font-bold text-white">Experiment Setup</h2>
           <p className="text-purple-100 mt-2">Choose your experiment and sensor to begin</p>
         </div>
 
         <div className="p-8 space-y-8">
           <div>
-            <h3 className="text-xl font-semibold text-slate-800 mb-4">1. Select Experiment Type</h3>
+            <h3 className="text-xl font-semibold text-slate-800 mb-2">1. Select Experiment Type</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <button
                 onClick={() => handleExperimentTypeSelection('distance')}
@@ -227,10 +227,10 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
                     : 'border-slate-200 hover:border-purple-300 hover:shadow-md'
                 }`}
               >
-                <div className="text-4xl mb-3">📏</div>
-                <div className="font-semibold text-slate-800 text-lg">Displacement Analysis</div>
+                <div className="text-3xl mb-1">⚾</div>
+                <div className="font-semibold text-slate-800 text-lg">Free Fall Experiment</div>
                 <p className="text-sm text-slate-500 mt-1">Measure distance, velocity, and acceleration.</p>
-                <p className="text-xs text-purple-600 mt-2 font-medium">→ TOF.bin firmware</p>
+                <p className="text-xs text-purple-600 mt-1 font-medium">→ TOF.bin firmware</p>
               </button>
               <button
                 onClick={() => handleExperimentTypeSelection('oscillation')}
@@ -240,7 +240,7 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
                     : 'border-slate-200 hover:border-purple-300 hover:shadow-md'
                 }`}
               >
-                <div className="text-4xl mb-3">📐</div>
+                <div className="text-3xl mb-1">📐</div>
                 <div className="font-semibold text-slate-800 text-lg">Inclined Plane</div>
                 <p className="text-sm text-slate-500 mt-1">Analyze motion on an inclined plane.</p>
                 <p className="text-xs text-purple-600 mt-2 font-medium">→ INC.bin firmware</p>
@@ -249,10 +249,10 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
           </div>
 
             <div>
-            <h3 className="text-xl font-semibold text-slate-800 mb-4">2. Select Sensor</h3>
+            <h3 className="text-xl font-semibold text-slate-800 mb-1">2. Select Sensor</h3>
             
             {/* Manual scan button for debugging */}
-            <div className="mb-4">
+            <div className="mb-1">
               <button
                 onClick={async () => {
                   console.log('Manual scan button clicked');
@@ -726,6 +726,12 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
           if (timerRef.current) {
             clearInterval(timerRef.current);
           }
+          
+          // Stop message queue processing after additional queue runs (2000ms)
+          setTimeout(() => {
+            stopMessageQueueProcessing();
+            clearQueuedMessages();
+          }, 2000);
         }
       }, 100);
       
@@ -737,7 +743,16 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     }
   }, [isRunning, isPaused, totalDuration]);
 
-  useEffect(() => {
+  // Message queue processing interval reference
+  const queueIntervalRef = useRef(null);
+
+  // Start message queue processing when experiment starts
+  const startMessageQueueProcessing = () => {
+    // Clear any existing interval first
+    if (queueIntervalRef.current) {
+      clearInterval(queueIntervalRef.current);
+    }
+    
     // Process all queued real-time data messages to prevent data loss
     const processQueuedMessages = () => {
       const queuedMessages = getQueuedMessages();
@@ -753,9 +768,10 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
           let elapsedMs;
           
           if (Number.isFinite(rawMs)) {
-            // Initialize sensor baseline on first valid timestamp
+            // Initialize sensor baseline on first valid timestamp for this experiment
             if (sensorStartTimeRef.current === null) {
               sensorStartTimeRef.current = rawMs;
+              console.log('Set new sensor timestamp baseline:', sensorStartTimeRef.current);
             }
             elapsedMs = rawMs - sensorStartTimeRef.current;
           } else {
@@ -789,10 +805,33 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     };
 
     // Process queued messages every 50ms to batch updates
-    const interval = setInterval(processQueuedMessages, 50);
-    
-    return () => clearInterval(interval);
-  }, [getQueuedMessages]);
+    queueIntervalRef.current = setInterval(processQueuedMessages, 50);
+  };
+
+  // Stop message queue processing
+  const stopMessageQueueProcessing = () => {
+    if (queueIntervalRef.current) {
+      clearInterval(queueIntervalRef.current);
+      queueIntervalRef.current = null;
+      console.log('Stopped message queue processing');
+    }
+  };
+
+  // Clear all queued messages
+  const clearQueuedMessages = () => {
+    // Call getQueuedMessages which returns and clears the queue
+    const clearedMessages = getQueuedMessages();
+    console.log('Cleared queued messages, count:', clearedMessages.length);
+  };
+
+  // Cleanup on component unmount
+  useEffect(() => {
+    return () => {
+      if (queueIntervalRef.current) {
+        clearInterval(queueIntervalRef.current);
+      }
+    };
+  }, []);
 
   // Handle device status messages (experiment_completed, etc.)
   useEffect(() => {
@@ -846,6 +885,12 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     setIsPaused(false);
     sensorStartTimeRef.current = null;
     
+    // Clear any residual messages from previous experiments
+    clearQueuedMessages();
+    
+    // Start message queue processing
+    startMessageQueueProcessing();
+    
     // Get duration from configuration
     try {
       const config = JSON.parse(localStorage.getItem('experimentConfig') || '{"duration_s": 10}');
@@ -873,6 +918,13 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     if (timerRef.current) {
       clearInterval(timerRef.current);
     }
+    
+    // Stop message queue processing after 10 additional queue runs (500ms)
+    setTimeout(() => {
+      stopMessageQueueProcessing();
+      clearQueuedMessages();
+    }, 500);
+    
     sendMessage({ action: 'stop_experiment' });
   };
 
