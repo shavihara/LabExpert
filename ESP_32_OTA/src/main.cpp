@@ -432,12 +432,16 @@ void setup()
 
   // Check if we should run in bootloader mode (custom partition 0)
   if (running && strcmp(running->label, "ota_0") == 0) {
-    Serial.println("Running in bootloader mode (custom partition 0)");
+    Serial.println("✅ Running in bootloader mode (ESP_32_OTA on ota_0)");
+    if (sensorType == "UNKNOWN") {
+      Serial.println("🔄 Likely booted back from main firmware due to EEPROM failure");
+      Serial.println("📡 Ready to receive new firmware via OTA when sensor is reconnected");
+    }
   } else if (running && strcmp(running->label, "ota_1") == 0) {
-    Serial.println("Running in UI firmware mode (partition 1)");
+    Serial.println("⚠️ Running in UI firmware mode (partition 1) - This should not happen in OTA bootloader!");
     // If running UI firmware but sensor is missing, erase and reboot to bootloader
     if (sensorType == "UNKNOWN") {
-      Serial.println("Sensor missing while running UI firmware - erasing and rebooting to bootloader");
+      Serial.println("❌ Sensor missing while running UI firmware - erasing and rebooting to bootloader");
       eraseInactivePartition();
       delay(1000);
       ESP.restart();

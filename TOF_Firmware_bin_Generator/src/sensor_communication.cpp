@@ -80,9 +80,11 @@ bool detectSensorFromEEPROM() {
         }
     }
     
-    // If EEPROM detection fails, assume TOF sensor
-    sensorType = "TOF400F_I2C";
-    return true;
+    // CRITICAL: If EEPROM detection fails completely, return false
+    // This triggers the failsafe mechanism to boot back to ESP_32_OTA
+    Serial.println("❌ EEPROM detection failed after all retries");
+    sensorType = "UNKNOWN";
+    return false;
 }
 
 // Get device ID from MAC address
