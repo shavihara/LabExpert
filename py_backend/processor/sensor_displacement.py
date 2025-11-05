@@ -30,12 +30,15 @@ class DisplacementProcessor(SensorProcessor):
             # Handle both formats: MQTT binary format and legacy format
             if "timestamp" in raw_data and "distance" in raw_data:
                 # MQTT binary format: {"timestamp": ms, "distance": cm, "sample": num, ...}
-                time_val = raw_data.get("timestamp", 0.0) / 1000.0  # Convert ms to seconds
+                original_time = raw_data.get("timestamp", 0.0) / 1000.0  # Convert ms to seconds
                 position = raw_data.get("distance", 0.0) - self.calibration_offset  # Distance in cm
             else:
                 # Legacy format: {"t": float, "x": float}
-                time_val = raw_data.get("t", 0.0)
+                original_time = raw_data.get("t", 0.0)
                 position = raw_data.get("x", 0.0) - self.calibration_offset
+            
+            # Apply time offset to make first data point 0.00 seconds
+            time_val = self.apply_time_offset(original_time)
             
             # Add to history
             self.time_history.append(time_val)

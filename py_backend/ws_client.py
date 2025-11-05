@@ -409,6 +409,21 @@ class ClientWebSocketManager:
             logger.info(f"Sending firmware_flash_result to user {user_id}: {response_message}")
             await self.send_to_user(user_id, response_message)
             
+            # After successful firmware flash, automatically allocate the device to the user
+            if success:
+                logger.info(f"Automatically allocating device {device_id} to user {user_id} after successful firmware flash")
+                allocation_success = await self.session_manager.allocate_device_to_user(device_id, user_id)
+                if allocation_success:
+                    logger.info(f"Device {device_id} successfully allocated to user {user_id}")
+                    # Send device_selected message to frontend to update state
+                    await self.send_to_user(user_id, {
+                        "type": "device_selected", 
+                        "device": {"id": device_id, "device_id": device_id}, 
+                        "status": "success"
+                    })
+                else:
+                    logger.warning(f"Failed to automatically allocate device {device_id} to user {user_id} after firmware flash")
+            
         except Exception as e:
             logger.error(f"Error flashing firmware for device {device_id}: {e}")
             await self.send_to_user(user_id, {

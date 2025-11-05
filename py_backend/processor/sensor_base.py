@@ -19,6 +19,8 @@ class SensorProcessor(ABC):
         self.data_buffer = deque(maxlen=buffer_size)
         self.is_active = False
         self.start_time = None
+        self.first_timestamp = None  # Track first timestamp for offset calculation
+        self.time_offset = 0.0       # Time offset to make first data point 0.00s
         self.config = {}
         
     @abstractmethod
@@ -40,6 +42,8 @@ class SensorProcessor(ABC):
         """Start data collection"""
         self.is_active = True
         self.start_time = datetime.now()
+        self.first_timestamp = None  # Reset first timestamp tracking
+        self.time_offset = 0.0      # Reset time offset
         self.data_buffer.clear()
         logger.info(f"Experiment started for device {self.device_id}")
         
@@ -53,6 +57,17 @@ class SensorProcessor(ABC):
         if self.start_time:
             return (datetime.now() - self.start_time).total_seconds()
         return 0.0
+        
+    def apply_time_offset(self, timestamp: float) -> float:
+        """Apply time offset to make first data point 0.00 seconds"""
+        if self.first_timestamp is None:
+            # First data point - set as reference
+            self.first_timestamp = timestamp
+            self.time_offset = timestamp
+            return 0.0
+        else:
+            # Apply offset to subsequent data points
+            return timestamp - self.time_offset
         
     def add_to_buffer(self, processed_data: dict):
         """Add processed data to buffer"""

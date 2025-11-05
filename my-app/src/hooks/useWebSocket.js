@@ -199,6 +199,25 @@ export const useWebSocket = (token, isActive = true) => {
                   setIsConnecting(false);
                   setError(null);
                   reconnectAttemptsRef.current = 0;
+                  
+                  // Process any queued messages after successful reconnection
+                  if (messageQueueRef.current.length > 0) {
+                    console.log('Processing queued messages after reconnection:', messageQueueRef.current.length);
+                    const queuedMessages = [...messageQueueRef.current];
+                    messageQueueRef.current = [];
+                    
+                    queuedMessages.forEach((data, index) => {
+                      console.log('Delivering queued message', index + 1, 'of', queuedMessages.length, ':', data.type);
+                      setLastMessage(data);
+                      messageHandlersRef.current.forEach(handler => {
+                        try {
+                          handler(data);
+                        } catch (err) {
+                          console.error('Error in message handler for queued message:', err);
+                        }
+                      });
+                    });
+                  }
                 };
 
                 ws.onmessage = (event) => {
@@ -337,6 +356,14 @@ export const useDeviceManager = (webSocketInstance) => {
         case 'scan_error':
           setScanError(data.error || 'Unknown error');
           setIsScanning(false);
+          break;
+        case 'error':
+          console.log('Received error message in device manager:', data);
+          // Handle device allocation errors
+          if (data.message && data.message.includes('device allocated')) {
+            setScanError(data.message);
+            setIsScanning(false);
+          }
           break;
         default:
           break;

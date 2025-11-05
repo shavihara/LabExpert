@@ -21,7 +21,8 @@ const PlotlyGraph = ({
   onStart,
   onPause,
   onStop,
-  onReset
+  onReset,
+  config = { max_distance_cm: 150 } // Default to 150cm if not provided
 }) => {
   const [plotlyLib, setPlotlyLib] = useState(null);
   useEffect(() => {
@@ -60,6 +61,40 @@ const PlotlyGraph = ({
 
   const plotRef = useRef(null);
   const analysisDataRef = useRef([]);
+
+  // Get intelligent y-axis range based on data type and configuration
+  const getYAxisRange = () => {
+    const maxDistance = config.max_distance_cm || 150;
+    
+    // Check what types of data are visible and present
+    const hasDisplacement = chartData.some(d => d.distance != null) && visibleTraces['s-t'];
+    const hasVelocity = chartData.some(d => d.velocity != null) && visibleTraces['v-t'];
+    const hasAcceleration = chartData.some(d => d.acceleration != null) && visibleTraces['a-t'];
+    
+    // For displacement-only view: 0 to max_distance
+    if (hasDisplacement && !hasVelocity && !hasAcceleration) {
+      return [0, maxDistance];
+    }
+    
+    // For velocity-only view: symmetric range around zero
+    if (hasVelocity && !hasDisplacement && !hasAcceleration) {
+      return [-maxDistance, maxDistance];
+    }
+    
+    // For acceleration-only view: symmetric range around zero (scaled appropriately)
+    if (hasAcceleration && !hasDisplacement && !hasVelocity) {
+      return [-maxDistance * 0.5, maxDistance * 0.5];
+    }
+    
+    // For mixed views (displacement + velocity, displacement + acceleration, etc.)
+    // Use symmetric range to accommodate both positive and negative values
+    if (hasVelocity || hasAcceleration) {
+      return [-maxDistance, maxDistance];
+    }
+    
+    // Default fallback
+    return [0, maxDistance];
+  };
 
   // Prepare data for Plotly
   const preparePlotData = useCallback(() => {
@@ -445,7 +480,11 @@ const PlotlyGraph = ({
                 title: 'Value',
                 showgrid: true,
                 gridcolor: '#e2e8f0',
-                zeroline: false
+                zeroline: true,
+                zerolinecolor: '#94a3b8',
+                zerolinewidth: 1,
+                range: getYAxisRange(), // Dynamic y-axis bounds based on data type and configuration
+                fixedrange: true // Prevent zooming/scaling on y-axis
               },
               legend: {
                 x: 0,
