@@ -25,6 +25,7 @@ export const useWebSocket = (token, isActive = true) => {
   const messageQueueRef = useRef([]);
   const isActiveRef = useRef(isActive);
   const tokenRef = useRef(token);
+  const pauseMessageProcessingRef = useRef(false);
 
   // Update refs when props change
   useEffect(() => {
@@ -78,6 +79,18 @@ export const useWebSocket = (token, isActive = true) => {
     return messages;
   }, []);
 
+  // Pause message processing (messages will be ignored)
+  const pauseMessageProcessing = useCallback(() => {
+    pauseMessageProcessingRef.current = true;
+    console.log('Message processing paused');
+  }, []);
+
+  // Resume message processing
+  const resumeMessageProcessing = useCallback(() => {
+    pauseMessageProcessingRef.current = false;
+    console.log('Message processing resumed');
+  }, []);
+
   // Connect to WebSocket
   const connect = useCallback(() => {
     // Don't connect if already connected or connecting
@@ -117,7 +130,7 @@ export const useWebSocket = (token, isActive = true) => {
         console.log('WebSocket connection opened successfully');
         setIsConnected(true);
         setIsConnecting(false);
-        setReconnectAttempts(0);
+        reconnectAttemptsRef.current = 0;
         setError(null);
         
         // Send a test ping message to verify connection
@@ -133,12 +146,13 @@ export const useWebSocket = (token, isActive = true) => {
           if (typeof data === 'string') {
             data = JSON.parse(data);
           }
-            
-          // Queue real-time data messages to prevent loss
-          if (data.type === 'real_time_data' || data.type === 'sensor_data' || data.type === 'processed_data') {
-              messageQueueRef.current.push(data);
+          
+          // Skip processing if paused
+          if (pauseMessageProcessingRef.current) {
+            console.log('Message processing paused, ignoring message:', data.type);
+            return;
           }
-            
+          // Directly deliver messages to handlers without queuing
           setLastMessage(data);
             
           // Notify all message handlers
@@ -287,6 +301,8 @@ export const useWebSocket = (token, isActive = true) => {
     sendMessage,
     addMessageHandler,
     getQueuedMessages,
+    pauseMessageProcessing,
+    resumeMessageProcessing,
     connect,
     disconnect
   };

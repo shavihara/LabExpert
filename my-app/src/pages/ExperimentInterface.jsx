@@ -703,36 +703,15 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   const timerRef = useRef(null);
   const startTimeRef = useRef(null);
   const sensorStartTimeRef = useRef(null);
+  const dataHandlerCleanupRef = useRef(null);
+  const isRunningRef = useRef(false);
+  const isPausedRef = useRef(false);
 
   // Use shared connections instead of creating new ones
-  const { sendMessage, lastMessage, addMessageHandler, getQueuedMessages } = sharedWebSocket;
+  const { sendMessage, lastMessage, addMessageHandler, pauseMessageProcessing, resumeMessageProcessing } = sharedWebSocket;
   const { experimentData, saveExperimentData, saveStatus: wsSaveStatus, clearData } = sharedExperimentManager;
 
-  // Sync experimentData from useExperimentManager to local chartData
-  useEffect(() => {
-    console.log('experimentData changed:', experimentData ? experimentData.length : 0, 'items');
-    if (experimentData && experimentData.length > 0) {
-      console.log('Syncing experimentData to chartData, count:', experimentData.length);
-      console.log('First data point structure:', experimentData[0]);
-      console.log('First data point keys:', Object.keys(experimentData[0]));
-      
-      // Convert experimentData format to chartData format
-      const newChartData = experimentData.map(data => ({
-        time: data.time * 1000, // Convert seconds to milliseconds
-        timeDisplay: data.time.toFixed(2),
-        // Convert values to numbers first, then format to 2 decimal places
-        distance: Number(data.displacement || data.distance || 0).toFixed(2),
-        velocity: Number(data.velocity || 0).toFixed(2),
-        acceleration: Number(data.acceleration || 0).toFixed(2)
-      }));
-      
-      console.log('Converted first chartData point:', newChartData[0]);
-      console.log('Converted chartData keys:', Object.keys(newChartData[0]));
-      chartDataRef.current = newChartData;
-      setChartData(newChartData);
-      console.log('Synced chartData, total points:', newChartData.length);
-    }
-  }, [experimentData]);
+  // Direct streaming: handled via addMessageHandler below; disable experimentData sync to avoid buffering.
 
   // Monitor chartData changes for debugging
   useEffect(() => {
@@ -741,6 +720,68 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
       console.log('First chartData item:', chartData[0]);
     }
   }, [chartData]);
+
+  // Keep refs in sync with state to avoid stale closures in handlers
+  useEffect(() => { isRunningRef.current = isRunning; }, [isRunning]);
+  useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
+
+  // Direct data streaming handler
+  const handleDataMessage = useCallback((message) => {
+    try {
+      // Ignore when not running or paused
+      if (!isRunningRef.current || isPausedRef.current) return;
+
+      let d = null;
+      if (message?.type === 'processed_data' && message?.data) {
+        d = message.data;
+        const t = Number(d.t ?? d.time ?? 0);
+        const elapsedMs = Number.isFinite(t) ? (t * 1000) : (startTimeRef.current ? (Date.now() - startTimeRef.current) : 0);
+        const point = {
+          time: elapsedMs,
+          timeDisplay: (elapsedMs / 1000).toFixed(2),
+          distance: Number(d.s ?? d.displacement ?? d.distance ?? 0),
+          velocity: Number(d.v ?? d.velocity ?? 0),
+          acceleration: Number(d.a ?? d.acceleration ?? 0)
+        };
+        chartDataRef.current = [...chartDataRef.current, point];
+        setChartData([...chartDataRef.current]);
+        return;
+      }
+
+      if (message?.type === 'sensor_data') {
+        d = message.data ?? {};
+      } else if (message?.data) {
+        d = message.data;
+      }
+
+      if (!d) return;
+
+      // Derive elapsed time using firmware timestamps if available
+      const timeCandidate = Number(d.time ?? d.timestamp ?? message.timestamp);
+      let elapsedMs;
+      if (Number.isFinite(timeCandidate)) {
+        if (sensorStartTimeRef.current === null) {
+          sensorStartTimeRef.current = timeCandidate;
+        }
+        elapsedMs = timeCandidate - sensorStartTimeRef.current;
+      } else {
+        elapsedMs = startTimeRef.current ? (Date.now() - startTimeRef.current) : 0;
+      }
+      if (!Number.isFinite(elapsedMs) || elapsedMs < 0) elapsedMs = 0;
+
+      const point = {
+        time: elapsedMs,
+        timeDisplay: (elapsedMs / 1000).toFixed(2),
+        distance: Number(d.distance ?? d.displacement ?? 0),
+        velocity: Number(d.velocity ?? 0),
+        acceleration: Number(d.acceleration ?? 0)
+      };
+      chartDataRef.current = [...chartDataRef.current, point];
+      setChartData([...chartDataRef.current]);
+    } catch (err) {
+      console.error('Error in handleDataMessage:', err);
+    }
+  }, []);
 
   // Timer countdown effect
   useEffect(() => {
@@ -760,12 +801,6 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
           if (timerRef.current) {
             clearInterval(timerRef.current);
           }
-          
-          // Stop message queue processing after additional queue runs (2000ms)
-          setTimeout(() => {
-            stopMessageQueueProcessing();
-            clearQueuedMessages();
-          }, 2000);
         }
       }, 100);
       
@@ -777,125 +812,10 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     }
   }, [isRunning, isPaused, totalDuration]);
 
-  // Message queue processing interval reference
-  const queueIntervalRef = useRef(null);
+  // Direct message streaming configured below; queue processing removed.
 
-  // Start message queue processing (can be called early to capture pre-experiment data)
-  const startMessageQueueProcessing = () => {
-    // Clear any existing interval first
-    if (queueIntervalRef.current) {
-      clearInterval(queueIntervalRef.current);
-    }
-    
-    // Process all queued real-time data messages to prevent data loss
-    const processQueuedMessages = () => {
-      const queuedMessages = getQueuedMessages();
-      console.log('Processing queued messages, count:', queuedMessages.length);
-      
-      queuedMessages.forEach((message, index) => {
-        console.log(`Processing message ${index + 1}:`, message);
-        
-        // Handle processed_data messages for real-time display
-        if (message?.type === 'processed_data') {
-          console.log('Processing processed_data message for real-time display:', message.data);
-          
-          const data = message.data;
-          const elapsedMs = data.time * 1000; // Convert seconds to milliseconds
-          
-          const newData = {
-            time: elapsedMs,
-            timeDisplay: data.time.toFixed(2),
-            distance: Number(data.displacement || data.distance || 0).toFixed(2),
-            velocity: Number(data.velocity || 0).toFixed(2),
-            acceleration: Number(data.acceleration || 0).toFixed(2)
-          };
-          
-          chartDataRef.current = [...chartDataRef.current, newData];
-          console.log('Added processed_data point:', newData, 'Total points:', chartDataRef.current.length);
-          
-          // Update chart data immediately for real-time display, even if experiment not started
-          if (!isRunning) {
-            setChartData([...chartDataRef.current]);
-          }
-          return;
-        }
-        
-        // Handle both sensor_data format and legacy format
-        const messageData = message?.type === 'sensor_data' ? message?.data : message?.data || message;
-        if (messageData?.distance !== undefined || messageData?.displacement !== undefined) {
-          // Use firmware-provided timestamp if available; fallback to Date.now()
-          const timeCandidate = (messageData?.time ?? messageData?.timestamp ?? message?.timestamp);
-          const rawMs = Number(timeCandidate);
-          let elapsedMs;
-          
-          if (Number.isFinite(rawMs)) {
-            // Initialize sensor baseline on first valid timestamp for this experiment
-            if (sensorStartTimeRef.current === null) {
-              sensorStartTimeRef.current = rawMs;
-              console.log('Set new sensor timestamp baseline:', sensorStartTimeRef.current);
-            }
-            elapsedMs = rawMs - sensorStartTimeRef.current;
-          } else {
-            // Fallback to UI-side elapsed time
-            elapsedMs = startTimeRef.current ? (Date.now() - startTimeRef.current) : 0;
-          }
-          
-          if (!Number.isFinite(elapsedMs) || elapsedMs < 0) {
-            elapsedMs = 0;
-          }
-          
-          const newData = {
-            time: elapsedMs,
-            timeDisplay: Number.isFinite(elapsedMs / 1000) ? (elapsedMs / 1000).toFixed(2) : '0.00',
-            distance: messageData.distance ?? messageData.displacement ?? 0,
-            velocity: messageData.velocity || 0,
-            acceleration: messageData.acceleration || 0
-          };
-          
-          chartDataRef.current = [...chartDataRef.current, newData];
-          console.log('Added data point:', newData, 'Total points:', chartDataRef.current.length);
-        } else {
-          console.log('Message has no distance data:', messageData);
-        }
-      });
-      
-      if (queuedMessages.length > 0) {
-        console.log('Updating chart data, total points:', chartDataRef.current.length);
-        setChartData([...chartDataRef.current]);
-      }
-    };
-
-    // Process queued messages every 50ms to batch updates
-    queueIntervalRef.current = setInterval(processQueuedMessages, 50);
-  };
-
-  // Stop message queue processing
-  const stopMessageQueueProcessing = () => {
-    if (queueIntervalRef.current) {
-      clearInterval(queueIntervalRef.current);
-      queueIntervalRef.current = null;
-      console.log('Stopped message queue processing');
-    }
-  };
-
-  // Clear all queued messages
-  const clearQueuedMessages = () => {
-    // Call getQueuedMessages which returns and clears the queue
-    const clearedMessages = getQueuedMessages();
-    console.log('Cleared queued messages, count:', clearedMessages.length);
-  };
-
-  // Start message queue processing on component mount to capture pre-experiment data
-  useEffect(() => {
-    console.log('Starting message queue processing on component mount');
-    startMessageQueueProcessing();
-    
-    return () => {
-      if (queueIntervalRef.current) {
-        clearInterval(queueIntervalRef.current);
-      }
-    };
-  }, []);
+// Removed automatic queue processing on mount to prevent capturing old data
+  // Queue processing now only starts when experiment begins
 
   // Handle device status messages (experiment_completed, etc.)
   useEffect(() => {
@@ -943,31 +863,41 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   }, [wsSaveStatus]);
 
   const handleStart = async () => {
+    console.log('Starting experiment with clean state...');
+    // Clear ALL data completely
+    clearData();
     chartDataRef.current = [];
     setChartData([]);
+    sensorStartTimeRef.current = null;
+    startTimeRef.current = null;
+    
+    // Reset states
     setIsRunning(true);
     setIsPaused(false);
-    sensorStartTimeRef.current = null;
-    
-    // Clear any residual messages from previous experiments
-    clearQueuedMessages();
-    
-    // Start message queue processing
-    startMessageQueueProcessing();
     
     // Get duration from configuration
     try {
       const config = JSON.parse(localStorage.getItem('experimentConfig') || '{"duration_s": 10}');
       setTotalDuration(config.duration_s || 10);
       setTimeRemaining(config.duration_s || 10);
-      startTimeRef.current = Date.now();
     } catch (e) {
       setTotalDuration(10);
       setTimeRemaining(10);
-      startTimeRef.current = Date.now();
     }
     
+    // Attach direct data streaming handler
+    if (dataHandlerCleanupRef.current) {
+      try { dataHandlerCleanupRef.current(); } catch {}
+      dataHandlerCleanupRef.current = null;
+    }
+    dataHandlerCleanupRef.current = addMessageHandler(handleDataMessage);
+    
+    // Start timer baseline
+    startTimeRef.current = Date.now();
+    
     sendMessage({ action: 'start_experiment', experiment_type: experimentType });
+    
+    console.log('Experiment started with clean state');
   };
 
   const handlePause = () => {
@@ -982,14 +912,39 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     if (timerRef.current) {
       clearInterval(timerRef.current);
     }
-    
-    // Stop message queue processing after 10 additional queue runs (500ms)
-    setTimeout(() => {
-      stopMessageQueueProcessing();
-      clearQueuedMessages();
-    }, 500);
+    // Detach data handler
+    if (dataHandlerCleanupRef.current) {
+      try { dataHandlerCleanupRef.current(); } catch {}
+      dataHandlerCleanupRef.current = null;
+    }
     
     sendMessage({ action: 'stop_experiment' });
+  };
+
+  const handleReset = () => {
+    // Clear all data and queues
+    clearData();
+    chartDataRef.current = [];
+    setChartData([]);
+    
+    // Reset states
+    setIsRunning(false);
+    setIsPaused(false);
+    setTimeRemaining(0);
+    setTotalDuration(0);
+    sensorStartTimeRef.current = null;
+    
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
+    
+    console.log('All data and states have been reset');
+    
+    // Detach data handler if present
+    if (dataHandlerCleanupRef.current) {
+      try { dataHandlerCleanupRef.current(); } catch {}
+      dataHandlerCleanupRef.current = null;
+    }
   };
 
   const handleSaveToProfile = async () => {
@@ -1256,6 +1211,13 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
             className="flex-1 min-w-[90px] flex items-center justify-center gap-1.5 px-3 py-2.5 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md text-sm"
           >
             <FiStopCircle size={16} /> Stop
+          </button>
+          <button
+            onClick={handleReset}
+            disabled={isRunning}
+            className="flex-1 min-w-[90px] flex items-center justify-center gap-1.5 px-3 py-2.5 bg-gray-600 text-white rounded-lg font-semibold hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md text-sm"
+          >
+            <FiRefreshCw size={16} /> Reset
           </button>
         </div>
       </div>
