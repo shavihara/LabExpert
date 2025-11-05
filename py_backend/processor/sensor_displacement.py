@@ -4,6 +4,7 @@ import asyncio
 import logging
 from typing import Dict, Any, List
 import numpy as np
+from scipy.signal import savgol_filter
 from .sensor_base import SensorProcessor
 
 logger = logging.getLogger(__name__)
@@ -15,10 +16,15 @@ class DisplacementProcessor(SensorProcessor):
         super().__init__(device_id)
         self.experiment_type = "displacement"
         self.calibration_offset = 0.0
-        self.position_history = []
+        self.position_history = []  # Smoothed position data
         self.velocity_history = []
         self.acceleration_history = []
         self.time_history = []
+        self.raw_position_history = []  # Raw position data for filtering
+        
+        # Savitzky-Golay filter configuration
+        self.savgol_window = 11  # Window size for smoothing (must be odd)
+        self.savgol_polyorder = 3  # Polynomial order for smoothing
         
     def get_experiment_type(self) -> str:
         return self.experiment_type
@@ -40,11 +46,33 @@ class DisplacementProcessor(SensorProcessor):
             # Apply time offset to make first data point 0.00 seconds
             time_val = self.apply_time_offset(original_time)
             
-            # Add to history
+            # Add raw data to history for filtering
             self.time_history.append(time_val)
-            self.position_history.append(position)
+            self.raw_position_history.append(position)
             
-            # Calculate velocity (dx/dt)
+            # Apply Savitzky-Golay filter when enough data points are available
+            smoothed_position = position
+            if len(self.raw_position_history) >= self.savgol_window:
+                try:
+                    # Apply Savitzky-Golay filter to raw position data
+                    window_size = min(self.savgol_window, len(self.raw_position_history))
+                    if window_size % 2 == 0:  # Ensure window size is odd
+                        window_size -= 1
+                    
+                    smoothed_data = savgol_filter(
+                        self.raw_position_history[-window_size:],
+                        window_size,
+                        self.savgol_polyorder
+                    )
+                    smoothed_position = smoothed_data[-1]  # Use the last smoothed value
+                except Exception as e:
+                    logger.warning(f"Savitzky-Golay filtering failed: {e}")
+                    smoothed_position = position
+            
+            # Add smoothed position to history for velocity/acceleration calculations
+            self.position_history.append(smoothed_position)
+            
+            # Calculate velocity (dx/dt) using smoothed data
             velocity = 0.0
             if len(self.time_history) >= 2:
                 dt = self.time_history[-1] - self.time_history[-2]
@@ -71,14 +99,16 @@ class DisplacementProcessor(SensorProcessor):
                 self.position_history = self.position_history[-max_history:]
                 self.velocity_history = self.velocity_history[-max_history:]
                 self.acceleration_history = self.acceleration_history[-max_history:]
+                self.raw_position_history = self.raw_position_history[-max_history:]
             
             # Create processed data with values rounded to 2 decimal places
             processed_data = {
                 "t": round(time_val, 2),
-                "s": round(position, 2),
+                "s": round(smoothed_position, 2),  # Smoothed position
                 "v": round(velocity, 2),
                 "a": round(acceleration, 2),
-                "raw_position": round(raw_data.get("x", 0.0) if "x" in raw_data else raw_data.get("distance", 0.0), 2)
+                "raw_position": round(position, 2),  # Raw position before smoothing
+                "original_raw_position": round(raw_data.get("x", 0.0) if "x" in raw_data else raw_data.get("distance", 0.0), 2)
             }
             
             # Include original sample information for tracking
@@ -200,6 +230,7 @@ class DisplacementProcessor(SensorProcessor):
         self.velocity_history.clear()
         self.acceleration_history.clear()
         self.time_history.clear()
+        self.raw_position_history.clear()
         self.data_buffer.clear()
         logger.info(f"Analysis data reset for device {self.device_id}")
         
