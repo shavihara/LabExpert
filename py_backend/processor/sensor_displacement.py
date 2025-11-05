@@ -27,9 +27,15 @@ class DisplacementProcessor(SensorProcessor):
         """Process TOF sensor data to calculate displacement, velocity, and acceleration"""
         try:
             # Extract time and position from raw data
-            # Expected format: {"t": float, "x": float}
-            time_val = raw_data.get("t", 0.0)
-            position = raw_data.get("x", 0.0) - self.calibration_offset
+            # Handle both formats: MQTT binary format and legacy format
+            if "timestamp" in raw_data and "distance" in raw_data:
+                # MQTT binary format: {"timestamp": ms, "distance": cm, "sample": num, ...}
+                time_val = raw_data.get("timestamp", 0.0) / 1000.0  # Convert ms to seconds
+                position = raw_data.get("distance", 0.0) - self.calibration_offset  # Distance in cm
+            else:
+                # Legacy format: {"t": float, "x": float}
+                time_val = raw_data.get("t", 0.0)
+                position = raw_data.get("x", 0.0) - self.calibration_offset
             
             # Add to history
             self.time_history.append(time_val)
@@ -63,14 +69,20 @@ class DisplacementProcessor(SensorProcessor):
                 self.velocity_history = self.velocity_history[-max_history:]
                 self.acceleration_history = self.acceleration_history[-max_history:]
             
-            # Create processed data
+            # Create processed data with values rounded to 2 decimal places
             processed_data = {
-                "time": time_val,
-                "displacement": position,
-                "velocity": velocity,
-                "acceleration": acceleration,
-                "raw_position": raw_data.get("x", 0.0)
+                "t": round(time_val, 2),
+                "s": round(position, 2),
+                "v": round(velocity, 2),
+                "a": round(acceleration, 2),
+                "raw_position": round(raw_data.get("x", 0.0) if "x" in raw_data else raw_data.get("distance", 0.0), 2)
             }
+            
+            # Include original sample information for tracking
+            if "sample" in raw_data:
+                processed_data["sample"] = raw_data["sample"]
+            if "packet_id" in raw_data:
+                processed_data["packet_id"] = raw_data["packet_id"]
             
             # Add to buffer
             if self.is_active:
@@ -139,9 +151,9 @@ class DisplacementProcessor(SensorProcessor):
                 g = 9.81  # m/s^2
                 potential_energy = mass * g * (current_position - min_position)
                 
-                analysis["kinetic_energy"] = kinetic_energy
-                analysis["potential_energy"] = potential_energy
-                analysis["total_energy"] = kinetic_energy + potential_energy
+                analysis["ke"] = round(kinetic_energy, 2)
+                analysis["pe"] = round(potential_energy, 2)
+                analysis["te"] = round(kinetic_energy + potential_energy, 2)
             
             return analysis
             

@@ -74,14 +74,40 @@ void IRAM_ATTR timerISR(void* arg) {
 void sensorReadingTask(void* parameter) {
     Serial.println("Sensor task started on Core 0");
     
+    // Performance monitoring variables
+    static unsigned long lastSampleTime = 0;
+    static int missedSamples = 0;
+    static int consecutiveMisses = 0;
+    
     while (true) {
-        // Wait for timer trigger
-        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10));
+        // Wait for timer trigger with minimal timeout
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1)); // Reduced from 10ms to 1ms
         
         if (sampleRequested && experimentRunning) {
             // Use pre-captured timestamp
             unsigned long timestamp = preCapturedTimestamp;
             sampleRequested = false;
+            
+            // Check for sample timing issues
+            unsigned long currentTime = millis();
+            if (lastSampleTime > 0) {
+                unsigned long timeSinceLastSample = currentTime - lastSampleTime;
+                int expectedInterval = 1000 / config.frequency;
+                
+                // Detect missed samples (more than 1.5x expected interval)
+                if (timeSinceLastSample > (expectedInterval * 1.5)) {
+                    missedSamples++;
+                    consecutiveMisses++;
+                    
+                    if (consecutiveMisses > 3) {
+                        Serial.printf("WARNING: %d consecutive samples missed at %dHz\n", 
+                                     consecutiveMisses, config.frequency);
+                    }
+                } else {
+                    consecutiveMisses = 0;
+                }
+            }
+            lastSampleTime = currentTime;
             
             // Read sensor (safe now, timestamp already captured)
             uint16_t distance_mm = readTOFDistanceMM();
@@ -91,35 +117,80 @@ void sensorReadingTask(void* parameter) {
                 timestamps[sampleCount] = timestamp - experimentStartTime;
                 distances[sampleCount] = distance_mm;
                 
-                // Add to buffer for MQTT
+                // Add to buffer for MQTT with overflow protection
                 if (bufferedSampleCount < BINARY_MAX_SAMPLES_PER_PACKET) {
                     sampleBuffer[bufferedSampleCount].timestamp = timestamps[sampleCount];
                     sampleBuffer[bufferedSampleCount].distance = distance_mm;
-                    sampleBuffer[bufferedSampleCount].sample_number = sampleCount;
+                    sampleBuffer[bufferedSampleCount].sample_number = sampleCount + 1; // Use next sample number
                     bufferedSampleCount++;
+                } else {
+                    // Buffer full, force flush to prevent data loss
+                    flushSampleBuffer();
+                    
+                    // Add current sample to fresh buffer
+                    sampleBuffer[0].timestamp = timestamps[sampleCount];
+                    sampleBuffer[0].distance = distance_mm;
+                    sampleBuffer[0].sample_number = sampleCount + 1; // Use next sample number
+                    bufferedSampleCount = 1;
                 }
                 
                 sampleCount++;
                 digitalWrite(STATUS_LED, !digitalRead(STATUS_LED));
                 
-                // Debug first few samples
+                // Debug first few samples and periodic status
                 if (sampleCount <= 5) {
                     Serial.printf("Sample %d: %umm @ %ums\n", 
                                  sampleCount, distance_mm, timestamps[sampleCount-1]);
                 }
+                
+                // Periodic status report
+                if (sampleCount % 50 == 0) {
+                    Serial.printf("Collected %d samples, %d missed\n", sampleCount, missedSamples);
+                }
+            } else if (distance_mm == 65535) {
+                // Sensor read error
+                Serial.println("Sensor read error (65535), skipping sample");
+                missedSamples++;
             }
         }
         
-        vTaskDelay(1);
+        // Minimal delay to allow other tasks
+        vTaskDelay(0); // Changed from 1ms to 0ms for better responsiveness
     }
 }
 
 // Process data in main loop
 void processSensorDataQueue() {
     static unsigned long lastFlushTime = 0;
+    unsigned long currentFlushInterval = 50; // Default 50ms
     
-    // Flush buffer periodically
-    if (bufferedSampleCount > 0 && (millis() - lastFlushTime > 50)) {
+    // Adaptive flush interval based on frequency
+    if (config.frequency <= 5) {
+        currentFlushInterval = 200; // 200ms for low frequencies (1-5Hz)
+    } else if (config.frequency <= 20) {
+        currentFlushInterval = 100; // 100ms for medium frequencies (10-20Hz)
+    } else if (config.frequency <= 50) {
+        currentFlushInterval = 33;  // ~30Hz equivalent (30-50Hz)
+    } else {
+        currentFlushInterval = 20;  // 20ms for high frequencies (>50Hz)
+    }
+    
+    // Adaptive batch size triggering
+    bool shouldFlush = false;
+    
+    if (config.frequency <= 5 && bufferedSampleCount >= BATCH_1_5HZ) {
+        shouldFlush = true;
+    } else if (config.frequency <= 20 && bufferedSampleCount >= BATCH_10_20HZ) {
+        shouldFlush = true;
+    } else if (config.frequency <= 50 && bufferedSampleCount >= BATCH_30_50HZ) {
+        shouldFlush = true;
+    } else if (bufferedSampleCount >= BATCH_HIGH_FREQ) {
+        shouldFlush = true;
+    }
+    
+    // Time-based flushing (prevent stale data)
+    if (bufferedSampleCount > 0 && 
+        (shouldFlush || (millis() - lastFlushTime > currentFlushInterval))) {
         flushSampleBuffer();
         lastFlushTime = millis();
     }
@@ -138,13 +209,24 @@ void manageExperimentLoop() {
             dataReady = true;
             lastExperimentEnd = millis();
             
+            // Final flush to ensure all data is sent
             flushSampleBuffer();
+            
+            // Small delay to ensure MQTT messages are sent
+            delay(10);
             
             Serial.printf("Experiment COMPLETED. Collected %d samples in %lu ms\n", 
                          sampleCount, elapsedTime);
             
+            // Calculate and report data transfer success rate
+            int expectedSamples = config.frequency * config.duration;
+            int successRate = (sampleCount * 100) / expectedSamples;
+            Serial.printf("Data transfer success: %d/%d (%d%%) samples\n", 
+                         sampleCount, expectedSamples, successRate);
+            
             if (mqttConnected) {
-                String msg = "Completed with " + String(sampleCount) + " samples";
+                String msg = "Completed with " + String(sampleCount) + "/" + String(expectedSamples) + 
+                            " samples (" + String(successRate) + "%)";
                 publishStatus("experiment_completed", msg.c_str());
             }
         }

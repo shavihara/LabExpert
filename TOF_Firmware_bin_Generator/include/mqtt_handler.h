@@ -47,7 +47,6 @@ typedef struct {
 void setupMQTT();
 void reconnectMQTT();
 void mqttCallback(char* topic, byte* payload, unsigned int length);
-void publishSensorData(uint32_t timestamp, uint16_t distance, uint16_t sampleNumber);
 void publishBinarySensorData(const BinarySample* samples, uint16_t count, uint32_t start_time, uint16_t total_samples);
 void publishStatus(const char* status, const char* message = nullptr);
 void publishSensorIdentification();

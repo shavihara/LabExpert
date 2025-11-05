@@ -69,16 +69,16 @@ class SensorProcessor(ABC):
         return list(self.data_buffer)[-count:] if len(self.data_buffer) >= count else list(self.data_buffer)
         
     def calculate_statistics(self, values: List[float]) -> dict:
-        """Calculate basic statistics for a list of values"""
+        """Calculate basic statistics for a list of values, rounded to 2 decimal places"""
         if not values:
             return {"mean": 0, "std": 0, "min": 0, "max": 0, "count": 0}
             
         np_values = np.array(values)
         return {
-            "mean": float(np.mean(np_values)),
-            "std": float(np.std(np_values)),
-            "min": float(np.min(np_values)),
-            "max": float(np.max(np_values)),
+            "mean": round(float(np.mean(np_values)), 2),
+            "std": round(float(np.std(np_values)), 2),
+            "min": round(float(np.min(np_values)), 2),
+            "max": round(float(np.max(np_values)), 2),
             "count": len(values)
         }
         

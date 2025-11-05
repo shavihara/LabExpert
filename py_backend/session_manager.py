@@ -285,6 +285,13 @@ class SessionManager:
 
     async def get_device_status(self, device_id: str) -> Optional[Dict]:
         return self.devices.get(device_id)
+    
+    def get_user_id_for_device(self, device_id: str) -> Optional[str]:
+        """Get the user ID allocated to a specific device"""
+        device = self.devices.get(device_id)
+        if device and device.get("allocated_to"):
+            return device["allocated_to"]
+        return None
 
     async def get_available_devices(self) -> List[Dict]:
         # Get devices from database with online_status = 1 (only online devices)

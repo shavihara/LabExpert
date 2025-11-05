@@ -71,8 +71,13 @@ void setup() {
     
     Serial.print("Connecting to WiFi");
     int wifiAttempts = 0;
-    while (WiFi.status() != WL_CONNECTED && wifiAttempts < 20) {
-        delay(500); Serial.print("."); wifiAttempts++;
+    while (WiFi.status() != WL_CONNECTED && wifiAttempts < 40) {  // Increased from 20 to 40 attempts
+        delay(500); 
+        Serial.print("."); 
+        wifiAttempts++;
+        
+        // Feed the watchdog to prevent resets during WiFi connection
+        yield();
     }
     
     if (WiFi.status() == WL_CONNECTED) {
@@ -174,6 +179,9 @@ void loop() {
     manageExperimentLoop();
     
     delay(1);
+    
+    // Feed the watchdog to prevent resets when Serial Monitor is not open
+    yield();
 }
 
 void cleanFirmwareAndBootOTA() {

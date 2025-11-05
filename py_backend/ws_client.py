@@ -193,7 +193,10 @@ class ClientWebSocketManager:
 
     async def _handle_start_experiment(self, user_id: str, config: dict, experiment_type: str):
         from services.mqtt_service import MQTTService
+        from processor.processor_manager import SensorProcessorManager
+        
         mqtt_service = MQTTService.get_instance()
+        processor_manager = SensorProcessorManager.get_instance()
         devices = await self.session_manager.get_user_devices(user_id)
         if not devices:
             await self.send_to_user(user_id, {"type": "error", "message": "No device allocated"})
@@ -205,7 +208,10 @@ class ClientWebSocketManager:
             return
         
         try:
-            logger.info(f"Received start_experiment command from user {user_id} for device {device_id}")
+            logger.info(f"Received start_experiment command from user {user_id} for device {device_id}, type: {experiment_type}")
+            
+            # Set experiment type for the device
+            processor_manager.set_device_experiment(device_id, experiment_type)
             
             # Send configuration first if provided
             if config:

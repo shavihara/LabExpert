@@ -27,6 +27,12 @@ extern unsigned long lastExperimentEnd;
 // Backend cleanup flag
 extern bool backendCleanupRequested;
 
+// Adaptive batching constants
+#define BATCH_1_5HZ 2
+#define BATCH_10_20HZ 5
+#define BATCH_30_50HZ 10
+#define BATCH_HIGH_FREQ 15
+
 // Experiment management functions
 void manageExperimentLoop();
 void checkSensorStatus();

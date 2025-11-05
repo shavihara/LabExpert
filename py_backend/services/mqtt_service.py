@@ -10,6 +10,7 @@ from typing import Dict, Optional, Callable, List
 from datetime import datetime
 from session_manager import SessionManager
 from ws_client import ClientWebSocketManager
+from processor.processor_manager import SensorProcessorManager
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,7 @@ class MQTTService:
         self.message_handlers: Dict[str, Callable] = {}
         self.connected = False
         self.loop = None  # Will store the main event loop
+        self.processor_manager = SensorProcessorManager.get_instance()
         
         # Setup MQTT callbacks
         self.client.on_connect = self._on_connect
@@ -146,16 +148,32 @@ class MQTTService:
         """Handle sensor data from MQTT"""
         try:
             data = json.loads(payload)
+            # Convert distance from millimeters to centimeters if present
+            if isinstance(data, dict) and "distance" in data:
+                try:
+                    data["distance"] = round(float(data["distance"]) / 10.0, 1)
+                except Exception:
+                    # Keep original value if conversion fails
+                    pass
             
-            # Forward to WebSocket clients for real-time streaming
-            if self.client_ws_manager and self.loop:
-                # Use thread-safe method to schedule async task
-                asyncio.run_coroutine_threadsafe(
-                    self._forward_sensor_data_to_ws(device_id, data), 
-                    self.loop
-                )
+            # Process data through device-specific processor
+            processed_data = asyncio.run_coroutine_threadsafe(
+                self.processor_manager.process_data(device_id, data),
+                self.loop
+            ).result()
             
-            logger.info(f"Received sensor data from {device_id}: {data}")
+            if processed_data:
+                # Forward processed data to WebSocket clients
+                if self.client_ws_manager and self.loop:
+                    asyncio.run_coroutine_threadsafe(
+                        self._forward_processed_data_to_ws(device_id, processed_data), 
+                        self.loop
+                    )
+                
+                logger.info(f"Processed sensor data from {device_id}: {processed_data}")
+            else:
+                # Processing failed - log error but don't forward raw data
+                logger.error(f"Failed to process sensor data from {device_id}: {data}")
             
         except Exception as e:
             logger.error(f"Error handling sensor data from {device_id}: {e}")
@@ -212,13 +230,13 @@ class MQTTService:
                 sample_data = struct.unpack('<LHH', payload[offset:offset + BINARY_SAMPLE_SIZE])
                 timestamp_ms, distance_mm, sample_num = sample_data
                 
-                # Firmware now sends millimeter data directly - no conversion needed
-                distance_mm = distance_mm  # Keep as millimeters for physics experiments
+                # Convert millimeters to centimeters with one decimal precision
+                distance_cm = round(distance_mm / 10.0, 1)
                 
                 # Convert to JSON-compatible format
                 sample = {
                     "timestamp": timestamp_ms,  # Relative timestamp (milliseconds since experiment start)
-                    "distance": distance_mm,   # Now in millimeters for physics experiments
+                    "distance": distance_cm,   # Send distance in centimeters
                     "sample": sample_num,
                     "sensor_type": sensor_type,
                     "packet_id": packet_id
@@ -239,16 +257,26 @@ class MQTTService:
             if not samples:
                 return
             
-            # Process each sample
+            # Process each sample through appropriate processor
             for sample in samples:
-                # Forward to WebSocket clients for real-time streaming
-                if self.client_ws_manager and self.loop:
-                    asyncio.run_coroutine_threadsafe(
-                        self._forward_sensor_data_to_ws(device_id, sample), 
-                        self.loop
-                    )
+                # Process data through device-specific processor
+                processed_data = asyncio.run_coroutine_threadsafe(
+                    self.processor_manager.process_data(device_id, sample),
+                    self.loop
+                ).result()
                 
-                logger.info(f"Received binary sensor data from {device_id}: {sample}")
+                if processed_data:
+                    # Forward processed data to WebSocket clients
+                    if self.client_ws_manager and self.loop:
+                        asyncio.run_coroutine_threadsafe(
+                            self._forward_processed_data_to_ws(device_id, processed_data), 
+                            self.loop
+                        )
+                    
+                    logger.debug(f"Processed sensor data from {device_id}: {processed_data}")
+                else:
+                    # Processing failed - log error but don't forward raw data
+                    logger.error(f"Failed to process sensor data from {device_id}: {sample}")
                 
         except Exception as e:
             logger.error(f"Error handling binary sensor data from {device_id}: {e}")
@@ -349,24 +377,64 @@ class MQTTService:
 
     async def _forward_sensor_data_to_ws(self, device_id: str, data: dict):
         """Forward sensor data to WebSocket clients"""
+        if not self.client_ws_manager:
+            return
+        
+        # Get user ID allocated to this device
+        user_id = self.session_manager.get_user_id_for_device(device_id)
+        if not user_id:
+            return
+        
+        # Create message with device ID and data
+        message = {
+            "type": "sensor_data",
+            "device_id": device_id,
+            "data": data
+        }
+        
+        # Send to specific user
+        await self.client_ws_manager.send_to_user(user_id, json.dumps(message))
+    
+    async def _forward_processed_data_to_ws(self, device_id: str, processed_data: dict):
+        """Forward processed sensor data to WebSocket clients"""
+        if not self.client_ws_manager:
+            return
+        
+        # Get user ID allocated to this device
+        user_id = self.session_manager.get_user_id_for_device(device_id)
+        if not user_id:
+            return
+        
+        # Create message with device ID and processed data
+        message = {
+            "type": "processed_data",
+            "device_id": device_id,
+            "data": processed_data
+        }
+        
+        # Send to specific user
+        await self.client_ws_manager.send_to_user(user_id, json.dumps(message))
+    
+    def _find_last_user_for_device(self, device_id: str) -> Optional[str]:
+        """
+        Try to find the last user who had this device allocated.
+        This is a fallback for when device allocation is cleared but we still need to forward data.
+        """
         try:
-            # Format the data for WebSocket clients
-            ws_message = {
-                "type": "sensor_data",
-                "device_id": device_id,
-                "data": data,
-                "timestamp": int(data.get("timestamp", data.get("time", 0)))
-            }
+            # Check user allocations for any user that recently had this device
+            for user_id, devices in self.session_manager.user_allocations.items():
+                if device_id in devices:
+                    return user_id
             
-            # Find which user has this device allocated
-            device = await self.session_manager.get_device(device_id)
-            if device and device.get("allocated_to") and self.client_ws_manager:
-                user_id = device["allocated_to"]
-                await self.client_ws_manager.send_to_user(user_id, ws_message)
-                logger.debug(f"Forwarded sensor data to user {user_id} for device {device_id}")
-            
+            # If not found in current allocations, check the device's allocation history
+            device = self.session_manager.devices.get(device_id)
+            if device and device.get("allocated_to"):
+                return device["allocated_to"]
+                
         except Exception as e:
-            logger.error(f"Error forwarding sensor data to WS for {device_id}: {e}")
+            logger.error(f"Error finding last user for device {device_id}: {e}")
+        
+        return None
 
     async def _forward_status_update_to_ws(self, device_id: str, status_data: dict):
         """Forward status updates to WebSocket clients"""

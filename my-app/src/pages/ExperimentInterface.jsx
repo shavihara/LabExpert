@@ -563,17 +563,17 @@ const LiveDataTable = ({ data, graphType, isFullscreen, onToggleFullscreen }) =>
     if (graphType === 's-t') {
       return [
         item.timeDisplay,
-        item.distance?.toFixed(3) || '-'
+        item.distance || '-'
       ];
     } else if (graphType === 'v-t') {
       return [
         item.timeDisplay,
-        item.velocity?.toFixed(3) || '-'
+        item.velocity || '-'
       ];
     } else if (graphType === 'a-t') {
       return [
         item.timeDisplay,
-        item.acceleration?.toFixed(3) || '-'
+        item.acceleration || '-'
       ];
     }
     return [item.timeDisplay, '-'];
@@ -706,7 +706,41 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
 
   // Use shared connections instead of creating new ones
   const { sendMessage, lastMessage, addMessageHandler, getQueuedMessages } = sharedWebSocket;
-  const { saveExperimentData, saveStatus: wsSaveStatus } = sharedExperimentManager;
+  const { experimentData, saveExperimentData, saveStatus: wsSaveStatus, clearData } = sharedExperimentManager;
+
+  // Sync experimentData from useExperimentManager to local chartData
+  useEffect(() => {
+    console.log('experimentData changed:', experimentData ? experimentData.length : 0, 'items');
+    if (experimentData && experimentData.length > 0) {
+      console.log('Syncing experimentData to chartData, count:', experimentData.length);
+      console.log('First data point structure:', experimentData[0]);
+      console.log('First data point keys:', Object.keys(experimentData[0]));
+      
+      // Convert experimentData format to chartData format
+      const newChartData = experimentData.map(data => ({
+        time: data.time * 1000, // Convert seconds to milliseconds
+        timeDisplay: data.time.toFixed(2),
+        // Convert values to numbers first, then format to 2 decimal places
+        distance: Number(data.displacement || data.distance || 0).toFixed(2),
+        velocity: Number(data.velocity || 0).toFixed(2),
+        acceleration: Number(data.acceleration || 0).toFixed(2)
+      }));
+      
+      console.log('Converted first chartData point:', newChartData[0]);
+      console.log('Converted chartData keys:', Object.keys(newChartData[0]));
+      chartDataRef.current = newChartData;
+      setChartData(newChartData);
+      console.log('Synced chartData, total points:', newChartData.length);
+    }
+  }, [experimentData]);
+
+  // Monitor chartData changes for debugging
+  useEffect(() => {
+    console.log('chartData changed:', chartData.length, 'items');
+    if (chartData.length > 0) {
+      console.log('First chartData item:', chartData[0]);
+    }
+  }, [chartData]);
 
   // Timer countdown effect
   useEffect(() => {
@@ -746,7 +780,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   // Message queue processing interval reference
   const queueIntervalRef = useRef(null);
 
-  // Start message queue processing when experiment starts
+  // Start message queue processing (can be called early to capture pre-experiment data)
   const startMessageQueueProcessing = () => {
     // Clear any existing interval first
     if (queueIntervalRef.current) {
@@ -760,8 +794,35 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
       
       queuedMessages.forEach((message, index) => {
         console.log(`Processing message ${index + 1}:`, message);
-        const messageData = message?.data || message;
-        if (messageData?.distance !== undefined) {
+        
+        // Handle processed_data messages for real-time display
+        if (message?.type === 'processed_data') {
+          console.log('Processing processed_data message for real-time display:', message.data);
+          
+          const data = message.data;
+          const elapsedMs = data.time * 1000; // Convert seconds to milliseconds
+          
+          const newData = {
+            time: elapsedMs,
+            timeDisplay: data.time.toFixed(2),
+            distance: Number(data.displacement || data.distance || 0).toFixed(2),
+            velocity: Number(data.velocity || 0).toFixed(2),
+            acceleration: Number(data.acceleration || 0).toFixed(2)
+          };
+          
+          chartDataRef.current = [...chartDataRef.current, newData];
+          console.log('Added processed_data point:', newData, 'Total points:', chartDataRef.current.length);
+          
+          // Update chart data immediately for real-time display, even if experiment not started
+          if (!isRunning) {
+            setChartData([...chartDataRef.current]);
+          }
+          return;
+        }
+        
+        // Handle both sensor_data format and legacy format
+        const messageData = message?.type === 'sensor_data' ? message?.data : message?.data || message;
+        if (messageData?.distance !== undefined || messageData?.displacement !== undefined) {
           // Use firmware-provided timestamp if available; fallback to Date.now()
           const timeCandidate = (messageData?.time ?? messageData?.timestamp ?? message?.timestamp);
           const rawMs = Number(timeCandidate);
@@ -786,7 +847,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
           const newData = {
             time: elapsedMs,
             timeDisplay: Number.isFinite(elapsedMs / 1000) ? (elapsedMs / 1000).toFixed(2) : '0.00',
-            distance: messageData.distance,
+            distance: messageData.distance ?? messageData.displacement ?? 0,
             velocity: messageData.velocity || 0,
             acceleration: messageData.acceleration || 0
           };
@@ -824,8 +885,11 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     console.log('Cleared queued messages, count:', clearedMessages.length);
   };
 
-  // Cleanup on component unmount
+  // Start message queue processing on component mount to capture pre-experiment data
   useEffect(() => {
+    console.log('Starting message queue processing on component mount');
+    startMessageQueueProcessing();
+    
     return () => {
       if (queueIntervalRef.current) {
         clearInterval(queueIntervalRef.current);
@@ -903,7 +967,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
       startTimeRef.current = Date.now();
     }
     
-    sendMessage({ action: 'start_experiment' });
+    sendMessage({ action: 'start_experiment', experiment_type: experimentType });
   };
 
   const handlePause = () => {
@@ -957,30 +1021,20 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   };
 
   const exportToCSV = () => {
-    const headers = graphType === 's-t' 
-      ? ['Time (s)', 'Distance (cm)']
-      : graphType === 'v-t'
-      ? ['Time (s)', 'Velocity (cm/s)']
-      : ['Time (s)', 'Acceleration (cm/s²)'];
+    const headers = ['Time (s)', 'Distance (cm)', 'Velocity (cm/s)', 'Acceleration (cm/s²)'];
     
     const csvContent = [
       headers.join(','),
-      ...chartData.map(item => {
-        if (graphType === 's-t') {
-          return `${item.timeDisplay},${item.distance?.toFixed(3)}`;
-        } else if (graphType === 'v-t') {
-          return `${item.timeDisplay},${item.velocity?.toFixed(3)}`;
-        } else {
-          return `${item.timeDisplay},${item.acceleration?.toFixed(3)}`;
-        }
-      })
+      ...chartData.map(item => 
+        `${item.timeDisplay},${item.distance || 0},${item.velocity || 0},${item.acceleration || 0}`
+      )
     ].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `experiment_${graphType}_${new Date().toISOString()}.csv`;
+    link.download = `experiment_data_${new Date().toISOString()}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -1296,7 +1350,10 @@ const ExperimentInterface = () => {
     error: sharedWebSocket.error
   });
   const sharedDeviceManager = useDeviceManager(sharedWebSocket);
-  const sharedExperimentManager = useExperimentManager(sharedWebSocket);
+  
+  // Manage experiment data at the top level to ensure proper sharing
+  const [experimentData, setExperimentData] = useState([]);
+  const sharedExperimentManager = useExperimentManager(sharedWebSocket, experimentData, setExperimentData);
   const [selectedDevice, setSelectedDevice] = useState(null);
 
   const handleDisconnect = () => {

@@ -180,29 +180,6 @@ void handleMQTTCommands(char* topic, byte* payload, unsigned int length) {
     }
 }
 
-void publishSensorData(uint32_t timestamp, uint16_t distance, uint16_t sampleNumber) {
-    if (!mqttClient.connected()) {
-        return;
-    }
-    
-    // Create JSON payload
-    DynamicJsonDocument doc(128);
-    doc["timestamp"] = timestamp;
-    doc["distance"] = distance;
-    doc["sample"] = sampleNumber;
-    doc["sensor_id"] = sensorID;
-    doc["sensor_type"] = sensorType;
-    
-    String payload;
-    serializeJson(doc, payload);
-    
-    // Publish to data topic
-    char dataTopic[50];
-    snprintf(dataTopic, sizeof(dataTopic), MQTT_DATA_TOPIC, sensorID.c_str());
-    
-    mqttClient.publish(dataTopic, payload.c_str());
-}
-
 void publishBinarySensorData(const BinarySample* samples, uint16_t count, uint32_t start_time, uint16_t total_samples) {
     if (!mqttClient.connected() || count == 0) {
         return;
