@@ -67,7 +67,9 @@ class SensorProcessor(ABC):
             return 0.0
         else:
             # Apply offset to subsequent data points
-            return timestamp - self.time_offset
+            adjusted_time = timestamp - self.time_offset
+            # Ensure we never return negative time values
+            return max(0.0, adjusted_time)
         
     def add_to_buffer(self, processed_data: dict):
         """Add processed data to buffer"""

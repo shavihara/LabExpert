@@ -21,6 +21,12 @@ class DisplacementProcessor(SensorProcessor):
         self.acceleration_history = []
         self.time_history = []
         self.raw_position_history = []  # Raw position data for filtering
+        # New time handling state
+        self._t0 = None  # first observed sensor time
+        self._last_t_rel = None  # last emitted relative time
+        self._dt_history: List[float] = []  # recent positive dt values
+        self._min_dt_default = 0.02  # fallback step (s) when sensor time is non-monotonic
+        self._last_sample = None  # track sample counter to detect run restarts
         
         # Savitzky-Golay filter configuration
         self.savgol_window = 11  # Window size for smoothing (must be odd)
@@ -32,6 +38,13 @@ class DisplacementProcessor(SensorProcessor):
     async def process_data(self, raw_data: dict) -> dict:
         """Process TOF sensor data to calculate displacement, velocity, and acceleration"""
         try:
+            # Detect new run by sample counter restart (MQTT binary packets)
+            sample_num = raw_data.get("sample")
+            if sample_num is not None:
+                if self._last_sample is not None and int(sample_num) <= int(self._last_sample):
+                    # New run detected: reset analysis and time state
+                    self.reset_analysis()
+                self._last_sample = int(sample_num)
             # Extract time and position from raw data
             # Handle both formats: MQTT binary format and legacy format
             if "timestamp" in raw_data and "distance" in raw_data:
@@ -43,12 +56,40 @@ class DisplacementProcessor(SensorProcessor):
                 original_time = raw_data.get("t", 0.0)
                 position = raw_data.get("x", 0.0) - self.calibration_offset
             
-            # Apply time offset to make first data point 0.00 seconds
-            time_val = self.apply_time_offset(original_time)
+            # Rebuild time handling: compute robust relative time starting at 0.00
+            # - Use first observed sensor time as t0
+            # - Enforce non-negative, monotonic progression
+            # - Adaptively step forward when incoming time is stale or regresses
+            if self._t0 is None:
+                self._t0 = float(original_time)
+                time_val = 0.0
+            else:
+                # Relative time against first observed time
+                rel = float(original_time) - self._t0
+                rel = max(0.0, rel)
+                # Enforce monotonicity; if incoming rel <= last, advance by estimated dt
+                if self._last_t_rel is not None and rel <= self._last_t_rel:
+                    if len(self._dt_history) >= 3:
+                        dt_est = float(np.median(self._dt_history))
+                    elif self._dt_history:
+                        dt_est = float(self._dt_history[-1])
+                    else:
+                        dt_est = self._min_dt_default
+                    rel = self._last_t_rel + max(dt_est, self._min_dt_default)
+                time_val = rel
             
             # Add raw data to history for filtering
             self.time_history.append(time_val)
             self.raw_position_history.append(position)
+            # Maintain last relative time and dt history
+            if self._last_t_rel is not None:
+                dt_raw = time_val - self._last_t_rel
+                if dt_raw > 0:
+                    self._dt_history.append(dt_raw)
+                    # Limit dt history length
+                    if len(self._dt_history) > 50:
+                        self._dt_history = self._dt_history[-50:]
+            self._last_t_rel = time_val
             
             # Apply Savitzky-Golay filter when enough data points are available
             smoothed_position = position
@@ -102,8 +143,9 @@ class DisplacementProcessor(SensorProcessor):
                 self.raw_position_history = self.raw_position_history[-max_history:]
             
             # Create processed data with values rounded to 2 decimal places
+            t_display = round(time_val, 2)
             processed_data = {
-                "t": round(time_val, 2),
+                "t": t_display,
                 "s": round(smoothed_position, 2),  # Smoothed position
                 "v": round(velocity, 2),
                 "a": round(acceleration, 2),
@@ -232,7 +274,18 @@ class DisplacementProcessor(SensorProcessor):
         self.time_history.clear()
         self.raw_position_history.clear()
         self.data_buffer.clear()
+        self._t0 = None
+        self._last_t_rel = None
+        self._dt_history.clear()
         logger.info(f"Analysis data reset for device {self.device_id}")
+
+    def start_experiment(self):
+        """Start data collection and reset relative-time state"""
+        super().start_experiment()
+        # Ensure each run starts at 0.00s
+        self._t0 = None
+        self._last_t_rel = None
+        self._dt_history.clear()
         
     def get_motion_summary(self) -> dict:
         """Get summary of motion analysis"""
