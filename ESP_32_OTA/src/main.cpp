@@ -12,8 +12,8 @@
 static bool hexToBytes(const String &hex, std::vector<uint8_t> &out);
 static String getDeviceIDFromMAC();
 // GPIO pin setup
-#define WIFI_LED 2
-#define SENSOR_LED 15
+#define WIFI_LED 14
+#define SENSOR_LED 13
 
 // EEPROM config
 #define EEPROM_SENSOR_ADDR 0x50
@@ -358,29 +358,48 @@ void handleUDPDiscovery()
         // Check if this is a discovery packet
         if (strcmp(packetBuffer, UDP_DISCOVERY_MAGIC) == 0)
         {
-          Serial.println("Received UDP discovery request");
+          IPAddress remoteIP = udp.remoteIP();
 
-          // Get device ID from MAC address (last 5 digits)
-          String deviceID = getDeviceIDFromMAC();
+          // Network segmentation: Only respond to devices on our network segment
+          // This prevents interference between team members on the same physical network
+          IPAddress ourNetwork = WiFi.localIP();
+          ourNetwork[3] = 0; // Get network address (e.g., 192.168.137.0)
 
-          // Create response JSON
-          JsonDocument doc;
-          doc["device_id"] = deviceID;
-          doc["ip_address"] = WiFi.localIP().toString();
-          doc["firmware_version"] = "OTA_BOOTLOADER";
-          doc["sensor_type"] = sensorType;
-          doc["availability"] = 1; // Always available in OTA mode
-          doc["magic"] = UDP_RESPONSE_MAGIC;
+          IPAddress remoteNetwork = remoteIP;
+          remoteNetwork[3] = 0; // Get remote network address
 
-          String response;
-          serializeJson(doc, response);
+          if (ourNetwork == remoteNetwork)
+          {
+            Serial.println("Received UDP discovery request from our network segment");
 
-          // Send response back to sender
-          udp.beginPacket(udp.remoteIP(), UDP_RESPONSE_PORT);
-          udp.write((const uint8_t *)response.c_str(), response.length());
-          udp.endPacket();
+            // Get device ID from MAC address (last 5 digits)
+            String deviceID = getDeviceIDFromMAC();
 
-          Serial.printf("Sent UDP discovery response: %s\n", response.c_str());
+            // Create response JSON
+            JsonDocument doc;
+            doc["device_id"] = deviceID;
+            doc["ip_address"] = WiFi.localIP().toString();
+            doc["firmware_version"] = "OTA_BOOTLOADER";
+            doc["sensor_type"] = sensorType;
+            doc["availability"] = 1; // Always available in OTA mode
+            doc["magic"] = UDP_RESPONSE_MAGIC;
+            doc["ssid"] = ssid; // Include SSID for backend filtering
+
+            String response;
+            serializeJson(doc, response);
+
+            // Send response back to sender
+            udp.beginPacket(udp.remoteIP(), UDP_RESPONSE_PORT);
+            udp.write((const uint8_t *)response.c_str(), response.length());
+            udp.endPacket();
+
+            Serial.printf("Sent UDP discovery response to %s:%d\n", remoteIP.toString().c_str(), UDP_RESPONSE_PORT);
+            Serial.printf("Response content: %s\n", response.c_str());
+          }
+          else
+          {
+            Serial.printf("Ignoring UDP discovery from different network segment: %s\n", remoteIP.toString().c_str());
+          }
         }
       }
     }

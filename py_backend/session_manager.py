@@ -139,38 +139,36 @@ class SessionManager:
             
         expires_at = max_expires
         
-        # Insert to DB
-        insert_stmt = text("""
-            INSERT INTO device_allocations (device_id, user_id, expires_at)
-            VALUES (:device_id, :user_id, :expires_at)
-        """)
+        # Use a single transaction for all database operations
         try:
             with engine.begin() as conn:
+                # Insert to DB
+                insert_stmt = text("""
+                    INSERT INTO device_allocations (device_id, user_id, expires_at)
+                    VALUES (:device_id, :user_id, :expires_at)
+                """)
                 conn.execute(insert_stmt, {
                     "device_id": device_id,
                     "user_id": user_id,
                     "expires_at": expires_at
                 })
+                
+                # Update available_sensors
+                now = datetime.now().isoformat()
+                update_stmt = text("""
+                    UPDATE available_sensors 
+                    SET availability = 0, last_updated = :now
+                    WHERE sensor_id = :device_id
+                """)
+                conn.execute(update_stmt, {"device_id": device_id, "now": now})
+                
         except Exception as e:
-            logger.error(f"Failed to insert allocation to DB: {e}")
+            logger.error(f"Failed to update database for device allocation {device_id}: {e}")
             return False
         
-        # Update in-memory
+        # Only update in-memory state if database operations succeeded
         device["allocated_to"] = user_id
         self.user_allocations.setdefault(user_id, []).append(device_id)
-        
-        # Update available_sensors
-        now = datetime.now().isoformat()
-        update_stmt = text("""
-            UPDATE available_sensors 
-            SET availability = 0, last_updated = :now
-            WHERE sensor_id = :device_id
-        """)
-        try:
-            with engine.begin() as conn:
-                conn.execute(update_stmt, {"device_id": device_id, "now": now})
-        except Exception as e:
-            logger.error(f"Failed to update available_sensors for {device_id}: {e}")
         
         logger.info(f"Allocated device {device_id} to user {user_id} until {expires_at}. Current allocations: {self.user_allocations.get(user_id)}")
         return True
@@ -182,37 +180,35 @@ class SessionManager:
             
         user_id = device["allocated_to"]
         
-        # Delete from DB
-        delete_stmt = text("""
-            DELETE FROM device_allocations 
-            WHERE device_id = :device_id
-        """)
+        # Use a single transaction for all database operations
         try:
             with engine.begin() as conn:
+                # Delete from DB
+                delete_stmt = text("""
+                    DELETE FROM device_allocations 
+                    WHERE device_id = :device_id
+                """)
                 conn.execute(delete_stmt, {"device_id": device_id})
+                
+                # Update available_sensors
+                now = datetime.now().isoformat()
+                update_stmt = text("""
+                    UPDATE available_sensors 
+                    SET availability = 1, last_updated = :now
+                    WHERE sensor_id = :device_id
+                """)
+                conn.execute(update_stmt, {"device_id": device_id, "now": now})
+                
         except Exception as e:
-            logger.error(f"Failed to delete allocation from DB for {device_id}: {e}")
+            logger.error(f"Failed to update database for device {device_id}: {e}")
             return
         
-        # Update in-memory
+        # Only update in-memory state if database operations succeeded
         device["allocated_to"] = None
         if user_id in self.user_allocations:
             self.user_allocations[user_id] = [d for d in self.user_allocations[user_id] if d != device_id]
             if not self.user_allocations[user_id]:
                 del self.user_allocations[user_id]
-        
-        # Update available_sensors
-        now = datetime.now().isoformat()
-        update_stmt = text("""
-            UPDATE available_sensors 
-            SET availability = 1, last_updated = :now
-            WHERE sensor_id = :device_id
-        """)
-        try:
-            with engine.begin() as conn:
-                conn.execute(update_stmt, {"device_id": device_id, "now": now})
-        except Exception as e:
-            logger.error(f"Failed to update available_sensors for {device_id}: {e}")
         
         # Send disconnect_and_cleanup command to ESP32 device (only if requested)
         if send_cleanup_command:
@@ -246,35 +242,33 @@ class SessionManager:
                     logger.info(f"Sending disconnect command to device {device_id} due to user logout")
                     mqtt_service.publish_disconnect_command(device_id)
         
-        # Delete from DB
-        delete_stmt = text("""
-            DELETE FROM device_allocations 
-            WHERE user_id = :user_id
-        """)
+        # Use a single transaction for all database operations
         try:
             with engine.begin() as conn:
+                # Delete from DB
+                delete_stmt = text("""
+                    DELETE FROM device_allocations 
+                    WHERE user_id = :user_id
+                """)
                 conn.execute(delete_stmt, {"user_id": user_id})
+                
+                # Update available_sensors for each device
+                now = datetime.now().isoformat()
+                update_stmt = text("""
+                    UPDATE available_sensors 
+                    SET availability = 1, last_updated = :now
+                    WHERE sensor_id = :device_id
+                """)
+                for did in to_free:
+                    conn.execute(update_stmt, {"device_id": did, "now": now})
+                    
         except Exception as e:
-            logger.error(f"Failed to delete allocations from DB for user {user_id}: {e}")
+            logger.error(f"Failed to update database for user {user_id}: {e}")
             return
         
-        # Update in-memory
+        # Only update in-memory state if database operations succeeded
         for did in to_free:
             self.devices[did]["allocated_to"] = None
-        
-        # Update available_sensors for each
-        now = datetime.now().isoformat()
-        update_stmt = text("""
-            UPDATE available_sensors 
-            SET availability = 1, last_updated = :now
-            WHERE sensor_id = :device_id
-        """)
-        for did in to_free:
-            try:
-                with engine.begin() as conn:
-                    conn.execute(update_stmt, {"device_id": did, "now": now})
-            except Exception as e:
-                logger.error(f"Failed to update available_sensors for {did}: {e}")
         
         self.user_allocations[user_id] = []
         logger.info(f"Freed all devices for user {user_id}: {to_free}")
@@ -588,6 +582,39 @@ class SessionManager:
                     logger.info("Broadcasted updated device list to all clients")
             except Exception as e:
                 logger.error(f"Failed to broadcast device list: {e}")
+    
+    async def sync_device_states_with_database(self):
+        """Synchronize in-memory device states with database to ensure consistency"""
+        try:
+            # Get all device allocations from database
+            stmt = text("""
+                SELECT da.device_id, da.user_id, asens.online_status, asens.availability
+                FROM device_allocations da
+                JOIN available_sensors asens ON da.device_id = asens.sensor_id
+            """)
+            
+            with engine.connect() as conn:
+                result = conn.execute(stmt)
+                for row in result.fetchall():
+                    device_id, user_id, online_status, availability = row
+                    
+                    # Update in-memory device state
+                    if device_id in self.devices:
+                        self.devices[device_id]["allocated_to"] = user_id
+                        self.devices[device_id]["online_status"] = online_status
+                        self.devices[device_id]["availability"] = availability
+                    else:
+                        # Create device entry if it doesn't exist
+                        self.devices[device_id] = {
+                            "allocated_to": user_id,
+                            "online_status": online_status,
+                            "availability": availability
+                        }
+            
+            logger.info("Successfully synchronized device states with database")
+            
+        except Exception as e:
+            logger.error(f"Failed to sync device states with database: {e}")
 
     async def scan_devices_for_experiment(self) -> List[Dict]:
         """

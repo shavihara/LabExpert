@@ -1,4 +1,5 @@
 #include <WiFi.h>
+#include <WiFiUdp.h>
 #include <ArduinoJson.h>
 #include "esp_partition.h"
 #include "esp_ota_ops.h"
@@ -16,6 +17,15 @@ const char *password = "11111111";
 IPAddress local_IP(192, 168, 137, 15);
 IPAddress gateway(192, 168, 137, 1);
 IPAddress subnet(255, 255, 255, 0);
+
+// UDP Discovery configuration
+WiFiUDP udp;
+const int UDP_DISCOVERY_PORT = 8888;
+const int UDP_RESPONSE_PORT = 8889;
+const char* UDP_DISCOVERY_MAGIC = "LABEXPERT_DISCOVERY";
+const char* UDP_RESPONSE_MAGIC = "LABEXPERT_RESPONSE";
+unsigned long lastUDPCheck = 0;
+const unsigned long UDP_CHECK_INTERVAL = 5000; // Check every 5 seconds
 
 // Initialize I2C buses
 #if !defined(EEPROM_SDA)
@@ -80,6 +90,16 @@ void setup()
         setupMQTT();
         Serial.println("MQTT configured");
 
+        // Initialize UDP for discovery
+        if (udp.begin(UDP_DISCOVERY_PORT))
+        {
+            Serial.printf("UDP discovery listening on port %d\n", UDP_DISCOVERY_PORT);
+        }
+        else
+        {
+            Serial.println("Failed to start UDP discovery");
+        }
+
         // Blink WiFi LED once to indicate successful connection
         digitalWrite(WIFI_LED, LOW);
         delay(100);
@@ -116,6 +136,64 @@ void updateWiFiLED()
     }
 }
 
+void handleUDPDiscovery()
+{
+    // Check for incoming UDP packets
+    int packetSize = udp.parsePacket();
+    if (packetSize)
+    {
+        char packetBuffer[255];
+        int len = udp.read(packetBuffer, sizeof(packetBuffer));
+        if (len > 0)
+        {
+            packetBuffer[len] = '\0';
+            
+            // Check if this is a discovery packet
+            if (strcmp(packetBuffer, UDP_DISCOVERY_MAGIC) == 0)
+            {
+                IPAddress remoteIP = udp.remoteIP();
+                
+                // Network segmentation: Only respond to devices on our network segment
+                // This prevents interference between team members on the same physical network
+                IPAddress ourNetwork = WiFi.localIP();
+                ourNetwork[3] = 0; // Get network address (e.g., 192.168.137.0)
+                
+                IPAddress remoteNetwork = remoteIP;
+                remoteNetwork[3] = 0; // Get remote network address
+                
+                if (ourNetwork == remoteNetwork)
+                {
+                    Serial.println("Received UDP discovery request from our network segment");
+                    
+                    // Create response JSON
+                    DynamicJsonDocument doc(256);
+                    doc["device_id"] = sensorID;
+                    doc["ip_address"] = WiFi.localIP().toString();
+                    doc["firmware_version"] = "1.0";
+                    doc["sensor_type"] = sensorType;
+                    doc["magic"] = UDP_RESPONSE_MAGIC;
+                    doc["ssid"] = ssid; // Include SSID for backend filtering
+                    
+                    String response;
+                    serializeJson(doc, response);
+                    
+                    // Send response back to the sender's IP but to the response port (8889)
+                    udp.beginPacket(remoteIP, UDP_RESPONSE_PORT);
+                    udp.write((const uint8_t*)response.c_str(), response.length());
+                    udp.endPacket();
+                    
+                    Serial.printf("Sent UDP discovery response to %s:%d\n", remoteIP.toString().c_str(), UDP_RESPONSE_PORT);
+                    Serial.printf("Response content: %s\n", response.c_str());
+                }
+                else
+                {
+                    Serial.printf("Ignoring UDP discovery from different network segment: %s\n", remoteIP.toString().c_str());
+                }
+            }
+        }
+    }
+}
+
 void loop()
 {
     updateWiFiLED();
@@ -123,5 +201,9 @@ void loop()
     handleBackendCleanup();
     mqttLoop();
     manageExperimentLoop();
+    
+    // Handle UDP discovery periodically
+    handleUDPDiscovery();
+    
     delay(1);
 }

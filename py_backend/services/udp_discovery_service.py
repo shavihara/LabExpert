@@ -30,9 +30,10 @@ class UDPDiscoveryService:
         self.discovery_interval = 30  # seconds between discovery broadcasts
         self.response_timeout = 3  # seconds to wait for responses
         
-        # Device tracking
+        # Device tracking with timeout mechanism
         self.online_devices: Dict[str, Dict] = {}  # device_id -> device_info
         self.last_discovery_time = 0
+        self.device_timeout = 60  # seconds before considering device offline
         
         # Socket setup
         self.broadcast_socket = None
@@ -86,6 +87,7 @@ class UDPDiscoveryService:
         while self.is_running:
             try:
                 await self.broadcast_discovery()
+                await self._cleanup_stale_devices()  # Clean up devices that haven't responded
                 await asyncio.sleep(self.discovery_interval)
             except Exception as e:
                 logger.error(f"Error in discovery loop: {e}")
@@ -172,6 +174,12 @@ class UDPDiscoveryService:
                 logger.warning(f"Received response without device_id from {addr}")
                 return
             
+            # Network segmentation: Only accept devices from our network segment
+            # This prevents interference between team members on the same physical network
+            if not self._is_same_network_segment(addr[0]):
+                logger.debug(f"Ignoring device {device_id} from different network segment: {addr[0]}")
+                return
+            
             # Update device info with response data
             device_info.update({
                 'last_seen': datetime.now().timestamp(),
@@ -195,8 +203,9 @@ class UDPDiscoveryService:
             # Validate required fields and magic value
             required_fields = ['device_id', 'ip_address', 'firmware_version', 'magic']
             if all(field in device_info for field in required_fields):
-                # Check magic value
-                if device_info.get('magic') == 'LABEXPERT_RESPONSE':
+                # Check magic value - handle both quoted and unquoted strings
+                magic_value = device_info.get('magic')
+                if magic_value == 'LABEXPERT_RESPONSE' or magic_value == "LABEXPERT_RESPONSE":
                     return device_info
             
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
@@ -259,13 +268,80 @@ class UDPDiscoveryService:
                 logger.error(f"Error during manual discovery: {e}")
                 await asyncio.sleep(0.1)
         
-        # Also add any devices that were already online
-        for device_id, device_info in self.online_devices.items():
-            if device_id not in discovery_results:
-                discovery_results[device_id] = device_info
-        
         logger.info(f"Manual discovery completed, found {len(discovery_results)} devices")
         return list(discovery_results.values())
+    
+    def _is_same_network_segment(self, remote_ip: str) -> bool:
+        """Check if remote IP is in the same network segment as this host"""
+        try:
+            # Get all local IP addresses
+            local_ips = [addr[4][0] for addr in socket.getaddrinfo(socket.gethostname(), None) 
+                        if addr[0] == socket.AF_INET]
+            
+            if not local_ips:
+                return True  # Fallback: accept all if we can't determine local IP
+            
+            # Try to find a local IP that matches the remote IP's network segment
+            remote_ip_parts = remote_ip.split('.')
+            if len(remote_ip_parts) < 3:
+                return True  # Fallback: accept if remote IP is malformed
+            
+            # Check if remote IP matches any of our local network segments
+            for local_ip in local_ips:
+                local_ip_parts = local_ip.split('.')
+                if len(local_ip_parts) >= 3:
+                    # Compare first three octets (network segment)
+                    if (local_ip_parts[0] == remote_ip_parts[0] and 
+                        local_ip_parts[1] == remote_ip_parts[1] and 
+                        local_ip_parts[2] == remote_ip_parts[2]):
+                        return True
+            
+            # If no matching network segment found, check if it's a common private network
+            # Allow devices from common private network ranges even if not on our exact segment
+            common_private_ranges = [
+                ('192', '168'),    # 192.168.x.x
+                ('172', '16'),     # 172.16.x.x - 172.31.x.x
+                ('10',)            # 10.x.x.x
+            ]
+            
+            for network_range in common_private_ranges:
+                if len(network_range) == 2:
+                    if (remote_ip_parts[0] == network_range[0] and 
+                        remote_ip_parts[1] == network_range[1]):
+                        return True
+                elif len(network_range) == 1:
+                    if remote_ip_parts[0] == network_range[0]:
+                        return True
+            
+            # If we reach here, the device is on a completely different network
+            logger.debug(f"Device {remote_ip} is on different network segment, filtering out")
+            return False
+            
+        except Exception as e:
+            logger.warning(f"Error checking network segment for {remote_ip}: {e}")
+            return True  # Fallback: accept on error
+
+    async def _cleanup_stale_devices(self):
+        """Remove devices that haven't responded within the timeout period"""
+        current_time = asyncio.get_event_loop().time()
+        stale_devices = []
+        
+        for device_id, device_info in list(self.online_devices.items()):
+            last_seen = device_info.get('last_seen', 0)
+            if current_time - last_seen > self.device_timeout:
+                stale_devices.append(device_id)
+        
+        for device_id in stale_devices:
+            device_info = self.online_devices.pop(device_id, {})
+            logger.info(f"Removed stale device {device_id} (last seen: {device_info.get('last_seen')})")
+            
+            # Also update database to mark device as offline
+            try:
+                from session_manager import SessionManager
+                session_manager = SessionManager.get_instance()
+                await session_manager._update_device_online_status(device_id, 0)
+            except Exception as e:
+                logger.error(f"Failed to update database status for stale device {device_id}: {e}")
 
 # Global instance for easy access
 udp_discovery_service = UDPDiscoveryService()

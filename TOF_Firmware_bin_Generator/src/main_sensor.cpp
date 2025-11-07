@@ -16,15 +16,16 @@
 #include "../include/mqtt_handler.h"
 
 // Hardware configuration - I2C Pins
-#define STATUS_LED 2
+#define SENSOR_LED 13
+#define STATUS_LED 14 // Built-in LED on most ESP32 boards
 #define EEPROM_SDA 18
 #define EEPROM_SCL 19
 #define TOF_SDA 21
 #define TOF_SCL 22
 
 // Network configuration
-const char *ssid = "LabExpert_1.0";
-const char *password = "11111111";
+char ssid[32] = "LabExpert_1.0.1";
+char password[32] = "11111111";
 IPAddress local_IP(192, 168, 137, 15);
 IPAddress gateway(192, 168, 137, 1);
 IPAddress subnet(255, 255, 255, 0);
@@ -72,7 +73,8 @@ void setup()
     }
 
     // Network setup
-    WiFi.mode(WIFI_STA);
+    // WiFi.mode() and WIFI_STA are not available in this WiFi library version
+    // Use direct WiFi.begin() with configuration
     WiFi.config(local_IP, gateway, subnet);
     WiFi.begin(ssid, password);
 
@@ -218,8 +220,8 @@ void cleanFirmwareAndBootOTA()
     }
 
     // Stop WiFi
-    WiFi.disconnect(true);
-    WiFi.mode(WIFI_OFF);
+    // WiFi.disconnect() with parameters and WiFi.mode() are not available in this WiFi library version
+    WiFi.disconnect();
     Serial.println("WiFi disconnected");
 
     delay(1000);

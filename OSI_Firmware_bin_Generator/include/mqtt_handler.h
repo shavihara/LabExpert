@@ -8,10 +8,10 @@
 #include "config_handler.h"
 
 // MQTT Topics
-#define MQTT_CONFIG_TOPIC "sensor/%s/config"
-#define MQTT_COMMAND_TOPIC "sensor/%s/command"
-#define MQTT_DATA_TOPIC "sensor/%s/data"
-#define MQTT_STATUS_TOPIC "sensor/%s/status"
+#define MQTT_CONFIG_TOPIC "sensors/%s/config"
+#define MQTT_COMMAND_TOPIC "sensors/%s/command"
+#define MQTT_DATA_TOPIC "sensors/%s/data"
+#define MQTT_STATUS_TOPIC "sensors/%s/status"
 
 // Global variables - DECLARE as extern
 extern WiFiClient wifiClient;

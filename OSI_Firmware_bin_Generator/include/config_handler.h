@@ -6,8 +6,8 @@
 
 // Pin definitions
 #define SENSOR_PIN 21
-#define SENSOR_LED 15
-#define WIFI_LED 2
+#define WIFI_LED 14
+#define SENSOR_LED 13
 
 // EEPROM config
 #define EEPROM_SENSOR_ADDR 0x50
@@ -16,13 +16,14 @@
 #define EEPROM_RETRY_DELAY 100
 
 // Experiment configuration structure
-struct ExperimentConfig {
-    int frequency = 30;        // Default 30Hz
-    int duration = 10;         // Default 10s
-    String mode = "medium";    // Default mode
-    int averagingSamples = 1;  // Default 1
+struct ExperimentConfig
+{
+    int frequency = 30;       // Default 30Hz
+    int duration = 10;        // Default 10s
+    String mode = "medium";   // Default mode
+    int averagingSamples = 1; // Default 1
     bool configured = false;
-    int maxRange = 4000;       // Default 4000mm
+    int maxRange = 4000; // Default 4000mm
     bool userPaired = false;
     String pairedUserID = "";
 };

@@ -36,34 +36,35 @@ void setupMQTT()
 
 void reconnectMQTT()
 {
-    while (!mqttClient.connected())
+    Serial.print("Attempting MQTT connection...");
+
+    String clientId = "ESP32_OscCounter_" + sensorID;
+
+    if (mqttClient.connect(clientId.c_str()))
     {
-        Serial.print("Attempting MQTT connection...");
+        Serial.println("connected");
+        mqttConnected = true;
 
-        String clientId = "ESP32_OscCounter_" + sensorID;
+        // Subscribe to config and command topics
+        char configTopic[50];
+        snprintf(configTopic, sizeof(configTopic), MQTT_CONFIG_TOPIC, sensorID.c_str());
+        mqttClient.subscribe(configTopic);
+        
+        char commandTopic[50];
+        snprintf(commandTopic, sizeof(commandTopic), MQTT_COMMAND_TOPIC, sensorID.c_str());
+        mqttClient.subscribe(commandTopic);
 
-        if (mqttClient.connect(clientId.c_str()))
-        {
-            Serial.println("connected");
-            mqttConnected = true;
+        Serial.printf("Subscribed to: %s and %s\n", configTopic, commandTopic);
 
-            // Subscribe to command topic
-            char commandTopic[50];
-            snprintf(commandTopic, sizeof(commandTopic), MQTT_COMMAND_TOPIC, sensorID.c_str());
-            mqttClient.subscribe(commandTopic);
-
-            Serial.printf("Subscribed to: %s\n", commandTopic);
-
-            // Publish sensor identification
-            publishSensorIdentification();
-        }
-        else
-        {
-            Serial.print("failed, rc=");
-            Serial.print(mqttClient.state());
-            Serial.println(" try again in 5 seconds");
-            delay(5000);
-        }
+        // Publish sensor identification
+        publishSensorIdentification();
+    }
+    else
+    {
+        Serial.print("failed, rc=");
+        Serial.print(mqttClient.state());
+        Serial.println(" try again in 5 seconds");
+        // Don't delay here - the timing is handled by mqttLoop()
     }
 }
 
@@ -234,13 +235,37 @@ void publishSensorIdentification()
 // MQTT loop function to be called in main loop
 void mqttLoop()
 {
+    static unsigned long lastReconnectAttempt = 0;
+    static unsigned long lastKeepalivePing = 0;
+    const unsigned long reconnectInterval = 5000; // 5 seconds between reconnection attempts
+    const unsigned long keepaliveInterval = 15000; // Send ping every 15 seconds to maintain connection
+    
     if (!mqttClient.connected())
     {
         mqttConnected = false;
-        reconnectMQTT();
+        unsigned long now = millis();
+        
+        // Only attempt reconnection every 5 seconds to avoid flooding
+        if (now - lastReconnectAttempt > reconnectInterval)
+        {
+            lastReconnectAttempt = now;
+            reconnectMQTT();
+        }
     }
     else
     {
         mqttClient.loop();
+        
+        // Send periodic keepalive ping to maintain connection
+        unsigned long now = millis();
+        if (now - lastKeepalivePing > keepaliveInterval)
+        {
+            lastKeepalivePing = now;
+            
+            // Publish empty message to keep connection alive
+            char statusTopic[50];
+            snprintf(statusTopic, sizeof(statusTopic), MQTT_STATUS_TOPIC, sensorID.c_str());
+            mqttClient.publish(statusTopic, ""); // Empty payload ping
+        }
     }
 }

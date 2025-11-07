@@ -89,7 +89,16 @@ bool detectSensorFromEEPROM() {
 
 // Get device ID from MAC address
 String getDeviceIDFromMAC() {
-    String mac = WiFi.macAddress();
+    uint8_t macBuffer[6];
+    WiFi.macAddress(macBuffer);
+    
+    // Convert MAC address bytes to hex string
+    char macStr[18]; // 6 bytes * 2 chars + 5 colons + null terminator
+    snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X",
+             macBuffer[0], macBuffer[1], macBuffer[2],
+             macBuffer[3], macBuffer[4], macBuffer[5]);
+    
+    String mac = String(macStr);
     mac.replace(":", "");
     if (mac.length() >= 5) return mac.substring(mac.length()-5);
     return mac;
