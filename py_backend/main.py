@@ -148,12 +148,76 @@ def get_local_ip():
         return "127.0.0.1"
 
 
-# Use the specific IP that ESP32 devices are configured to connect to
-LOCAL_IP = "192.168.137.1"
-logger.info(f"🌐 Local IP Address: {LOCAL_IP} (ESP32-compatible)")
+# Use the dynamically detected local IP
+LOCAL_IP = get_local_ip()
+logger.info(f"🌐 Local IP Address: {LOCAL_IP}")
 
 # ------------------ CORS ------------------
-# UPDATED: Allow WS upgrades
+# Dynamic CORS middleware to allow any local network origin
+class DynamicCORSMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            # Check if this is an OPTIONS preflight request
+            if scope["method"] == "OPTIONS":
+                origin = None
+                for header in scope["headers"]:
+                    if header[0] == b"origin":
+                        origin = header[1].decode()
+                        break
+                
+                # Allow any local network origin for OPTIONS requests
+                if origin and self._is_local_network(origin):
+                    response = JSONResponse(
+                        content={"detail": "CORS preflight successful"},
+                        headers={
+                            "Access-Control-Allow-Origin": origin,
+                            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+                            "Access-Control-Allow-Headers": "*",
+                            "Access-Control-Allow-Credentials": "true",
+                            "Access-Control-Max-Age": "86400",
+                        }
+                    )
+                    await response(scope, receive, send)
+                    return
+        
+        await self.app(scope, receive, send)
+
+    def _is_local_network(self, origin):
+        try:
+            # Parse the origin URL
+            from urllib.parse import urlparse
+            parsed = urlparse(origin)
+            hostname = parsed.hostname
+            
+            # Allow localhost and 127.0.0.1
+            if hostname in ["localhost", "127.0.0.1"]:
+                return True
+            
+            # Allow any private IP address ranges
+            if hostname:
+                # Check for private IP ranges: 10.x.x.x, 172.16.x.x-172.31.x.x, 192.168.x.x
+                if hostname.startswith("10."):
+                    return True
+                if hostname.startswith("172."):
+                    parts = hostname.split(".")
+                    if len(parts) >= 2 and 16 <= int(parts[1]) <= 31:
+                        return True
+                if hostname.startswith("192.168."):
+                    return True
+                
+                # Also allow the computer's local IP
+                if hostname == LOCAL_IP:
+                    return True
+            
+            return False
+        except:
+            return False
+
+# Add both middlewares - our custom one first, then the standard one
+app.add_middleware(DynamicCORSMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -169,9 +233,6 @@ app.add_middleware(
         f"http://{LOCAL_IP}:5174",
         f"http://{LOCAL_IP}:5175",
         f"http://{LOCAL_IP}:3000",
-        "http://192.168.137.1:3000",
-        "http://192.168.1.198:3000",
-        "http://192.168.1.*:3000",
     ],
     allow_credentials=True,
     allow_methods=["*"],

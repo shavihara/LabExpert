@@ -483,8 +483,7 @@ const PlotlyGraph = ({
                 zeroline: true,
                 zerolinecolor: '#94a3b8',
                 zerolinewidth: 1,
-                range: getYAxisRange(), // Dynamic y-axis bounds based on data type and configuration
-                fixedrange: true // Prevent zooming/scaling on y-axis
+                range: getYAxisRange() // Dynamic y-axis bounds based on data type and configuration
               },
               legend: {
                 x: 0,
