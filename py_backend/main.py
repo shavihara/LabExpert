@@ -217,7 +217,9 @@ class DynamicCORSMiddleware:
             return False
 
 # Add both middlewares - our custom one first, then the standard one
-app.add_middleware(DynamicCORSMiddleware)
+# Remove DynamicCORSMiddleware since it's not working properly
+# app.add_middleware(DynamicCORSMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -232,7 +234,48 @@ app.add_middleware(
         f"http://{LOCAL_IP}:5173",
         f"http://{LOCAL_IP}:5174",
         f"http://{LOCAL_IP}:5175",
+        "http://192.168.137.1:3000",
+        "http://192.168.1.198:3000",
         f"http://{LOCAL_IP}:3000",
+        "http://192.168.1.198:5173",
+        # Allow all private IP ranges
+        "http://10.*.*.*:3000",
+        "http://172.16.*.*:3000", 
+        "http://172.17.*.*:3000",
+        "http://172.18.*.*:3000",
+        "http://172.19.*.*:3000",
+        "http://172.20.*.*:3000",
+        "http://172.21.*.*:3000",
+        "http://172.22.*.*:3000",
+        "http://172.23.*.*:3000",
+        "http://172.24.*.*:3000",
+        "http://172.25.*.*:3000",
+        "http://172.26.*.*:3000",
+        "http://172.27.*.*:3000",
+        "http://172.28.*.*:3000",
+        "http://172.29.*.*:3000",
+        "http://172.30.*.*:3000",
+        "http://172.31.*.*:3000",
+        "http://192.168.*.*:3000",
+        # Also allow these ranges on other ports
+        "http://10.*.*.*:5173",
+        "http://172.16.*.*:5173",
+        "http://172.17.*.*:5173",
+        "http://172.18.*.*:5173",
+        "http://172.19.*.*:5173",
+        "http://172.20.*.*:5173",
+        "http://172.21.*.*:5173",
+        "http://172.22.*.*:5173",
+        "http://172.23.*.*:5173",
+        "http://172.24.*.*:5173",
+        "http://172.25.*.*:5173",
+        "http://172.26.*.*:5173",
+        "http://172.27.*.*:5173",
+        "http://172.28.*.*:5173",
+        "http://172.29.*.*:5173",
+        "http://172.30.*.*:5173",
+        "http://172.31.*.*:5173",
+        "http://192.168.*.*:5173"
     ],
     allow_credentials=True,
     allow_methods=["*"],
