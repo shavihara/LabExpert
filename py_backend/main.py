@@ -117,11 +117,12 @@ async def periodic_cleanup():
 async def startup_event():
     asyncio.create_task(periodic_cleanup())
     
-    # Start UDP discovery service
-    if await udp_discovery_service.start():
-        logger.info("✅ UDP discovery service started successfully")
+    # Initialize UDP discovery service but don't start it automatically
+    # It will be started on-demand when scan_devices action is triggered
+    if await udp_discovery_service.initialize():
+        logger.info("✅ UDP discovery service initialized successfully (will start on-demand)")
     else:
-        logger.error("❌ Failed to start UDP discovery service")
+        logger.error("❌ Failed to initialize UDP discovery service")
     
     # Mosquitto broker should be running externally - no need to start custom broker
     

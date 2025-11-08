@@ -35,12 +35,16 @@ class SensorProcessorManager:
         mapped_experiment_type = experiment_type
         if experiment_type == "tof":
             mapped_experiment_type = "displacement"
+        elif experiment_type == "inclined_plane":
+            mapped_experiment_type = "displacement"
         elif experiment_type == "distance":
             mapped_experiment_type = "displacement"
         
         if mapped_experiment_type not in self.processors[device_id]:
             # Create appropriate processor based on experiment type
             if mapped_experiment_type == "displacement":
+                self.processors[device_id][mapped_experiment_type] = DisplacementProcessor(device_id)
+            elif mapped_experiment_type == "inclined_plane":
                 self.processors[device_id][mapped_experiment_type] = DisplacementProcessor(device_id)
             elif mapped_experiment_type == "oscillation":
                 self.processors[device_id][mapped_experiment_type] = OscillationProcessor(device_id)
@@ -63,6 +67,8 @@ class SensorProcessorManager:
         if experiment_type == "tof":
             mapped_experiment_type = "displacement"
         elif experiment_type == "distance":
+            mapped_experiment_type = "displacement"
+        elif experiment_type == "inclined_plane":
             mapped_experiment_type = "displacement"
         
         self.device_experiments[device_id] = mapped_experiment_type

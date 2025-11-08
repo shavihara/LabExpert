@@ -52,7 +52,7 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
         console.log('Firmware flash successful, transitioning to experiment...');
         setFlashStatus('✓ Firmware flashed successfully');
         
-        const expType = experimentType === 'distance' ? 'tof' : 'oscillation';
+        const expType = experimentType === 'distance' ? 'tof' : experimentType;
         console.log('Calling onComplete with:', { device: selectedDevice, experimentType: expType, token: userToken });
         
         try {
@@ -81,7 +81,7 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
     
     const firmwareMap = {
       'distance': 'displacement',
-      'oscillation': 'inclined_plane'
+      'inclined_plane': 'inclined_plane'
     };
     
     const firmwareType = firmwareMap[type];
@@ -89,7 +89,7 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
     
     const firmwareNames = {
       'distance': 'TOF.bin',
-      'oscillation': 'INC.bin'
+      'inclined_plane': 'INC.bin'
     };
     
     setFlashStatus(`${firmwareNames[type]} prepared. Select a sensor to flash firmware.`);
@@ -134,8 +134,8 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
         'tof': ['tof', 'displacement', 'distance'],
         'distance': ['tof', 'displacement', 'distance'],
         'displacement': ['tof', 'displacement', 'distance'],
-        'oscillation': ['oscillation', 'angle', 'incline'],
-        'angle': ['oscillation', 'angle', 'incline']
+        'inclined_plane': ['inclined_plane', 'angle', 'incline'],
+        'angle': ['inclined_plane', 'angle', 'incline']
       };
       
       const compatibleTypes = experimentToDeviceType[experimentType] || [];
@@ -188,9 +188,9 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
                 <p className="text-xs text-purple-600 mt-1 font-medium">→ TOF.bin firmware</p>
               </button>
               <button
-                onClick={() => handleExperimentTypeSelection('oscillation')}
+                onClick={() => handleExperimentTypeSelection('inclined_plane')}
                 className={`p-6 rounded-xl border-2 transition-all duration-300 group ${
-                  experimentType === 'oscillation'
+                  experimentType === 'inclined_plane'
                     ? 'border-purple-600 bg-purple-50 shadow-lg scale-105'
                     : 'border-slate-200 hover:border-purple-300 hover:shadow-md'
                 }`}

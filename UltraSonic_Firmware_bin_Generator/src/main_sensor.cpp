@@ -22,9 +22,7 @@
 // Network configuration
 const char *ssid = "LabExpert_1.0";
 const char *password = "11111111";
-IPAddress local_IP(192, 168, 137, 15);
-IPAddress gateway(192, 168, 137, 1);
-IPAddress subnet(255, 255, 255, 0);
+// Removed static IP configuration to use DHCP
 
 // MQTT configuration
 const char* mqttBroker = "192.168.137.1";
@@ -61,7 +59,7 @@ void setup() {
     
     // Network setup
     WiFi.mode(WIFI_STA);
-    WiFi.config(local_IP, gateway, subnet);
+    // Removed WiFi.config() to enable DHCP
     WiFi.begin(ssid, password);
     
     Serial.print("Connecting to WiFi");

@@ -33,6 +33,7 @@ class UDPDiscoveryService:
         # Device tracking
         self.online_devices: Dict[str, Dict] = {}  # device_id -> device_info
         self.last_discovery_time = 0
+        self.device_timeout = 60  # seconds after which device is considered offline if no response
         
         # Socket setup
         self.broadcast_socket = None
@@ -86,6 +87,7 @@ class UDPDiscoveryService:
         while self.is_running:
             try:
                 await self.broadcast_discovery()
+                await self._cleanup_stale_devices()
                 await asyncio.sleep(self.discovery_interval)
             except Exception as e:
                 logger.error(f"Error in discovery loop: {e}")
@@ -203,6 +205,23 @@ class UDPDiscoveryService:
             logger.debug(f"Failed to parse response packet: {e}")
         
         return {}
+    
+    async def _cleanup_stale_devices(self):
+        """Remove devices that haven't responded within the timeout period"""
+        current_time = datetime.now().timestamp()
+        stale_devices = []
+        
+        for device_id, device_info in self.online_devices.items():
+            last_seen = device_info.get('last_seen', 0)
+            if current_time - last_seen > self.device_timeout:
+                stale_devices.append(device_id)
+        
+        for device_id in stale_devices:
+            del self.online_devices[device_id]
+            logger.info(f"Device {device_id} marked as offline (no response for {self.device_timeout}s)")
+        
+        if stale_devices:
+            logger.info(f"Cleaned up {len(stale_devices)} stale devices")
     
     def get_online_devices(self) -> List[Dict]:
         """Get list of currently online devices"""

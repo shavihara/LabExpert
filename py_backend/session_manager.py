@@ -24,6 +24,7 @@ class SessionManager:
     def __init__(self):
         self.devices: Dict[str, Dict] = {}
         self.user_allocations: Dict[str, List[str]] = {}
+        self.allocation_locks: Dict[str, asyncio.Lock] = {}
         
         # Load persistent allocations from DB
         now = datetime.now().isoformat()
@@ -88,7 +89,10 @@ class SessionManager:
             await self.free_device(device_id, send_cleanup_command=False)
         
     async def allocate_device_to_user(self, device_id: str, user_id: str) -> bool:
-        device = self.devices.get(device_id)
+        if device_id not in self.allocation_locks:
+            self.allocation_locks[device_id] = asyncio.Lock()
+        async with self.allocation_locks[device_id]:
+            device = self.devices.get(device_id)
         if not device:
             logger.warning(f"Allocation failed for {device_id} to {user_id}: device not found")
             return False
@@ -460,9 +464,19 @@ class SessionManager:
         """
         logger.info(f"=== Checking online status for sensor_id: {sensor_id} ===")
         
+        # Start UDP discovery service on-demand for this check
+        if not udp_discovery_service.is_running:
+            logger.info("Starting UDP discovery service for device status check")
+            await udp_discovery_service.start()
+        
         # Use UDP discovery to find all available devices
         try:
             discovered_devices = await udp_discovery_service.discover_devices()
+            
+            # Stop UDP discovery service after check to prevent continuous background discovery
+            if udp_discovery_service.is_running:
+                logger.info("Stopping UDP discovery service after device status check")
+                await udp_discovery_service.stop()
             
             # Check if our specific device is in the discovered devices
             device_found = False
@@ -535,9 +549,19 @@ class SessionManager:
                 
             logger.info(f"Found {len(available_devices)} devices with availability=1 in database")
             
+            # Start UDP discovery service on-demand for this check
+            if not udp_discovery_service.is_running:
+                logger.info("Starting UDP discovery service for online status check")
+                await udp_discovery_service.start()
+            
             # Use UDP discovery to find all online devices
             discovered_devices = await udp_discovery_service.discover_devices()
             logger.info(f"UDP discovery found {len(discovered_devices)} devices")
+            
+            # Stop UDP discovery service after check to prevent continuous background discovery
+            if udp_discovery_service.is_running:
+                logger.info("Stopping UDP discovery service after online status check")
+                await udp_discovery_service.stop()
             
             # Create a set of discovered device IDs for fast lookup
             discovered_device_ids = {device.get('device_id') for device in discovered_devices}
@@ -603,8 +627,18 @@ class SessionManager:
         """
         logger.info("=== Manual device scan triggered for experiment interface ===")
         
+        # Start UDP discovery service on-demand for this scan
+        if not udp_discovery_service.is_running:
+            logger.info("Starting UDP discovery service for manual scan")
+            await udp_discovery_service.start()
+        
         # Perform device discovery
         await self.check_all_available_devices_online_status()
+        
+        # Stop UDP discovery service after scan to prevent continuous background discovery
+        if udp_discovery_service.is_running:
+            logger.info("Stopping UDP discovery service after manual scan")
+            await udp_discovery_service.stop()
         
         # Return the updated device list
         return await self.get_available_devices()

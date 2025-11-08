@@ -25,7 +25,7 @@
 // Network configuration
 const char *ssid = "LabExpert_1.0";
 const char *password = "11111111";
-IPAddress local_IP(192, 168, 137, 15);
+IPAddress local_IP(192, 168, 137, 17);
 IPAddress gateway(192, 168, 137, 1);
 IPAddress subnet(255, 255, 255, 0);
 
