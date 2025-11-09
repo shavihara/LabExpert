@@ -108,6 +108,10 @@ ClientWebSocketManager.set_instance(client_ws_manager)
 mqtt_service = MQTTService(session_manager, client_ws_manager, broker_host="localhost", broker_port=1883)
 MQTTService.set_instance(mqtt_service)
 
+# Initialize MQTT service (connect to our MQTT broker directly)
+mqtt_service = MQTTService(session_manager, client_ws_manager, broker_host="localhost", broker_port=1883)
+MQTTService.set_instance(mqtt_service)
+
 async def periodic_cleanup():
     while True:
         await session_manager.cleanup_expired_allocations()
