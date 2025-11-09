@@ -25,6 +25,7 @@ export const useWebSocket = (token, isActive = true) => {
   const messageQueueRef = useRef([]);
   const isActiveRef = useRef(isActive);
   const tokenRef = useRef(token);
+  const pauseMessageProcessingRef = useRef(false);
 
   // Update refs when props change
   useEffect(() => {
@@ -78,6 +79,18 @@ export const useWebSocket = (token, isActive = true) => {
     return messages;
   }, []);
 
+  // Pause message processing (messages will be ignored)
+  const pauseMessageProcessing = useCallback(() => {
+    pauseMessageProcessingRef.current = true;
+    console.log('Message processing paused');
+  }, []);
+
+  // Resume message processing
+  const resumeMessageProcessing = useCallback(() => {
+    pauseMessageProcessingRef.current = false;
+    console.log('Message processing resumed');
+  }, []);
+
   // Connect to WebSocket
   const connect = useCallback(() => {
     // Don't connect if already connected or connecting
@@ -117,7 +130,7 @@ export const useWebSocket = (token, isActive = true) => {
         console.log('WebSocket connection opened successfully');
         setIsConnected(true);
         setIsConnecting(false);
-        setReconnectAttempts(0);
+        reconnectAttemptsRef.current = 0;
         setError(null);
         
         // Send a test ping message to verify connection
@@ -129,28 +142,30 @@ export const useWebSocket = (token, isActive = true) => {
 
       ws.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data);
-          console.log('WebSocket received message:', data);
-          
-          // Queue real-time data messages to prevent loss
-          if (data.type === 'real_time_data' || data.type === 'sensor_data') {
-            messageQueueRef.current.push(data);
-            console.log('Queued data message, queue size:', messageQueueRef.current.length, 'Message:', data);
+          let data = JSON.parse(event.data);
+          if (typeof data === 'string') {
+            data = JSON.parse(data);
           }
           
+          // Skip processing if paused
+          if (pauseMessageProcessingRef.current) {
+            console.log('Message processing paused, ignoring message:', data.type);
+            return;
+          }
+          // Directly deliver messages to handlers without queuing
           setLastMessage(data);
-          
+            
           // Notify all message handlers
           messageHandlersRef.current.forEach(handler => {
-            try {
-              handler(data);
-            } catch (err) {
-              console.error('Error in message handler:', err);
-            }
+              try {
+                  handler(data);
+              } catch (err) {
+                  console.error('Error in message handler:', err);
+              }
           });
-        } catch (err) {
+      } catch (err) {
           console.error('Error parsing WebSocket message:', err);
-        }
+      }
       };
 
       ws.onerror = (err) => {
@@ -184,6 +199,25 @@ export const useWebSocket = (token, isActive = true) => {
                   setIsConnecting(false);
                   setError(null);
                   reconnectAttemptsRef.current = 0;
+                  
+                  // Process any queued messages after successful reconnection
+                  if (messageQueueRef.current.length > 0) {
+                    console.log('Processing queued messages after reconnection:', messageQueueRef.current.length);
+                    const queuedMessages = [...messageQueueRef.current];
+                    messageQueueRef.current = [];
+                    
+                    queuedMessages.forEach((data, index) => {
+                      console.log('Delivering queued message', index + 1, 'of', queuedMessages.length, ':', data.type);
+                      setLastMessage(data);
+                      messageHandlersRef.current.forEach(handler => {
+                        try {
+                          handler(data);
+                        } catch (err) {
+                          console.error('Error in message handler for queued message:', err);
+                        }
+                      });
+                    });
+                  }
                 };
 
                 ws.onmessage = (event) => {
@@ -192,7 +226,7 @@ export const useWebSocket = (token, isActive = true) => {
                     console.log('WebSocket received message (reconnect):', data);
                     
                     // Queue real-time data messages to prevent loss
-                    if (data.type === 'real_time_data' || data.type === 'sensor_data') {
+                    if (data.type === 'real_time_data' || data.type === 'sensor_data' || data.type === 'processed_data') {
                       messageQueueRef.current.push(data);
                       console.log('Queued data message (reconnect), queue size:', messageQueueRef.current.length, 'Message:', data);
                     }
@@ -286,6 +320,8 @@ export const useWebSocket = (token, isActive = true) => {
     sendMessage,
     addMessageHandler,
     getQueuedMessages,
+    pauseMessageProcessing,
+    resumeMessageProcessing,
     connect,
     disconnect
   };
@@ -320,6 +356,14 @@ export const useDeviceManager = (webSocketInstance) => {
         case 'scan_error':
           setScanError(data.error || 'Unknown error');
           setIsScanning(false);
+          break;
+        case 'error':
+          console.log('Received error message in device manager:', data);
+          // Handle device allocation errors
+          if (data.message && data.message.includes('device allocated')) {
+            setScanError(data.message);
+            setIsScanning(false);
+          }
           break;
         default:
           break;
@@ -380,13 +424,16 @@ export const useDeviceManager = (webSocketInstance) => {
 };
 
 // Hook for experiment management
-export const useExperimentManager = (webSocketInstance) => {
+export const useExperimentManager = (webSocketInstance, externalExperimentData = null, externalSetExperimentData = null) => {
   const [experimentData, setExperimentData] = useState([]);
   const [isRunning, setIsRunning] = useState(false);
   const [experimentError, setExperimentError] = useState(null);
   const [firmwareStatus, setFirmwareStatus] = useState(null);
   const [configStatus, setConfigStatus] = useState(null);
   const [saveStatus, setSaveStatus] = useState(null);
+  
+  // Use ref to track whether we should use external state
+  const useExternalStateRef = useRef(externalSetExperimentData !== null);
 
   const { sendMessage, addMessageHandler, isConnected } = webSocketInstance;
 
@@ -396,7 +443,15 @@ export const useExperimentManager = (webSocketInstance) => {
       console.log('useExperimentManager received message:', data);
       switch (data.type) {
         case 'experiment_data':
-          setExperimentData(prev => [...prev, data.data]);
+        case 'processed_data':
+          console.log('Adding processed_data to experimentData:', data.data);
+          if (useExternalStateRef.current && externalSetExperimentData) {
+            // Use external state if provided
+            externalSetExperimentData(prev => [...prev, data.data]);
+          } else {
+            // Use local state
+            setExperimentData(prev => [...prev, data.data]);
+          }
           break;
         case 'experiment_started':
           setIsRunning(true);
@@ -548,8 +603,13 @@ export const useExperimentManager = (webSocketInstance) => {
     setSaveStatus(null);
   }, []);
 
+  // Always use the current externalExperimentData when external state is enabled
+  const currentExperimentData = useExternalStateRef.current 
+    ? (externalExperimentData || []) 
+    : experimentData;
+
   return {
-    experimentData,
+    experimentData: currentExperimentData,
     isRunning,
     experimentError,
     firmwareStatus,

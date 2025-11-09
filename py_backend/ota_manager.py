@@ -23,7 +23,7 @@ class OTAManager:
     def set_instance(cls, instance):
         cls._instance = instance
     
-    def __init__(self, firmware_registry_path: str = "firmware_registry.json", bin_dir: str = "bin"):
+    def __init__(self, firmware_registry_path: str = "firmware/firmware_registry.json", bin_dir: str = "bin"):
         self.firmware_registry_path = firmware_registry_path
         self.bin_dir = bin_dir
         self.firmware_registry = self._load_firmware_registry()
@@ -109,11 +109,11 @@ class OTAManager:
             if not ok:
                 return {"status": "error", "message": "Failed to finalize OTA"}
             
-            # Update available_sensors with last_firmware
+            # Update available_sensors with last_firmware and set availability=0 during OTA
             now = datetime.now().isoformat()
             update_stmt = text("""
                 UPDATE available_sensors 
-                SET last_firmware = :firmware_name, last_updated = :now
+                SET last_firmware = :firmware_name, last_updated = :now, availability = 0
                 WHERE sensor_id = :device_id
             """)
             try:
@@ -123,7 +123,7 @@ class OTAManager:
                         "firmware_name": firmware_name,
                         "now": now
                     })
-                logger.info(f"Updated last_firmware for {device_id} to {firmware_name}")
+                logger.info(f"Updated last_firmware for {device_id} to {firmware_name} and set availability=0")
             except Exception as e:
                 logger.error(f"Failed to update available_sensors after OTA for {device_id}: {e}")
             

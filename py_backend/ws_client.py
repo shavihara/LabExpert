@@ -193,7 +193,10 @@ class ClientWebSocketManager:
 
     async def _handle_start_experiment(self, user_id: str, config: dict, experiment_type: str):
         from services.mqtt_service import MQTTService
+        from processor.processor_manager import SensorProcessorManager
+        
         mqtt_service = MQTTService.get_instance()
+        processor_manager = SensorProcessorManager.get_instance()
         devices = await self.session_manager.get_user_devices(user_id)
         if not devices:
             await self.send_to_user(user_id, {"type": "error", "message": "No device allocated"})
@@ -205,7 +208,10 @@ class ClientWebSocketManager:
             return
         
         try:
-            logger.info(f"Received start_experiment command from user {user_id} for device {device_id}")
+            logger.info(f"Received start_experiment command from user {user_id} for device {device_id}, type: {experiment_type}")
+            
+            # Set experiment type for the device
+            processor_manager.set_device_experiment(device_id, experiment_type)
             
             # Send configuration first if provided
             if config:
@@ -402,6 +408,21 @@ class ClientWebSocketManager:
             
             logger.info(f"Sending firmware_flash_result to user {user_id}: {response_message}")
             await self.send_to_user(user_id, response_message)
+            
+            # After successful firmware flash, automatically allocate the device to the user
+            if success:
+                logger.info(f"Automatically allocating device {device_id} to user {user_id} after successful firmware flash")
+                allocation_success = await self.session_manager.allocate_device_to_user(device_id, user_id)
+                if allocation_success:
+                    logger.info(f"Device {device_id} successfully allocated to user {user_id}")
+                    # Send device_selected message to frontend to update state
+                    await self.send_to_user(user_id, {
+                        "type": "device_selected", 
+                        "device": {"id": device_id, "device_id": device_id}, 
+                        "status": "success"
+                    })
+                else:
+                    logger.warning(f"Failed to automatically allocate device {device_id} to user {user_id} after firmware flash")
             
         except Exception as e:
             logger.error(f"Error flashing firmware for device {device_id}: {e}")

@@ -31,7 +31,7 @@ class OscillationProcessor(SensorProcessor):
             beam_broken = raw_data.get("beam_broken", True)
             
             processed_data = {
-                "time": current_time,
+                "t": current_time,
                 "oscillation_count": self.oscillation_count,
                 "total_cuts": len(self.cut_times)
             }

@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Brush, ReferenceLine } from 'recharts';
 import { useWebSocket, useDeviceManager, useExperimentManager } from '../hooks/useWebSocket';
 import { deviceAPI } from '../utils/api';
 import { 
   FiSettings, FiBarChart2, FiPlay, FiPause, FiStopCircle, FiX, FiCheckCircle, 
   FiAlertTriangle, FiLoader, FiWifi, FiWifiOff, FiZap, FiLogOut, FiRepeat,
-  FiDownload, FiSave, FiMaximize, FiMinimize, FiTrendingUp, FiFilter,
-  FiRefreshCw, FiTable, FiEye, FiZoomIn, FiZoomOut, FiClock
+  FiDownload, FiSave, FiMaximize, FiMinimize, FiRefreshCw, FiTable, FiEye, FiClock
 } from 'react-icons/fi';
+
+// Import PlotlyGraph component
+import PlotlyGraph from '../components/PlotlyGraph';
 
 // =================================================================================
 // Configuration Modal Component
@@ -17,10 +18,9 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
   const [experimentType, setExperimentType] = useState('distance');
   const [flashStatus, setFlashStatus] = useState('Select a sensor to begin');
   const [isFlashing, setIsFlashing] = useState(false);
-  const [pendingFirmware, setPendingFirmware] = useState(null); // Track which firmware to flash
-  const [selectedDevice, setSelectedDevice] = useState(null); // Track which device was selected for flashing
+  const [pendingFirmware, setPendingFirmware] = useState(null);
+  const [selectedDevice, setSelectedDevice] = useState(null);
 
-  // Use shared connections instead of creating new ones
   const {
     devices,
     isScanning,
@@ -34,7 +34,6 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
     firmwareStatus
   } = sharedExperimentManager;
 
-  // Debug logging for firmwareStatus changes
   useEffect(() => {
     console.log('ConfigurationModal - firmwareStatus changed:', firmwareStatus);
     if (firmwareStatus && firmwareStatus.success === true) {
@@ -42,14 +41,10 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
     }
   }, [firmwareStatus]);
 
-  // Handle firmware flash completion
   useEffect(() => {
     console.log('=== FIRMWARE STATUS USEEFFECT TRIGGERED ===');
     console.log('isFlashing:', isFlashing);
     console.log('firmwareStatus:', firmwareStatus);
-    console.log('firmwareStatus?.success:', firmwareStatus?.success);
-    console.log('firmwareStatus?.success !== null:', firmwareStatus?.success !== null);
-    console.log('Condition check:', isFlashing && firmwareStatus && firmwareStatus.success !== null);
     
     if (isFlashing && firmwareStatus && firmwareStatus.success !== null) {
       console.log('=== CONDITION MET - PROCESSING FIRMWARE RESULT ===');
@@ -57,10 +52,8 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
         console.log('Firmware flash successful, transitioning to experiment...');
         setFlashStatus('✓ Firmware flashed successfully');
         
-        // Call onComplete immediately instead of using setTimeout
-        const expType = experimentType === 'distance' ? 'tof' : 'oscillation';
+        const expType = experimentType === 'distance' ? 'tof' : experimentType;
         console.log('Calling onComplete with:', { device: selectedDevice, experimentType: expType, token: userToken });
-        console.log('selectedDevice details:', selectedDevice);
         
         try {
           onComplete({ device: selectedDevice, experimentType: expType, token: userToken });
@@ -72,12 +65,6 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
         setFlashStatus(`✗ Error: ${firmwareStatus.message}`);
         setIsFlashing(false);
       }
-    } else {
-      console.log('=== CONDITION NOT MET ===');
-      console.log('Reasons:');
-      console.log('- isFlashing:', isFlashing);
-      console.log('- firmwareStatus exists:', !!firmwareStatus);
-      console.log('- firmwareStatus.success !== null:', firmwareStatus?.success !== null);
     }
   }, [firmwareStatus, isFlashing, experimentType, userToken, onComplete, selectedDevice]);
 
@@ -86,33 +73,23 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
     if (isConnected && !isScanning && devices.length === 0) {
       console.log('Triggering device scan...');
       scanDevices();
-    } else {
-      console.log('Not scanning because:', {
-        isConnected,
-        isScanning,
-        devicesLength: devices.length,
-        condition: isConnected && !isScanning && devices.length === 0
-      });
     }
   }, [isConnected, isScanning, devices.length, scanDevices]);
 
-  // Handle experiment type selection - prepare firmware but don't flash yet
   const handleExperimentTypeSelection = (type) => {
     setExperimentType(type);
     
-    // Map experiment types to firmware files
     const firmwareMap = {
-      'distance': 'displacement', // Maps to TOF.bin in firmware registry
-      'oscillation': 'inclined_plane' // Maps to INC.bin in firmware registry
+      'distance': 'displacement',
+      'inclined_plane': 'inclined_plane'
     };
     
     const firmwareType = firmwareMap[type];
     setPendingFirmware(firmwareType);
     
-    // Update status to indicate firmware is prepared
     const firmwareNames = {
       'distance': 'TOF.bin',
-      'oscillation': 'INC.bin'
+      'inclined_plane': 'INC.bin'
     };
     
     setFlashStatus(`${firmwareNames[type]} prepared. Select a sensor to flash firmware.`);
@@ -125,9 +102,8 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
     }
 
     console.log('=== STARTING FLASH OPERATION ===');
-    console.log('Setting isFlashing to true');
     setIsFlashing(true);
-    setSelectedDevice(device); // Store the selected device for use in useEffect
+    setSelectedDevice(device);
     setFlashStatus('Allocating device...');
 
     try {
@@ -136,15 +112,8 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
 
       setFlashStatus('Flashing firmware via OTA...');
       
-      // Use the prepared firmware type instead of experimentType
       console.log('Flashing firmware for device:', device.id, 'with firmware type:', pendingFirmware);
-      console.log('Current firmwareStatus before flash:', firmwareStatus);
-      
-      // Clear any previous firmware status before starting new flash
-      // Note: The flashFirmware function will set it to { success: null, message: 'Flashing firmware...' }
       flashFirmware(device.id, pendingFirmware);
-      
-      // The firmware status will be handled by the useEffect below
 
     } catch (err) {
       console.error(err);
@@ -153,30 +122,20 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
     }
   };
 
-  // Debug logging to see what devices we're receiving
-  console.log('All devices received:', devices);
-  console.log('Devices length:', devices.length);
-  console.log('Current experiment type:', experimentType);
-  
-  // Filter devices based on experiment type compatibility (backend already filters by online_status = 1)
   const tofDevices = devices.filter(device => {
-    // If no experiment type is selected, show all online devices (already filtered by backend)
     if (!experimentType) return true;
     
-    // Check if device supports the selected experiment type
     if (device.supported_experiments && Array.isArray(device.supported_experiments)) {
       return device.supported_experiments.includes(experimentType);
     }
     
-    // If device doesn't have supported_experiments info, check by device type
     if (device.type) {
-      // Map experiment types to device types
       const experimentToDeviceType = {
         'tof': ['tof', 'displacement', 'distance'],
         'distance': ['tof', 'displacement', 'distance'],
         'displacement': ['tof', 'displacement', 'distance'],
-        'oscillation': ['oscillation', 'angle', 'incline'],
-        'angle': ['oscillation', 'angle', 'incline']
+        'inclined_plane': ['inclined_plane', 'angle', 'incline'],
+        'angle': ['inclined_plane', 'angle', 'incline']
       };
       
       const compatibleTypes = experimentToDeviceType[experimentType] || [];
@@ -185,12 +144,8 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
       );
     }
     
-    // If no type information available, show the device (assume compatible)
     return true;
   });
-  
-  console.log(`Showing ${tofDevices.length} compatible devices for experiment type: ${experimentType || 'any'} (backend filters online_status = 1)`);
-  console.log('Devices received from backend:', tofDevices.map(d => `${d.device_id} (status: ${d.status})`));
 
   const getFlashStatusDisplay = () => {
     if (flashStatus.includes('✓')) {
@@ -233,9 +188,9 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
                 <p className="text-xs text-purple-600 mt-1 font-medium">→ TOF.bin firmware</p>
               </button>
               <button
-                onClick={() => handleExperimentTypeSelection('oscillation')}
+                onClick={() => handleExperimentTypeSelection('inclined_plane')}
                 className={`p-6 rounded-xl border-2 transition-all duration-300 group ${
-                  experimentType === 'oscillation'
+                  experimentType === 'inclined_plane'
                     ? 'border-purple-600 bg-purple-50 shadow-lg scale-105'
                     : 'border-slate-200 hover:border-purple-300 hover:shadow-md'
                 }`}
@@ -248,31 +203,23 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
             </div>
           </div>
 
-            <div>
+          <div>
             <h3 className="text-xl font-semibold text-slate-800 mb-1">2. Select Sensor</h3>
             
-            {/* Manual scan button for debugging */}
             <div className="mb-1">
               <button
                 onClick={async () => {
                   console.log('Manual scan button clicked');
-                  console.log('WebSocket state:', sharedWebSocket);
-                  console.log('Device manager state:', sharedDeviceManager);
-                  
-                  // Try WebSocket first
                   const wsSuccess = sharedWebSocket.sendMessage({ action: 'scan_devices' });
                   console.log('WebSocket scan message sent:', wsSuccess);
                   
-                  // If WebSocket fails or is not connected, try REST API
                   if (!wsSuccess || !isConnected) {
                     console.log('WebSocket failed, trying REST API...');
                     try {
                       const result = await deviceAPI.scanDevices();
                       console.log('REST API scan result:', result);
                       
-                      // Manually update the device manager with the results
                       if (result.success && result.devices) {
-                        // This is a workaround - ideally we'd have a way to inject devices into the device manager
                         console.log(`Found ${result.devices.length} devices via REST API:`, result.devices);
                       }
                     } catch (error) {
@@ -341,7 +288,6 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   
-  // Use shared experiment manager instead of creating new one
   const {
     applyConfiguration,
     configStatus
@@ -357,12 +303,8 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
     setStatusMessage('Applying configuration...');
 
     try {
-      // Save config to localStorage for timer access
       localStorage.setItem('experimentConfig', JSON.stringify(config));
-      
-      // Use WebSocket instead of HTTP
       applyConfiguration(selectedDevice.id, config);
-
     } catch (err) {
       console.error(err);
       setStatusMessage(`❌ Error: ${err.message}`);
@@ -370,7 +312,6 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
     }
   };
 
-  // React to configuration status updates from backend to clear spinner
   useEffect(() => {
     if (!isSubmitting) return;
     if (!configStatus) return;
@@ -481,102 +422,25 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
 };
 
 // =================================================================================
-// Data Statistics Component
-// =================================================================================
-const DataStatistics = ({ data, dataType }) => {
-  const calculateStats = () => {
-    if (data.length === 0) return null;
-
-    const values = data.map(d => {
-      if (dataType === 's-t') return d.distance;
-      if (dataType === 'v-t') return d.velocity;
-      if (dataType === 'a-t') return d.acceleration;
-      return 0;
-    });
-
-    const mean = values.reduce((a, b) => a + b, 0) / values.length;
-    const max = Math.max(...values);
-    const min = Math.min(...values);
-    const std = Math.sqrt(values.reduce((sq, n) => sq + Math.pow(n - mean, 2), 0) / values.length);
-
-    return { mean, max, min, std, count: values.length };
-  };
-
-  const stats = calculateStats();
-
-  if (!stats) return null;
-
-  const getUnit = () => {
-    if (dataType === 's-t') return 'cm';
-    if (dataType === 'v-t') return 'cm/s';
-    if (dataType === 'a-t') return 'cm/s²';
-    return '';
-  };
-
-  return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 mb-3">
-      <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-2 md:p-3 rounded-lg border border-blue-200">
-        <div className="text-[10px] md:text-xs text-blue-600 font-semibold mb-0.5 md:mb-1">Mean</div>
-        <div className="text-sm md:text-lg font-bold text-blue-900 truncate">{stats.mean.toFixed(3)} {getUnit()}</div>
-      </div>
-      <div className="bg-gradient-to-br from-green-50 to-green-100 p-2 md:p-3 rounded-lg border border-green-200">
-        <div className="text-[10px] md:text-xs text-green-600 font-semibold mb-0.5 md:mb-1">Max</div>
-        <div className="text-sm md:text-lg font-bold text-green-900 truncate">{stats.max.toFixed(3)} {getUnit()}</div>
-      </div>
-      <div className="bg-gradient-to-br from-orange-50 to-orange-100 p-2 md:p-3 rounded-lg border border-orange-200">
-        <div className="text-[10px] md:text-xs text-orange-600 font-semibold mb-0.5 md:mb-1">Min</div>
-        <div className="text-sm md:text-lg font-bold text-orange-900 truncate">{stats.min.toFixed(3)} {getUnit()}</div>
-      </div>
-      <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-2 md:p-3 rounded-lg border border-purple-200">
-        <div className="text-[10px] md:text-xs text-purple-600 font-semibold mb-0.5 md:mb-1">Std Dev</div>
-        <div className="text-sm md:text-lg font-bold text-purple-900 truncate">{stats.std.toFixed(3)} {getUnit()}</div>
-      </div>
-      <div className="bg-gradient-to-br from-slate-50 to-slate-100 p-2 md:p-3 rounded-lg border border-slate-200 col-span-2 sm:col-span-1">
-        <div className="text-[10px] md:text-xs text-slate-600 font-semibold mb-0.5 md:mb-1">Samples</div>
-        <div className="text-sm md:text-lg font-bold text-slate-900">{stats.count}</div>
-      </div>
-    </div>
-  );
-};
-
-// =================================================================================
 // Live Data Table Component
 // =================================================================================
-const LiveDataTable = ({ data, graphType, isFullscreen, onToggleFullscreen }) => {
+const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen }) => {
   const [showAllData, setShowAllData] = useState(true);
   const tableRef = useRef(null);
 
   const displayData = showAllData ? data : data.slice(-20);
 
   const getColumnHeaders = () => {
-    if (graphType === 's-t') {
-      return ['Time (s)', 'Distance (cm)'];
-    } else if (graphType === 'v-t') {
-      return ['Time (s)', 'Velocity (cm/s)'];
-    } else if (graphType === 'a-t') {
-      return ['Time (s)', 'Acceleration (cm/s²)'];
-    }
-    return ['Time (s)', 'Value'];
+    return ['Time (s)', 'Distance (cm)', 'Velocity (cm/s)', 'Acceleration (cm/s²)'];
   };
 
   const getRowData = (item) => {
-    if (graphType === 's-t') {
-      return [
-        item.timeDisplay,
-        item.distance?.toFixed(3) || '-'
-      ];
-    } else if (graphType === 'v-t') {
-      return [
-        item.timeDisplay,
-        item.velocity?.toFixed(3) || '-'
-      ];
-    } else if (graphType === 'a-t') {
-      return [
-        item.timeDisplay,
-        item.acceleration?.toFixed(3) || '-'
-      ];
-    }
-    return [item.timeDisplay, '-'];
+    return [
+      item.timeDisplay,
+      item.distance?.toFixed(2) || '-',
+      item.velocity?.toFixed(2) || '-',
+      item.acceleration?.toFixed(2) || '-'
+    ];
   };
 
   const exportToCSV = () => {
@@ -590,7 +454,7 @@ const LiveDataTable = ({ data, graphType, isFullscreen, onToggleFullscreen }) =>
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `experiment_data_${graphType}_${new Date().toISOString()}.csv`;
+    link.download = `experiment_data_${new Date().toISOString()}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -609,6 +473,13 @@ const LiveDataTable = ({ data, graphType, isFullscreen, onToggleFullscreen }) =>
           >
             <FiEye size={14} />
             {showAllData ? 'Show Latest 20' : `Show All (${data.length})`}
+          </button>
+          <button
+            onClick={exportToCSV}
+            className="px-3 py-1.5 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 transition-all text-sm font-semibold flex items-center gap-1"
+          >
+            <FiDownload size={14} />
+            Export CSV
           </button>
           <button
             onClick={onToggleFullscreen}
@@ -686,29 +557,99 @@ const LiveDataTable = ({ data, graphType, isFullscreen, onToggleFullscreen }) =>
 };
 
 // =================================================================================
-// Experiment Graph Component (with enhanced features)
+// Experiment Graph Component - INTEGRATED WITH PLOTLYGRAPH
 // =================================================================================
-const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperimentManager }) => {
+const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperimentManager, config = { max_distance_cm: 150 } }) => {
+  // ===== DATA HANDLING STATE =====
   const [chartData, setChartData] = useState([]);
-  const [graphType, setGraphType] = useState('s-t');
   const [isRunning, setIsRunning] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
-  const [isGraphFullscreen, setIsGraphFullscreen] = useState(false);
   const [isTableFullscreen, setIsTableFullscreen] = useState(false);
-  const [zoomDomain, setZoomDomain] = useState(null);
   const [timeRemaining, setTimeRemaining] = useState(0);
   const [totalDuration, setTotalDuration] = useState(0);
   const [saveStatus, setSaveStatus] = useState(null);
+  
   const chartDataRef = useRef([]);
   const timerRef = useRef(null);
   const startTimeRef = useRef(null);
   const sensorStartTimeRef = useRef(null);
+  const dataHandlerCleanupRef = useRef(null);
+  const isRunningRef = useRef(false);
+  const isPausedRef = useRef(false);
 
-  // Use shared connections instead of creating new ones
-  const { sendMessage, lastMessage, addMessageHandler, getQueuedMessages } = sharedWebSocket;
-  const { saveExperimentData, saveStatus: wsSaveStatus } = sharedExperimentManager;
+  // ===== SHARED WEBSOCKET AND EXPERIMENT MANAGER =====
+  const { sendMessage, addMessageHandler } = sharedWebSocket;
+  const { saveExperimentData, saveStatus: wsSaveStatus, clearData } = sharedExperimentManager;
 
-  // Timer countdown effect
+  // Keep refs in sync with state
+  useEffect(() => { isRunningRef.current = isRunning; }, [isRunning]);
+  useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
+
+  // ===== DIRECT DATA STREAMING HANDLER =====
+  const handleDataMessage = useCallback((message) => {
+    try {
+      // Only check pause state, not running state - allow data processing even after timer stops
+      // to capture all data sent by backend until explicit stop
+      if (isPausedRef.current) return;
+
+      let d = null;
+      if (message?.type === 'processed_data' && message?.data) {
+        d = message.data;
+        const t = Number(d.t ?? d.time ?? 0);
+        const elapsedMs = Number.isFinite(t) ? (t * 1000) : (startTimeRef.current ? (Date.now() - startTimeRef.current) : 0);
+        const point = {
+          time: elapsedMs,
+          timeDisplay: (elapsedMs / 1000).toFixed(2),
+          distance: Number(d.s ?? d.displacement ?? d.distance ?? 0),
+          velocity: Number(d.v ?? d.velocity ?? 0),
+          acceleration: Number(d.a ?? d.acceleration ?? 0),
+          sample: d.sample ?? d.packet_id ?? null,
+          packet_id: d.packet_id ?? null
+        };
+        
+        // Debug logging for sample processing
+        console.log(`Processing sample ${point.sample || 'unknown'} (packet ${point.packet_id || 'unknown'}) - total samples: ${chartDataRef.current.length + 1}`);
+        
+        chartDataRef.current = [...chartDataRef.current, point];
+        setChartData([...chartDataRef.current]);
+        return;
+      }
+
+      if (message?.type === 'sensor_data') {
+        d = message.data ?? {};
+      } else if (message?.data) {
+        d = message.data;
+      }
+
+      if (!d) return;
+
+      const timeCandidate = Number(d.time ?? d.timestamp ?? message.timestamp);
+      let elapsedMs;
+      if (Number.isFinite(timeCandidate)) {
+        if (sensorStartTimeRef.current === null) {
+          sensorStartTimeRef.current = timeCandidate;
+        }
+        elapsedMs = timeCandidate - sensorStartTimeRef.current;
+      } else {
+        elapsedMs = startTimeRef.current ? (Date.now() - startTimeRef.current) : 0;
+      }
+      if (!Number.isFinite(elapsedMs) || elapsedMs < 0) elapsedMs = 0;
+
+      const point = {
+        time: elapsedMs,
+        timeDisplay: (elapsedMs / 1000).toFixed(2),
+        distance: Number(d.distance ?? d.displacement ?? 0),
+        velocity: Number(d.velocity ?? 0),
+        acceleration: Number(d.acceleration ?? 0)
+      };
+      chartDataRef.current = [...chartDataRef.current, point];
+      setChartData([...chartDataRef.current]);
+    } catch (err) {
+      console.error('Error in handleDataMessage:', err);
+    }
+  }, []);
+
+  // ===== TIMER COUNTDOWN EFFECT =====
   useEffect(() => {
     if (isRunning && !isPaused && totalDuration > 0) {
       timerRef.current = setInterval(() => {
@@ -716,22 +657,15 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         const remaining = Math.max(0, totalDuration - elapsed);
         setTimeRemaining(remaining);
         
-        // ESP32 firmware now handles automatic experiment stop when duration is reached
-        // We only update the UI timer, the firmware will send experiment_completed status
         if (remaining <= 0) {
-          // Clear the timer but don't send stop command - ESP32 handles this
           setIsRunning(false);
           setIsPaused(false);
           setTimeRemaining(0);
           if (timerRef.current) {
             clearInterval(timerRef.current);
           }
-          
-          // Stop message queue processing after additional queue runs (2000ms)
-          setTimeout(() => {
-            stopMessageQueueProcessing();
-            clearQueuedMessages();
-          }, 2000);
+          // Note: We DON'T remove the data handler here - let it continue processing
+          // data from backend until explicit stop or device status indicates completion
         }
       }, 100);
       
@@ -743,97 +677,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     }
   }, [isRunning, isPaused, totalDuration]);
 
-  // Message queue processing interval reference
-  const queueIntervalRef = useRef(null);
-
-  // Start message queue processing when experiment starts
-  const startMessageQueueProcessing = () => {
-    // Clear any existing interval first
-    if (queueIntervalRef.current) {
-      clearInterval(queueIntervalRef.current);
-    }
-    
-    // Process all queued real-time data messages to prevent data loss
-    const processQueuedMessages = () => {
-      const queuedMessages = getQueuedMessages();
-      console.log('Processing queued messages, count:', queuedMessages.length);
-      
-      queuedMessages.forEach((message, index) => {
-        console.log(`Processing message ${index + 1}:`, message);
-        const messageData = message?.data || message;
-        if (messageData?.distance !== undefined) {
-          // Use firmware-provided timestamp if available; fallback to Date.now()
-          const timeCandidate = (messageData?.time ?? messageData?.timestamp ?? message?.timestamp);
-          const rawMs = Number(timeCandidate);
-          let elapsedMs;
-          
-          if (Number.isFinite(rawMs)) {
-            // Initialize sensor baseline on first valid timestamp for this experiment
-            if (sensorStartTimeRef.current === null) {
-              sensorStartTimeRef.current = rawMs;
-              console.log('Set new sensor timestamp baseline:', sensorStartTimeRef.current);
-            }
-            elapsedMs = rawMs - sensorStartTimeRef.current;
-          } else {
-            // Fallback to UI-side elapsed time
-            elapsedMs = startTimeRef.current ? (Date.now() - startTimeRef.current) : 0;
-          }
-          
-          if (!Number.isFinite(elapsedMs) || elapsedMs < 0) {
-            elapsedMs = 0;
-          }
-          
-          const newData = {
-            time: elapsedMs,
-            timeDisplay: Number.isFinite(elapsedMs / 1000) ? (elapsedMs / 1000).toFixed(2) : '0.00',
-            distance: messageData.distance,
-            velocity: messageData.velocity || 0,
-            acceleration: messageData.acceleration || 0
-          };
-          
-          chartDataRef.current = [...chartDataRef.current, newData];
-          console.log('Added data point:', newData, 'Total points:', chartDataRef.current.length);
-        } else {
-          console.log('Message has no distance data:', messageData);
-        }
-      });
-      
-      if (queuedMessages.length > 0) {
-        console.log('Updating chart data, total points:', chartDataRef.current.length);
-        setChartData([...chartDataRef.current]);
-      }
-    };
-
-    // Process queued messages every 50ms to batch updates
-    queueIntervalRef.current = setInterval(processQueuedMessages, 50);
-  };
-
-  // Stop message queue processing
-  const stopMessageQueueProcessing = () => {
-    if (queueIntervalRef.current) {
-      clearInterval(queueIntervalRef.current);
-      queueIntervalRef.current = null;
-      console.log('Stopped message queue processing');
-    }
-  };
-
-  // Clear all queued messages
-  const clearQueuedMessages = () => {
-    // Call getQueuedMessages which returns and clears the queue
-    const clearedMessages = getQueuedMessages();
-    console.log('Cleared queued messages, count:', clearedMessages.length);
-  };
-
-  // Cleanup on component unmount
-  useEffect(() => {
-    return () => {
-      if (queueIntervalRef.current) {
-        clearInterval(queueIntervalRef.current);
-      }
-    };
-  }, []);
-
-  // Handle device status messages (experiment_completed, etc.)
+  // ===== DEVICE STATUS MESSAGE HANDLER =====
   useEffect(() => {
     const handleDeviceStatus = (message) => {
       if (message.type === 'device_status' && message.data) {
@@ -841,7 +685,6 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         console.log('Received device status:', { status, device_id, timestamp });
         
         if (status === 'experiment_completed') {
-          // ESP32 firmware has completed the experiment automatically
           console.log('Experiment completed by ESP32 firmware');
           setIsRunning(false);
           setIsPaused(false);
@@ -850,22 +693,25 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
             clearInterval(timerRef.current);
           }
           
-          // Show completion message to user
+          // Remove data handler only when backend signals completion
+          if (dataHandlerCleanupRef.current) {
+            try { dataHandlerCleanupRef.current(); } catch {}
+            dataHandlerCleanupRef.current = null;
+          }
+          
           alert('✓ Experiment completed successfully by the ESP32 firmware!');
         }
       }
     };
 
-    // Add message handler for device status
     const removeHandler = addMessageHandler(handleDeviceStatus);
     
-    // Cleanup on component unmount
     return () => {
       removeHandler();
     };
   }, [addMessageHandler]);
 
-  // Monitor WebSocket save status
+  // ===== WEBSOCKET SAVE STATUS MONITOR =====
   useEffect(() => {
     if (wsSaveStatus) {
       setSaveStatus(wsSaveStatus);
@@ -878,32 +724,38 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     }
   }, [wsSaveStatus]);
 
+  // ===== EXPERIMENT CONTROL HANDLERS =====
   const handleStart = async () => {
+    console.log('Starting experiment with clean state...');
+    clearData();
     chartDataRef.current = [];
     setChartData([]);
+    sensorStartTimeRef.current = null;
+    startTimeRef.current = null;
+    
     setIsRunning(true);
     setIsPaused(false);
-    sensorStartTimeRef.current = null;
     
-    // Clear any residual messages from previous experiments
-    clearQueuedMessages();
-    
-    // Start message queue processing
-    startMessageQueueProcessing();
-    
-    // Get duration from configuration
     try {
       const config = JSON.parse(localStorage.getItem('experimentConfig') || '{"duration_s": 10}');
       setTotalDuration(config.duration_s || 10);
       setTimeRemaining(config.duration_s || 10);
-      startTimeRef.current = Date.now();
     } catch (e) {
       setTotalDuration(10);
       setTimeRemaining(10);
-      startTimeRef.current = Date.now();
     }
     
-    sendMessage({ action: 'start_experiment' });
+    if (dataHandlerCleanupRef.current) {
+      try { dataHandlerCleanupRef.current(); } catch {}
+      dataHandlerCleanupRef.current = null;
+    }
+    dataHandlerCleanupRef.current = addMessageHandler(handleDataMessage);
+    
+    startTimeRef.current = Date.now();
+    
+    sendMessage({ action: 'start_experiment', experiment_type: experimentType });
+    
+    console.log('Experiment started with clean state');
   };
 
   const handlePause = () => {
@@ -918,30 +770,47 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     if (timerRef.current) {
       clearInterval(timerRef.current);
     }
-    
-    // Stop message queue processing after 10 additional queue runs (500ms)
-    setTimeout(() => {
-      stopMessageQueueProcessing();
-      clearQueuedMessages();
-    }, 500);
+    if (dataHandlerCleanupRef.current) {
+      try { dataHandlerCleanupRef.current(); } catch {}
+      dataHandlerCleanupRef.current = null;
+    }
     
     sendMessage({ action: 'stop_experiment' });
   };
 
+  const handleReset = () => {
+    clearData();
+    chartDataRef.current = [];
+    setChartData([]);
+    
+    setIsRunning(false);
+    setIsPaused(false);
+    setTimeRemaining(0);
+    setTotalDuration(0);
+    sensorStartTimeRef.current = null;
+    
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
+    
+    console.log('All data and states have been reset');
+    
+    if (dataHandlerCleanupRef.current) {
+      try { dataHandlerCleanupRef.current(); } catch {}
+      dataHandlerCleanupRef.current = null;
+    }
+  };
+
   const handleSaveToProfile = async () => {
     try {
-      // Use WebSocket for saving experiment data
       saveExperimentData({
         experiment_type: experimentType,
-        graph_type: graphType,
         data: chartData,
         timestamp: new Date().toISOString()
       });
       
-      // Set initial status and start polling
       setSaveStatus({ status: 'loading', message: 'Saving data...' });
       
-      // Poll for status updates
       const checkStatus = () => {
         if (saveStatus && saveStatus.status !== 'loading') {
           clearInterval(statusInterval);
@@ -949,63 +818,14 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
       };
       
       const statusInterval = setInterval(checkStatus, 100);
-      setTimeout(() => clearInterval(statusInterval), 5000); // Timeout after 5 seconds
+      setTimeout(() => clearInterval(statusInterval), 5000);
       
     } catch (error) {
       alert('❌ Error saving data: ' + error.message);
     }
   };
 
-  const exportToCSV = () => {
-    const headers = graphType === 's-t' 
-      ? ['Time (s)', 'Distance (cm)']
-      : graphType === 'v-t'
-      ? ['Time (s)', 'Velocity (cm/s)']
-      : ['Time (s)', 'Acceleration (cm/s²)'];
-    
-    const csvContent = [
-      headers.join(','),
-      ...chartData.map(item => {
-        if (graphType === 's-t') {
-          return `${item.timeDisplay},${item.distance?.toFixed(3)}`;
-        } else if (graphType === 'v-t') {
-          return `${item.timeDisplay},${item.velocity?.toFixed(3)}`;
-        } else {
-          return `${item.timeDisplay},${item.acceleration?.toFixed(3)}`;
-        }
-      })
-    ].join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `experiment_${graphType}_${new Date().toISOString()}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const getYAxisData = () => {
-    if (graphType === 's-t') return 'distance';
-    if (graphType === 'v-t') return 'velocity';
-    if (graphType === 'a-t') return 'acceleration';
-    return 'distance';
-  };
-
-  const getYAxisLabel = () => {
-    if (graphType === 's-t') return 'Distance (cm)';
-    if (graphType === 'v-t') return 'Velocity (cm/s)';
-    if (graphType === 'a-t') return 'Acceleration (cm/s²)';
-    return 'Value';
-  };
-
-  const getLineColor = () => {
-    if (graphType === 's-t') return '#3b82f6';
-    if (graphType === 'v-t') return '#10b981';
-    if (graphType === 'a-t') return '#f59e0b';
-    return '#3b82f6';
-  };
-
+  // ===== UI STATUS HELPERS =====
   const getStatusColor = () => {
     if (isRunning && !isPaused) return 'bg-green-100 text-green-700 border-green-300';
     if (isPaused) return 'bg-yellow-100 text-yellow-700 border-yellow-300';
@@ -1025,120 +845,20 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     return `${mins}:${secs.toString().padStart(2, '0')}.${ms}`;
   };
 
+  // ===== ESC KEY HANDLER FOR FULLSCREEN =====
   useEffect(() => {
     const handleEsc = (e) => {
       if (e.key === 'Escape') {
-        if (isGraphFullscreen) setIsGraphFullscreen(false);
         if (isTableFullscreen) setIsTableFullscreen(false);
       }
     };
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
-  }, [isGraphFullscreen, isTableFullscreen]);
-
-  const GraphComponent = () => (
-    <div className={`bg-white rounded-xl shadow-lg border border-slate-200 p-4 ${
-      isGraphFullscreen ? 'fixed inset-4 z-50' : ''
-    }`}>
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-base md:text-lg font-bold text-slate-800 flex items-center gap-2">
-          <FiBarChart2 className="text-purple-600" />
-          <span className="hidden sm:inline">Real-time Plot</span>
-          <span className="sm:hidden">Plot</span>
-        </h3>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setZoomDomain(null)}
-            className="px-2 py-1.5 bg-slate-100 text-slate-600 rounded hover:bg-slate-200 transition-all text-xs flex items-center gap-1"
-            title="Reset Zoom"
-          >
-            <FiRefreshCw size={14} />
-            <span className="hidden sm:inline">Reset</span>
-          </button>
-          <button
-            onClick={() => setIsGraphFullscreen(!isGraphFullscreen)}
-            className="px-2 py-1.5 bg-purple-50 text-purple-700 rounded hover:bg-purple-100 transition-all text-xs flex items-center gap-1"
-          >
-            {isGraphFullscreen ? <FiMinimize size={14} /> : <FiMaximize size={14} />}
-            <span className="hidden sm:inline">{isGraphFullscreen ? 'Exit' : 'Full'}</span>
-          </button>
-        </div>
-      </div>
-      <ResponsiveContainer width="100%" height={isGraphFullscreen ? window.innerHeight - 150 : 350}>
-        <LineChart 
-          data={chartData} 
-          margin={{ top: 5, right: 10, left: -5, bottom: 5 }}
-          onMouseDown={(e) => {
-            if (e && e.activeLabel) {
-              setZoomDomain({ start: e.activeLabel });
-            }
-          }}
-          onMouseMove={(e) => {
-            if (zoomDomain?.start && e && e.activeLabel) {
-              setZoomDomain({ ...zoomDomain, end: e.activeLabel });
-            }
-          }}
-          onMouseUp={() => {
-            if (zoomDomain?.start && zoomDomain?.end) {
-              // Zoom applied
-            }
-          }}
-        >
-          <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
-          <XAxis 
-            dataKey="timeDisplay" 
-            label={{ value: 'Time (s)', position: 'insideBottom', offset: -5 }}
-            tick={{ fontSize: 11 }}
-            domain={zoomDomain ? [zoomDomain.start, zoomDomain.end] : ['auto', 'auto']}
-          />
-          <YAxis 
-            dataKey={getYAxisData()} 
-            label={{ value: getYAxisLabel(), angle: -90, position: 'insideLeft' }}
-            tick={{ fontSize: 11 }}
-            width={50}
-          />
-          <Tooltip
-            contentStyle={{ 
-              backgroundColor: 'white', 
-              borderRadius: '8px', 
-              boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-              border: '2px solid #e2e8f0',
-              fontSize: '12px'
-            }}
-            labelStyle={{ color: '#334155', fontWeight: 'bold' }}
-          />
-          <Brush 
-            dataKey="timeDisplay" 
-            height={25} 
-            stroke="#8b5cf6"
-            fill="#f5f3ff"
-            onChange={(domain) => {
-              if (domain) {
-                setZoomDomain({ start: domain.startIndex, end: domain.endIndex });
-              }
-            }}
-          />
-          <Line 
-            type="monotone" 
-            dataKey={getYAxisData()} 
-            stroke={getLineColor()} 
-            strokeWidth={2.5} 
-            dot={false} 
-            activeDot={{ r: 5, strokeWidth: 2, fill: 'white' }}
-          />
-        </LineChart>
-      </ResponsiveContainer>
-      {isGraphFullscreen && (
-        <div className="text-center text-xs text-slate-500 mt-2">
-          Use mouse to drag and select area to zoom. Scroll to zoom in/out. Press ESC to exit.
-        </div>
-      )}
-    </div>
-  );
+  }, [isTableFullscreen]);
 
   return (
     <div className="space-y-4">
-      {/* Status Bar and Controls */}
+      {/* ===== STATUS BAR AND CONTROLS ===== */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
         {/* Status Indicator */}
         <div className={`rounded-xl border-2 p-3 ${getStatusColor()} transition-all`}>
@@ -1171,11 +891,18 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
           <div className="text-sm text-purple-900">
             <div>Duration: {totalDuration || 10}s</div>
             <div className="text-xs opacity-75">Samples: {chartData.length}</div>
+            {/* Sample count debugging */}
+            {chartData.length > 0 && (
+              <div className="text-xs opacity-75 mt-1 border-t border-purple-200 pt-1">
+                <div>First: {new Date(chartData[0].timestamp).toLocaleTimeString()}</div>
+                <div>Last: {new Date(chartData[chartData.length - 1].timestamp).toLocaleTimeString()}</div>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Control Buttons */}
+      {/* ===== CONTROL BUTTONS ===== */}
       <div className="bg-white rounded-xl shadow-md border border-slate-200 p-3">
         <div className="flex flex-wrap gap-2">
           <button
@@ -1203,62 +930,47 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
           >
             <FiStopCircle size={16} /> Stop
           </button>
-        </div>
-      </div>
-
-      {/* Graph Type Tabs */}
-      <div className="flex gap-1 bg-slate-100 p-1 rounded-lg overflow-x-auto">
-        {[
-          { key: 's-t', label: 'Distance', shortLabel: 'S-T' },
-          { key: 'v-t', label: 'Velocity', shortLabel: 'V-T' },
-          { key: 'a-t', label: 'Acceleration', shortLabel: 'A-T' }
-        ].map(type => (
           <button
-            key={type.key}
-            onClick={() => setGraphType(type.key)}
-            className={`flex-1 px-3 py-2 font-semibold transition-all rounded-md whitespace-nowrap text-xs sm:text-sm ${
-              graphType === type.key
-                ? 'bg-white text-purple-700 shadow-md'
-                : 'text-slate-600 hover:text-slate-800'
-            }`}
+            onClick={handleReset}
+            disabled={isRunning}
+            className="flex-1 min-w-[90px] flex items-center justify-center gap-1.5 px-3 py-2.5 bg-gray-600 text-white rounded-lg font-semibold hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md text-sm"
           >
-            <span className="hidden sm:inline">{type.label}</span>
-            <span className="sm:hidden">{type.shortLabel}</span>
+            <FiRefreshCw size={16} /> Reset
           </button>
-        ))}
-      </div>
-
-      {/* Statistics */}
-      <DataStatistics data={chartData} dataType={graphType} />
-
-      {/* Split View: Graph (2/3) + Table (1/3) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Graph - 2/3 width */}
-        <div className="lg:col-span-2">
-          <GraphComponent />
-        </div>
-
-        {/* Table - 1/3 width */}
-        <div className="lg:col-span-1">
-          <LiveDataTable 
-            data={chartData}
-            graphType={graphType}
-            isFullscreen={isTableFullscreen}
-            onToggleFullscreen={() => setIsTableFullscreen(!isTableFullscreen)}
-          />
         </div>
       </div>
 
-      {/* Export and Save Buttons */}
+      {/* ===== PLOTLY GRAPH INTEGRATION ===== */}
+      {/* This replaces the old Chart.js/Recharts implementation */}
+      <div className="bg-gradient-to-br from-white to-slate-50 rounded-2xl shadow-xl border-2 border-slate-200 p-4">
+        <PlotlyGraph 
+          experimentType={experimentType}
+          token={token}
+          sharedWebSocket={sharedWebSocket}
+          sharedExperimentManager={sharedExperimentManager}
+          chartData={chartData}
+          isRunning={isRunning}
+          isPaused={isPaused}
+          onStart={handleStart}
+          onPause={handlePause}
+          onStop={handleStop}
+          onReset={handleReset}
+          config={config} // Pass configuration for fixed axis bounds
+        />
+      </div>
+
+      {/* ===== LIVE DATA TABLE ===== */}
+      <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-4">
+        <LiveDataTable 
+          data={chartData}
+          isFullscreen={isTableFullscreen}
+          onToggleFullscreen={() => setIsTableFullscreen(!isTableFullscreen)}
+        />
+      </div>
+
+      {/* ===== EXPORT AND SAVE BUTTONS ===== */}
       <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-xl shadow-md border-2 border-purple-200 p-4">
         <div className="flex flex-wrap gap-2">
-          <button
-            onClick={exportToCSV}
-            disabled={chartData.length === 0}
-            className="flex-1 min-w-[140px] flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md text-sm"
-          >
-            <FiDownload size={16} /> Export CSV
-          </button>
           <button
             onClick={handleSaveToProfile}
             disabled={chartData.length === 0}
@@ -1269,7 +981,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         </div>
         {chartData.length === 0 && (
           <p className="text-center text-xs text-slate-500 mt-2">
-            Start the experiment to enable export and save options
+            Start the experiment to enable save options
           </p>
         )}
       </div>
@@ -1278,7 +990,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
 };
 
 // =================================================================================
-// Main Interface Component
+// MAIN INTERFACE COMPONENT
 // =================================================================================
 const ExperimentInterface = () => {
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -1286,17 +998,13 @@ const ExperimentInterface = () => {
   const [experimentType, setExperimentType] = useState('tof');
   const [showConfigPanel, setShowConfigPanel] = useState(false);
   const userToken = localStorage.getItem('token');
-  console.log('ExperimentInterface - userToken:', userToken ? userToken.substring(0, 10) + '...' : 'null');
 
-  // Create shared WebSocket connections at the top level
+  // ===== SHARED WEBSOCKET CONNECTIONS =====
   const sharedWebSocket = useWebSocket(userToken, true);
-  console.log('ExperimentInterface - sharedWebSocket state:', {
-    isConnected: sharedWebSocket.isConnected,
-    isConnecting: sharedWebSocket.isConnecting,
-    error: sharedWebSocket.error
-  });
   const sharedDeviceManager = useDeviceManager(sharedWebSocket);
-  const sharedExperimentManager = useExperimentManager(sharedWebSocket);
+  
+  const [experimentData, setExperimentData] = useState([]);
+  const sharedExperimentManager = useExperimentManager(sharedWebSocket, experimentData, setExperimentData);
   const [selectedDevice, setSelectedDevice] = useState(null);
 
   const handleDisconnect = () => {
@@ -1328,17 +1036,9 @@ const ExperimentInterface = () => {
     }
   }, []);
 
-  useEffect(() => {
-    console.log('=== showConfigModal state changed ===');
-    console.log('showConfigModal:', showConfigModal);
-    console.log('selectedDevice:', selectedDevice);
-    console.log('experimentType:', experimentType);
-  }, [showConfigModal, selectedDevice, experimentType]);
-
   const handleComplete = ({ device, experimentType: expType, token }) => {
     console.log('=== handleComplete called ===');
     console.log('Received parameters:', { device, experimentType: expType, token });
-    console.log('Current showConfigModal state:', showConfigModal);
     
     localStorage.setItem('selectedDevice', JSON.stringify(device));
     localStorage.setItem('experimentType', expType);
@@ -1381,7 +1081,7 @@ const ExperimentInterface = () => {
       {!showConfigModal && (
         <div className="max-w-[1800px] mx-auto space-y-6">
           
-          {/* Header */}
+          {/* ===== HEADER ===== */}
           <div className="bg-white rounded-xl md:rounded-2xl shadow-lg border border-slate-200 p-4 md:p-6">
             <div className="flex flex-col gap-3">
               <div>
@@ -1428,7 +1128,7 @@ const ExperimentInterface = () => {
             </div>
           </div>
 
-          {/* Main Content */}
+          {/* ===== MAIN CONTENT ===== */}
           <div className="bg-white rounded-xl md:rounded-2xl shadow-lg border border-slate-200 p-3 md:p-6">
             <h2 className="text-lg md:text-2xl font-bold text-slate-800 mb-4 md:mb-6 flex items-center gap-2">
               <FiBarChart2 className="text-purple-600" /> 
@@ -1440,12 +1140,14 @@ const ExperimentInterface = () => {
               token={userToken} 
               sharedWebSocket={sharedWebSocket}
               sharedExperimentManager={sharedExperimentManager}
+              config={config}
             />
           </div>
 
         </div>
       )}
       
+      {/* ===== ANIMATION STYLES ===== */}
       <style jsx>{`
         @keyframes fadeIn {
           from {
