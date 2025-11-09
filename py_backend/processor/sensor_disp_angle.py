@@ -89,11 +89,11 @@ class DispAngleProcessor(SensorProcessor):
                 self.angular_accel_history = self.angular_accel_history[-max_history:]
 
             processed = {
-                # Expected core fields for graphs
-                "time": t,
-                "displacement": x,
-                "velocity": velocity,
-                "acceleration": acceleration,
+                # Expected core fields for graphs (shortened names)
+                "t": t,
+                "s": x,
+                "v": velocity,
+                "a": acceleration,
 
                 # Angle/gyro/accel fields expected by DispAngleGraph.jsx
                 "angle_x": 0.0,

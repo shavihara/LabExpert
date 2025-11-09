@@ -19,6 +19,8 @@ class SensorProcessor(ABC):
         self.data_buffer = deque(maxlen=buffer_size)
         self.is_active = False
         self.start_time = None
+        self.first_timestamp = None  # Track first timestamp for offset calculation
+        self.time_offset = 0.0       # Time offset to make first data point 0.00s
         self.config = {}
         
     @abstractmethod
@@ -40,6 +42,8 @@ class SensorProcessor(ABC):
         """Start data collection"""
         self.is_active = True
         self.start_time = datetime.now()
+        self.first_timestamp = None  # Reset first timestamp tracking
+        self.time_offset = 0.0      # Reset time offset
         self.data_buffer.clear()
         logger.info(f"Experiment started for device {self.device_id}")
         
@@ -53,6 +57,19 @@ class SensorProcessor(ABC):
         if self.start_time:
             return (datetime.now() - self.start_time).total_seconds()
         return 0.0
+        
+    def apply_time_offset(self, timestamp: float) -> float:
+        """Apply time offset to make first data point 0.00 seconds"""
+        if self.first_timestamp is None:
+            # First data point - set as reference
+            self.first_timestamp = timestamp
+            self.time_offset = timestamp
+            return 0.0
+        else:
+            # Apply offset to subsequent data points
+            adjusted_time = timestamp - self.time_offset
+            # Ensure we never return negative time values
+            return max(0.0, adjusted_time)
         
     def add_to_buffer(self, processed_data: dict):
         """Add processed data to buffer"""
@@ -69,16 +86,16 @@ class SensorProcessor(ABC):
         return list(self.data_buffer)[-count:] if len(self.data_buffer) >= count else list(self.data_buffer)
         
     def calculate_statistics(self, values: List[float]) -> dict:
-        """Calculate basic statistics for a list of values"""
+        """Calculate basic statistics for a list of values, rounded to 2 decimal places"""
         if not values:
             return {"mean": 0, "std": 0, "min": 0, "max": 0, "count": 0}
             
         np_values = np.array(values)
         return {
-            "mean": float(np.mean(np_values)),
-            "std": float(np.std(np_values)),
-            "min": float(np.min(np_values)),
-            "max": float(np.max(np_values)),
+            "mean": round(float(np.mean(np_values)), 2),
+            "std": round(float(np.std(np_values)), 2),
+            "min": round(float(np.min(np_values)), 2),
+            "max": round(float(np.max(np_values)), 2),
             "count": len(values)
         }
         

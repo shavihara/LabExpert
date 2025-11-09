@@ -54,7 +54,7 @@ class AngleProcessor(SensorProcessor):
             
             # Calculate derived measurements
             processed_data = {
-                "time": current_time,
+                "t": current_time,
                 "raw_accel": {"x": ax, "y": ay, "z": az},
                 "raw_gyro": {"x": gx, "y": gy, "z": gz},
                 "angles": calibrated_angles,

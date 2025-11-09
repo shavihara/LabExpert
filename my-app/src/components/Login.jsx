@@ -15,9 +15,10 @@ function Login({ setCurrentUser }) {
     setLoading(true);
 
     try {
-      const user = await findUser(email, password);
-      console.log('findUser user:', user);
-      if (user) {
+      const response = await findUser(email, password);
+      console.log('findUser response:', response);
+      if (response && response.success) {
+        const user = response.user;
         localStorage.setItem('user', JSON.stringify(user));
         console.log('Stored user:', user);
         console.log('Stored token:', localStorage.getItem('token'));

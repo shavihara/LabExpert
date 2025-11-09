@@ -71,7 +71,7 @@ export const findUser = async (email, password) => {
     if (response.data.success) {
       localStorage.setItem('token', response.data.token);
       console.log('Stored token:', response.data.token);
-      return response.data.user || null;
+      return response.data; // Return the full response including user and token
     }
     return null;
   } catch (error) {
