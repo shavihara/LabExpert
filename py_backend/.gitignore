@@ -17,7 +17,10 @@ __pycache__/
 # -------------------------
 temp/
 tmp/
-data/
+data/lab_expert.db
+data/lab_expert.db-shm
+data/lab_expert.db-val
+data/lab_expert.db.bak
 tempmain.py
 main_v1.3_terminal.py
 main_sensor.cpp
