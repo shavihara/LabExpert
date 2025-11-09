@@ -15,6 +15,8 @@ class ClientWebSocketManager:
     def __init__(self, session_manager: SessionManager):
         self.session_manager = session_manager
         self.active_clients: Dict[str, WebSocket] = {}
+        self._last_scan_time = {}
+        self._scan_cooldown = 5  # seconds between scans
     
     @classmethod
     def get_instance(cls):
@@ -145,9 +147,26 @@ class ClientWebSocketManager:
             logger.error(f"Error handling client message for {user_id}: {e}")
             await self.send_to_user(user_id, {"type": "error", "message": str(e)})
 
+
+
     async def _handle_scan_devices(self, user_id: str):
         # Use manual device discovery for experiment interfaces
+        current_time = asyncio.get_event_loop().time()
+        
+        # Check if user is spamming scan requests
+        if user_id in self._last_scan_time:
+            time_since_last_scan = current_time - self._last_scan_time[user_id]
+            if time_since_last_scan < self._scan_cooldown:
+                logger.warning(f"Scan devices request ignored for user {user_id} - too frequent (cooldown: {self._scan_cooldown}s)")
+                await self.send_to_user(user_id, {
+                    "type": "scan_error", 
+                    "error": f"Please wait {self._scan_cooldown} seconds between scans"
+                })
+                return
+        
+        self._last_scan_time[user_id] = current_time
         logger.info(f"Manual device scan triggered for user {user_id}")
+        
         try:
             devices = await self.session_manager.scan_devices_for_experiment()
             logger.info(f"Found {len(devices)} devices after manual scan")
