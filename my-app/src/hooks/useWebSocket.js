@@ -468,12 +468,41 @@ export const useExperimentManager = (webSocketInstance, externalExperimentData =
           console.log('Received firmware_flash_result:', data);
           console.log('Setting firmwareStatus to:', {
             success: data.success,
-            message: data.message || data.detail || 'Firmware operation completed'
+            message: data.message || data.detail || 'Firmware operation completed',
+            progress: data.progress || null
           });
           setFirmwareStatus({
             success: data.success,
-            message: data.message || data.detail || 'Firmware operation completed'
+            message: data.message || data.detail || 'Firmware operation completed',
+            progress: data.progress || null
           });
+          break;
+        case 'firmware_flash_progress':
+          console.log('Received firmware_flash_progress:', data);
+          setFirmwareStatus({
+            success: null,
+            message: data.message || 'Flashing firmware...',
+            progress: data.progress || 0
+          });
+          break;
+        case 'log_message':
+          console.log('Received log message:', data);
+          // Handle backend log messages for firmware progress
+          if (data.message && data.message.includes('Firmware upload successful')) {
+            console.log('Detected firmware upload success log message');
+            setFirmwareStatus({
+              success: true,
+              message: 'Firmware upload successful',
+              progress: 99 // Set to 99% when upload is successful
+            });
+          } else if (data.message && data.message.includes('Firmware upload')) {
+            // Generic firmware upload progress
+            setFirmwareStatus({
+              success: null,
+              message: data.message,
+              progress: 50 // Set to 50% for generic upload messages
+            });
+          }
           break;
         case 'experiment_configured':
           console.log('Received experiment_configured:', data);

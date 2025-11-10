@@ -13,7 +13,7 @@ import ExperimentGraph from './ExperimentInterface/components/ExperimentGraph/Ex
 // =================================================================================
 // MAIN INTERFACE COMPONENT
 // =================================================================================
-const ExperimentInterface = () => {
+const ExperimentInterface = ({ experimentId = 1 }) => {
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [config, setConfig] = useState({ frequency_hz: 20, max_distance_cm: 150, duration_s: 10 });
   const [experimentType, setExperimentType] = useState('tof');
@@ -82,6 +82,7 @@ const ExperimentInterface = () => {
       
       {showConfigModal && (
         <ConfigurationModal 
+          experimentId={experimentId}
           onComplete={handleComplete}
           sharedWebSocket={sharedWebSocket}
           sharedDeviceManager={sharedDeviceManager}

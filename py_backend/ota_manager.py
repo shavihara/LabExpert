@@ -27,6 +27,29 @@ class OTAManager:
         self.firmware_registry_path = firmware_registry_path
         self.bin_dir = bin_dir
         self.firmware_registry = self._load_firmware_registry()
+        self.current_user_id = None
+        self.current_device_id = None
+    
+    def set_current_context(self, user_id: str, device_id: str):
+        """Set the current user and device context for progress updates"""
+        self.current_user_id = user_id
+        self.current_device_id = device_id
+    
+    async def _send_progress_update(self, progress: int, message: str):
+        """Send firmware flash progress update via WebSocket"""
+        try:
+            from ws_client import ClientWebSocketManager
+            client_manager = ClientWebSocketManager.get_instance()
+            if client_manager and self.current_user_id:
+                await client_manager.send_to_user(self.current_user_id, {
+                    "type": "firmware_flash_progress",
+                    "progress": progress,
+                    "message": message,
+                    "device_id": self.current_device_id
+                })
+                logger.info(f"Sent firmware progress update: {progress}% - {message}")
+        except Exception as e:
+            logger.error(f"Failed to send progress update: {e}")
 
     def _load_firmware_registry(self) -> Dict:
         # Try local path
@@ -99,15 +122,31 @@ class OTAManager:
         firmware_name = os.path.basename(firmware_path)  # Use filename as last_firmware
         
         try:
+            # Send initial progress update
+            await self._send_progress_update(10, "Starting firmware update process")
+            
             ok = await self._initiate_esp32_ota(device_ip)
             if not ok:
+                await self._send_progress_update(0, "ESP32 not reachable or OTA init failed")
                 return {"status": "error", "message": "ESP32 not reachable or OTA init failed"}
+            
+            await self._send_progress_update(25, "ESP32 ready, preparing firmware upload")
+            
             ok = await self._upload_firmware_chunks(device_ip, firmware_path)
             if not ok:
+                await self._send_progress_update(0, "Firmware upload failed")
                 return {"status": "error", "message": "Firmware upload failed"}
+            
+            await self._send_progress_update(80, "Firmware uploaded, finalizing update")
+            
             ok = await self._finalize_esp32_ota(device_ip)
             if not ok:
+                await self._send_progress_update(0, "Failed to finalize OTA")
                 return {"status": "error", "message": "Failed to finalize OTA"}
+            
+            # Add delay for ESP32 MQTT client establishment time
+            await self._send_progress_update(85, "Waiting for ESP32 MQTT client to establish connection...")
+            await asyncio.sleep(5)  # 5-second delay for MQTT client establishment
             
             # Update available_sensors with last_firmware and set availability=1 (available) after successful OTA
             now = datetime.now().isoformat()
@@ -126,6 +165,9 @@ class OTAManager:
                 logger.info(f"Updated last_firmware for {device_id} to {firmware_name} and set availability=0")
             except Exception as e:
                 logger.error(f"Failed to update available_sensors after OTA for {device_id}: {e}")
+            
+            # Return success immediately after firmware upload - perform DB update asynchronously
+            asyncio.create_task(self._update_device_firmware_async(device_id, firmware_name))
             
             return {"status": "success", "message": "OTA update completed", "device_id": device_id, "ip": device_ip}
         except Exception as e:
@@ -164,6 +206,8 @@ class OTAManager:
                     success = response.status == 200 and "OK" in response_text
                     if success:
                         logger.info(f"Firmware upload successful to {device_ip}")
+                        # Send progress update to frontend
+                        await self._send_progress_update(99, "Firmware upload successful")
                         if progress_callback:
                             await progress_callback(80, "Firmware upload completed, finalizing...")
                     else:
@@ -175,26 +219,33 @@ class OTAManager:
             return False
 
     async def _finalize_esp32_ota(self, device_ip: str) -> bool:
-        """Finalize OTA process and wait for ESP32 reboot"""
-        import aiohttp
+        """Finalize OTA process - minimal waiting since firmware upload is already successful"""
+        # Just a brief pause to allow ESP32 to start processing the firmware
+        await asyncio.sleep(0.5)  # Reduced from 1s to 0.5s - just enough for ESP32 to start
         
-        # Wait a bit for ESP32 to process the firmware and reboot
-        await asyncio.sleep(1)  # Reduced from 3s to 1s for faster detection
-        
-        # Try to check if ESP32 comes back online
-        max_attempts = 5  # Reduced from 10 to 5
-        for attempt in range(max_attempts):
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(f"http://{device_ip}/", timeout=aiohttp.ClientTimeout(total=3)) as response:
-                        if response.status == 200:
-                            logger.info(f"ESP32 at {device_ip} is back online after OTA")
-                            return True
-            except Exception:
-                # ESP32 might still be rebooting
-                pass
+        # Don't wait for ESP32 to come back online - the firmware upload is already successful
+        # The ESP32 will reboot and reconnect automatically
+        logger.info(f"Firmware upload to {device_ip} completed - ESP32 will reboot automatically")
+        return True  # Always return success since firmware upload was successful
+    
+    async def _update_device_firmware_async(self, device_id: str, firmware_name: str):
+        """Asynchronously update device firmware information in database"""
+        try:
+            # Update available_sensors with last_firmware and set availability=1 (available) after successful OTA
+            now = datetime.now().isoformat()
+            update_stmt = text("""
+                UPDATE available_sensors 
+                SET last_firmware = :firmware_name, last_updated = :now, availability = 1
+                WHERE sensor_id = :device_id
+            """)
             
-            await asyncio.sleep(1)  # Reduced from 2s to 1s for quicker retries
-        
-        logger.warning(f"ESP32 at {device_ip} did not come back online within expected time")
-        return True  # Still consider success as firmware was uploaded
+            with engine.begin() as conn:
+                conn.execute(update_stmt, {
+                    "device_id": device_id,
+                    "firmware_name": firmware_name,
+                    "now": now
+                })
+            logger.info(f"Updated last_firmware for {device_id} to {firmware_name} and set availability=1")
+            
+        except Exception as e:
+            logger.error(f"Failed to update available_sensors after OTA for {device_id}: {e}")

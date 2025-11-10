@@ -388,6 +388,9 @@ class ClientWebSocketManager:
                 })
                 return
             
+            # Set current context for progress updates
+            ota_manager.set_current_context(user_id, device_id)
+            
             # Perform OTA update
             result = await ota_manager.start_ota_update(
                 device_id=device_id,

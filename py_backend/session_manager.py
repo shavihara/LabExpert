@@ -705,9 +705,9 @@ class SessionManager:
             await udp_discovery_service.start()
         
         try:
-            # Perform device discovery for 10 seconds only
-            logger.info("Starting 10-second manual device discovery")
-            discovered_devices = await udp_discovery_service.discover_devices(timeout=10)
+            # Perform device discovery for 4 seconds only
+            logger.info("Starting 4-second manual device discovery")
+            discovered_devices = await udp_discovery_service.discover_devices(timeout=4)
             logger.info(f"Manual discovery found {len(discovered_devices)} devices")
             
             # Update database with discovered devices

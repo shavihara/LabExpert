@@ -1,16 +1,85 @@
 import React, { useState, useEffect } from 'react';
 import { 
   FiSettings, FiCheckCircle, FiAlertTriangle, FiLoader, 
-  FiWifiOff, FiZap, FiX
+  FiWifiOff, FiZap, FiX, FiArrowLeft
 } from 'react-icons/fi';
 
-const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, sharedExperimentManager }) => {
+const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sharedDeviceManager, sharedExperimentManager }) => {
   const userToken = localStorage.getItem('token');
-  const [experimentType, setExperimentType] = useState('distance');
+  const [experimentType, setExperimentType] = useState('');
   const [flashStatus, setFlashStatus] = useState('Select a sensor to begin');
   const [isFlashing, setIsFlashing] = useState(false);
   const [pendingFirmware, setPendingFirmware] = useState(null);
   const [selectedDevice, setSelectedDevice] = useState(null);
+
+  // Experiment configuration mapping based on experimentId
+  const experimentConfigs = {
+    1: {
+      name: 'Distance Measure',
+      subExperiments: [
+        {
+          id: 'distance',
+          name: 'Free Fall Experiment',
+          description: 'Measure distance, velocity, and acceleration.',
+          icon: '⚾',
+          firmware: 'TOF.bin',
+          firmwareType: 'displacement'
+        },
+        {
+          id: 'inclined_plane', 
+          name: 'Inclined Plane',
+          description: 'Analyze motion on an inclined plane.',
+          icon: '📐',
+          firmware: 'INC.bin',
+          firmwareType: 'inclined_plane'
+        }
+      ]
+    },
+    2: {
+      name: 'Oscillation Counter',
+      subExperiments: [
+        {
+          id: 'pendulum_simple',
+          name: 'Simple Pendulum',
+          description: 'Measure oscillation period and frequency.',
+          icon: '🔄',
+          firmware: 'PEND_SIMPLE.bin',
+          firmwareType: 'pendulum_simple'
+        },
+        {
+          id: 'pendulum_compound',
+          name: 'Compound Pendulum',
+          description: 'Analyze complex pendulum motion with damping.',
+          icon: '⚖️',
+          firmware: 'PEND_COMPOUND.bin',
+          firmwareType: 'pendulum_compound'
+        }
+      ]
+    },
+    5: {
+      name: 'Motion Detection',
+      subExperiments: [
+        {
+          id: '5.1',
+          name: 'Experiment A',
+          description: 'Motion detection experiment type A',
+          icon: '📹',
+          firmware: 'A.bin',
+          firmwareType: 'motion'
+        },
+        {
+          id: '5.2',
+          name: 'Experiment B',
+          description: 'Motion detection experiment type B',
+          icon: '📹',
+          firmware: 'B.bin',
+          firmwareType: 'motion'
+        }
+      ]
+    }
+  };
+
+  const currentConfig = experimentConfigs[experimentId] || experimentConfigs[1];
 
   const {
     devices,
@@ -36,6 +105,16 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
     console.log('=== FIRMWARE STATUS USEEFFECT TRIGGERED ===');
     console.log('isFlashing:', isFlashing);
     console.log('firmwareStatus:', firmwareStatus);
+    
+    // Handle real-time progress updates from backend
+    if (firmwareStatus && firmwareStatus.progress !== null && firmwareStatus.progress !== undefined) {
+      console.log('Progress update received:', firmwareStatus.progress + '%');
+      
+      // Update flash status based on progress
+      if (firmwareStatus.progress > 0 && firmwareStatus.progress < 100) {
+        setFlashStatus(`Flashing firmware... ${firmwareStatus.progress}%`);
+      }
+    }
     
     if (isFlashing && firmwareStatus && firmwareStatus.success !== null) {
       console.log('=== CONDITION MET - PROCESSING FIRMWARE RESULT ===');
@@ -70,20 +149,12 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
   const handleExperimentTypeSelection = (type) => {
     setExperimentType(type);
     
-    const firmwareMap = {
-      'distance': 'displacement',
-      'inclined_plane': 'inclined_plane'
-    };
-    
-    const firmwareType = firmwareMap[type];
-    setPendingFirmware(firmwareType);
-    
-    const firmwareNames = {
-      'distance': 'TOF.bin',
-      'inclined_plane': 'INC.bin'
-    };
-    
-    setFlashStatus(`${firmwareNames[type]} prepared. Select a sensor to flash firmware.`);
+    // Find the selected sub-experiment configuration
+    const selectedSubExp = currentConfig.subExperiments.find(sub => sub.id === type);
+    if (selectedSubExp) {
+      setPendingFirmware(selectedSubExp.firmwareType);
+      setFlashStatus(`${selectedSubExp.firmware} prepared. Select a sensor to flash firmware.`);
+    }
   };
 
   const handleFlash = async (device) => {
@@ -155,52 +226,57 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
   };
   const flashStatusDisplay = getFlashStatusDisplay();
 
+  // Calculate progress percentage based on backend progress or flash status
+  const getProgressPercentage = () => {
+    // Use backend-provided progress if available
+    if (firmwareStatus && firmwareStatus.progress !== null && firmwareStatus.progress !== undefined) {
+      return firmwareStatus.progress;
+    }
+    
+    // Fallback to frontend status-based progress
+    if (flashStatus.includes('Allocating')) return 5;
+    if (flashStatus.includes('Flashing')) return 10;
+    if (flashStatus.includes('✓')) return 100; // Show 100% for successful flash
+    if (flashStatus.includes('✗')) return 0;
+    return 0;
+  };
+
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm p-2">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full mx-4 overflow-hidden transform transition-all animate-fade-in">
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm p-2 sm:p-4">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto transform transition-all animate-fade-in">
         
-        <div className="bg-gradient-to-r from-purple-600 to-purple-800 p-3">
-          <h2 className="text-3xl font-bold text-white">Experiment Setup</h2>
-          <p className="text-purple-100 mt-2">Choose your experiment and sensor to begin</p>
+        <div className="bg-gradient-to-r from-purple-600 to-purple-800 p-4 sm:p-6">
+          <h2 className="text-2xl sm:text-3xl font-bold text-white">Experiment Setup</h2>
+          <p className="text-purple-100 mt-1 sm:mt-2 text-sm sm:text-base">{currentConfig.name} - Choose your configuration</p>
         </div>
 
-        <div className="p-8 space-y-8">
+        <div className="p-4 sm:p-6 md:p-8 space-y-6 sm:space-y-8">
           <div>
-            <h3 className="text-xl font-semibold text-slate-800 mb-2">1. Select Experiment Type</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <button
-                onClick={() => handleExperimentTypeSelection('distance')}
-                className={`p-6 rounded-xl border-2 transition-all duration-300 group ${
-                  experimentType === 'distance'
-                    ? 'border-purple-600 bg-purple-50 shadow-lg scale-105'
-                    : 'border-slate-200 hover:border-purple-300 hover:shadow-md'
-                }`}
-              >
-                <div className="text-3xl mb-1">⚾</div>
-                <div className="font-semibold text-slate-800 text-lg">Free Fall Experiment</div>
-                <p className="text-sm text-slate-500 mt-1">Measure distance, velocity, and acceleration.</p>
-                <p className="text-xs text-purple-600 mt-1 font-medium">→ TOF.bin firmware</p>
-              </button>
-              <button
-                onClick={() => handleExperimentTypeSelection('inclined_plane')}
-                className={`p-6 rounded-xl border-2 transition-all duration-300 group ${
-                  experimentType === 'inclined_plane'
-                    ? 'border-purple-600 bg-purple-50 shadow-lg scale-105'
-                    : 'border-slate-200 hover:border-purple-300 hover:shadow-md'
-                }`}
-              >
-                <div className="text-3xl mb-1">📐</div>
-                <div className="font-semibold text-slate-800 text-lg">Inclined Plane</div>
-                <p className="text-sm text-slate-500 mt-1">Analyze motion on an inclined plane.</p>
-                <p className="text-xs text-purple-600 mt-2 font-medium">→ INC.bin firmware</p>
-              </button>
+            <h3 className="text-lg sm:text-xl font-semibold text-slate-800 mb-3 sm:mb-4">1. Select Configuration Type</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+              {currentConfig.subExperiments.map((subExp) => (
+                <button
+                  key={subExp.id}
+                  onClick={() => handleExperimentTypeSelection(subExp.id)}
+                  className={`p-4 sm:p-6 rounded-xl border-2 transition-all duration-300 group ${
+                    experimentType === subExp.id
+                      ? 'border-purple-600 bg-purple-50 shadow-lg scale-105'
+                      : 'border-slate-200 hover:border-purple-300 hover:shadow-md'
+                  }`}
+                >
+                  <div className="text-2xl sm:text-3xl mb-1">{subExp.icon}</div>
+                  <div className="font-semibold text-slate-800 text-base sm:text-lg">{subExp.name}</div>
+                  <p className="text-xs sm:text-sm text-slate-500 mt-1">{subExp.description}</p>
+                  <p className="text-xs text-purple-600 mt-1 font-medium">→ {subExp.firmware}</p>
+                </button>
+              ))}
             </div>
           </div>
 
           <div>
-            <h3 className="text-xl font-semibold text-slate-800 mb-1">2. Select Sensor</h3>
+            <h3 className="text-lg sm:text-xl font-semibold text-slate-800 mb-2 sm:mb-3">2. Select Sensor</h3>
             
-            <div className="mb-1">
+            <div className="mb-2 sm:mb-3 flex flex-col sm:flex-row sm:items-center gap-2">
               <button
                 onClick={async () => {
                   console.log('Manual scan button clicked');
@@ -221,16 +297,16 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
                     }
                   }
                 }}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                className="px-3 sm:px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm sm:text-base"
               >
                 Manual Scan (WS + REST)
               </button>
-              <span className="ml-2 text-sm text-gray-600">
+              <span className="text-xs sm:text-sm text-gray-600">
                 Connected: {isConnected ? 'Yes' : 'No'} | Scanning: {isScanning ? 'Yes' : 'No'} | Devices: {devices.length}
               </span>
             </div>
             
-            <div className="max-h-60 overflow-y-auto bg-slate-50 p-4 rounded-lg border border-slate-200">
+            <div className="max-h-48 sm:max-h-60 overflow-y-auto bg-slate-50 p-3 sm:p-4 rounded-lg border border-slate-200">
               {isScanning ? (
                 <div className="flex items-center justify-center py-10 text-slate-500">
                   <FiLoader className="animate-spin h-8 w-8 text-purple-600" />
@@ -263,11 +339,47 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
             </div>
           </div>
 
-          <div className="bg-slate-100 rounded-lg p-4 text-center">
-            <div className={`flex items-center justify-center text-md font-medium ${flashStatusDisplay.color} ${isFlashing ? 'animate-pulse' : ''}`}>
-              <span className="mr-2">{flashStatusDisplay.icon}</span>
-              {flashStatus}
+          {/* Detailed Status Display with Progress Background */}
+          <div className="relative bg-slate-50 rounded-lg border border-slate-200 overflow-hidden">
+            {/* Progress Bar Background */}
+            <div 
+              className="absolute inset-0 bg-gradient-to-r from-green-300 to-green-400 transition-all duration-500 ease-out"
+              style={{ width: `${getProgressPercentage()}%` }}
+            />
+            <div className="relative z-10 p-1 sm:p-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <span className="mr-1 sm:mr-2">{flashStatusDisplay.icon}</span>
+                <span className={`text-xs sm:text-sm font-medium ${flashStatusDisplay.color}`}>
+                  {flashStatus}
+                </span>
+              </div>
+              <span className="text-xs text-slate-500">
+                {getProgressPercentage()}%
+              </span>
             </div>
+            
+            {/* Additional Status Details */}
+            <div className="text-xs text-slate-500">
+              {flashStatus === 'idle' && 'Ready to flash firmware to selected device'}
+              {flashStatus === 'flashing' && 'Firmware is being uploaded to the device'}
+              {flashStatus.includes('Allocating') && 'Connecting to device and preparing for firmware update'}
+              {flashStatus.includes('✓') && 'Firmware successfully flashed! Device is ready for experiment'}
+              {flashStatus.includes('✗') && 'An error occurred during the flashing process'}
+              {flashStatus === 'no_device' && 'Please select a device to flash firmware'}
+            </div>
+            </div>
+          </div>
+
+          {/* Back to Dashboard Button */}
+          <div className="flex justify-center pt-4 border-t border-slate-200">
+            <button
+              onClick={() => window.location.href = '/dashboard'}
+              className="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors flex items-center"
+            >
+              <FiArrowLeft className="mr-2" />
+              Back to Dashboard
+            </button>
           </div>
         </div>
       </div>
