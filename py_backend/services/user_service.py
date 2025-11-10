@@ -3,6 +3,9 @@ import bcrypt
 from datetime import datetime, timedelta
 from sqlalchemy import text
 from config.database import engine
+import time
+from sqlalchemy.exc import OperationalError
+import sqlite3
 
 class UserService:
     @staticmethod
@@ -52,8 +55,20 @@ class UserService:
     @staticmethod
     def update_last_login(user_id):
         stmt = text("UPDATE users SET last_login = :now WHERE id = :id")
-        with engine.begin() as conn:
-            conn.execute(stmt, {"id": user_id, "now": datetime.now().isoformat()})
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                with engine.begin() as conn:
+                    conn.execute(stmt, {"id": user_id, "now": datetime.now().isoformat()})
+                return
+            except OperationalError as e:
+                # Check if the underlying error is a SQLite database locked error
+                if (hasattr(e.orig, 'args') and len(e.orig.args) > 0 and 
+                    "database is locked" in str(e.orig.args[0]).lower() and 
+                    attempt < max_retries - 1):
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+                raise
 
     @staticmethod
     def create(user_data):

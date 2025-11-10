@@ -109,11 +109,11 @@ class OTAManager:
             if not ok:
                 return {"status": "error", "message": "Failed to finalize OTA"}
             
-            # Update available_sensors with last_firmware and set availability=0 during OTA
+            # Update available_sensors with last_firmware and set availability=1 (available) after successful OTA
             now = datetime.now().isoformat()
             update_stmt = text("""
                 UPDATE available_sensors 
-                SET last_firmware = :firmware_name, last_updated = :now, availability = 0
+                SET last_firmware = :firmware_name, last_updated = :now, availability = 1
                 WHERE sensor_id = :device_id
             """)
             try:

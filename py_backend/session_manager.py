@@ -113,7 +113,8 @@ class SessionManager:
             with engine.begin() as conn:
                 conn.execute(delete_stmt, {"device_id": device_id})
             
-            # Update in-memory
+            # Update in-memory - ALWAYS clear allocation when database shows available
+            # This ensures in-memory state is synchronized with database state
             if device.get("allocated_to"):
                 old_user = device["allocated_to"]
                 device["allocated_to"] = None
@@ -620,10 +621,81 @@ class SessionManager:
             except Exception as e:
                 logger.error(f"Failed to broadcast device list: {e}")
 
+    async def _update_devices_from_discovery(self, discovered_devices: List[Dict]):
+        """
+        Update database and in-memory devices from discovery results.
+        """
+        try:
+            # Create a set of discovered device IDs for fast lookup
+            discovered_device_ids = {device.get('device_id') for device in discovered_devices}
+            
+            # Get all devices from database
+            with engine.connect() as conn:
+                result = conn.execute(
+                    text("SELECT sensor_id, availability FROM available_sensors")
+                )
+                all_devices = result.fetchall()
+            
+            # Update database based on discovery results
+            with engine.begin() as conn:
+                for device_row in all_devices:
+                    sensor_id = device_row[0]
+                    availability = device_row[1]
+                    
+                    if sensor_id in discovered_device_ids:
+                        # Device is online
+                        conn.execute(
+                            text("UPDATE available_sensors SET online_status = 1 WHERE sensor_id = :sensor_id"),
+                            {"sensor_id": sensor_id}
+                        )
+                        logger.info(f"Device {sensor_id} is online (manual discovery)")
+                        
+                        # Update device information in memory
+                        for device in discovered_devices:
+                            if device.get('device_id') == sensor_id:
+                                device_info = self.devices.setdefault(sensor_id, {
+                                    "device_id": sensor_id,
+                                    "status": {},
+                                    "sensor_id": None,
+                                    "allocated_to": None,
+                                    "last_seen": asyncio.get_event_loop().time()
+                                })
+                                
+                                device_info["status"].update({
+                                    "ip_address": device.get('ip_address'),
+                                    "firmware_version": device.get('firmware_version', 'unknown'),
+                                    "sensor_type": device.get('sensor_type', 'unknown'),
+                                    "availability": device.get('availability', 1)
+                                })
+                                
+                                device_info["last_seen"] = asyncio.get_event_loop().time()
+                                break
+                    else:
+                        # Device is offline (only if it was previously available)
+                        if availability == 1:
+                            conn.execute(
+                                text("UPDATE available_sensors SET online_status = 0 WHERE sensor_id = :sensor_id"),
+                                {"sensor_id": sensor_id}
+                            )
+                            logger.info(f"Device {sensor_id} is offline (not found in manual discovery)")
+            
+            # Broadcast updated device list to all frontend clients
+            try:
+                from ws_client import ClientWebSocketManager
+                client_manager = ClientWebSocketManager.get_instance()
+                if client_manager:
+                    await client_manager.broadcast_device_list()
+                    logger.info("Broadcasted updated device list to all clients after manual discovery")
+            except Exception as e:
+                logger.error(f"Failed to broadcast device list after manual discovery: {e}")
+                
+        except Exception as e:
+            logger.error(f"Error updating devices from discovery: {e}")
+
     async def scan_devices_for_experiment(self) -> List[Dict]:
         """
         Manual device discovery for experiment interfaces only.
-        Performs UDP discovery and returns available devices.
+        Performs UDP discovery for 10 seconds and returns available devices.
         """
         logger.info("=== Manual device scan triggered for experiment interface ===")
         
@@ -632,13 +704,20 @@ class SessionManager:
             logger.info("Starting UDP discovery service for manual scan")
             await udp_discovery_service.start()
         
-        # Perform device discovery
-        await self.check_all_available_devices_online_status()
-        
-        # Stop UDP discovery service after scan to prevent continuous background discovery
-        if udp_discovery_service.is_running:
-            logger.info("Stopping UDP discovery service after manual scan")
-            await udp_discovery_service.stop()
+        try:
+            # Perform device discovery for 10 seconds only
+            logger.info("Starting 10-second manual device discovery")
+            discovered_devices = await udp_discovery_service.discover_devices(timeout=10)
+            logger.info(f"Manual discovery found {len(discovered_devices)} devices")
+            
+            # Update database with discovered devices
+            await self._update_devices_from_discovery(discovered_devices)
+            
+        finally:
+            # Stop UDP discovery service after scan to prevent continuous background discovery
+            if udp_discovery_service.is_running:
+                logger.info("Stopping UDP discovery service after manual scan")
+                await udp_discovery_service.stop()
         
         # Return the updated device list
         return await self.get_available_devices()

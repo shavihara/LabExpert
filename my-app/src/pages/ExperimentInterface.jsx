@@ -105,6 +105,9 @@ const ConfigurationModal = ({ onComplete, sharedWebSocket, sharedDeviceManager, 
     setIsFlashing(true);
     setSelectedDevice(device);
     setFlashStatus('Allocating device...');
+    
+    // Reset firmware status to ensure UI shows flashing progress for subsequent flashes
+    sharedExperimentManager.clearData();
 
     try {
       selectDevice(device.id);
