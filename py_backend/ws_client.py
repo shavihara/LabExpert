@@ -268,11 +268,26 @@ class ClientWebSocketManager:
 
     async def _handle_configure_experiment(self, user_id: str, config: dict, experiment_type: str):
         from services.mqtt_service import MQTTService
-        devices = await self.session_manager.get_user_devices(user_id)
-        if not devices:
-            await self.send_to_user(user_id, {"type": "error", "message": "No device allocated"})
-            return
-        device_id = devices[0]
+        
+        # Check if device_id is provided in the config for direct configuration
+        device_id = config.get("device_id")
+        
+        # If no device_id provided, check user's allocated devices
+        if not device_id:
+            devices = await self.session_manager.get_user_devices(user_id)
+            if not devices:
+                await self.send_to_user(user_id, {"type": "error", "message": "No device allocated - please select a device first"})
+                return
+            device_id = devices[0]
+        else:
+            # If device_id is provided, verify it's allocated to the user or allocate it
+            user_devices = await self.session_manager.get_user_devices(user_id)
+            if device_id not in user_devices:
+                # Try to allocate the device to the user
+                success = await self.session_manager.allocate_device_to_user(device_id, user_id)
+                if not success:
+                    await self.send_to_user(user_id, {"type": "error", "message": f"Device {device_id} is not available or already allocated to another user"})
+                    return
 
         # Normalize incoming config keys to backend expectations
         try:
