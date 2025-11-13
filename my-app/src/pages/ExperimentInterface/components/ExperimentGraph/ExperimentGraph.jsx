@@ -9,6 +9,7 @@ import LiveDataTable from './LiveDataTable';
 const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperimentManager, config = { max_distance_cm: 150 } }) => {
   // ===== DATA HANDLING STATE =====
   const [chartData, setChartData] = useState([]);
+  const [neglectedData, setNeglectedData] = useState(new Set());
   const [isRunning, setIsRunning] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [isTableFullscreen, setIsTableFullscreen] = useState(false);
@@ -51,7 +52,8 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
           velocity: Number(d.v ?? d.velocity ?? 0),
           acceleration: Number(d.a ?? d.acceleration ?? 0),
           sample: d.sample ?? d.packet_id ?? null,
-          packet_id: d.packet_id ?? null
+          packet_id: d.packet_id ?? null,
+          __originalIndex: chartDataRef.current.length // Add original index for neglect tracking
         };
         
         // Debug logging for sample processing
@@ -87,7 +89,8 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         timeDisplay: (elapsedMs / 1000).toFixed(2),
         distance: Number(d.distance ?? d.displacement ?? 0),
         velocity: Number(d.velocity ?? 0),
-        acceleration: Number(d.acceleration ?? 0)
+        acceleration: Number(d.acceleration ?? 0),
+        __originalIndex: chartDataRef.current.length // Add original index for neglect tracking
       };
       chartDataRef.current = [...chartDataRef.current, point];
       setChartData([...chartDataRef.current]);
@@ -229,6 +232,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     clearData();
     chartDataRef.current = [];
     setChartData([]);
+    setNeglectedData(new Set());
     
     setIsRunning(false);
     setIsPaused(false);
@@ -246,6 +250,26 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
       try { dataHandlerCleanupRef.current(); } catch {}
       dataHandlerCleanupRef.current = null;
     }
+  };
+
+  // Filter out neglected data points
+  const getFilteredChartData = useCallback(() => {
+    if (neglectedData.size === 0) {
+      return chartData;
+    }
+    return chartData.filter((_, index) => !neglectedData.has(index));
+  }, [chartData, neglectedData]);
+
+  // Handle neglected data changes from LiveDataTable
+  const handleNeglectedDataChange = (newNeglectedData) => {
+    setNeglectedData(newNeglectedData);
+  };
+
+  // Handle neglected data range selection from PlotlyGraph
+  const handleNeglectedDataRange = (neglectedIndices) => {
+    // Create a new Set with the neglected indices
+    const newNeglectedData = new Set(neglectedIndices);
+    setNeglectedData(newNeglectedData);
   };
 
   const handleSaveToProfile = async () => {
@@ -395,13 +419,15 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
           token={token}
           sharedWebSocket={sharedWebSocket}
           sharedExperimentManager={sharedExperimentManager}
-          chartData={chartData}
+          chartData={getFilteredChartData()}
+          fullChartData={chartData} // Pass full data for proper index calculation
           isRunning={isRunning}
           isPaused={isPaused}
           onStart={handleStart}
           onPause={handlePause}
           onStop={handleStop}
           onReset={handleReset}
+          onNeglectedDataRange={handleNeglectedDataRange} // Handle range selection for neglecting data
           config={config} // Pass configuration for fixed axis bounds
         />
       </div>
@@ -412,6 +438,8 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
           data={chartData}
           isFullscreen={isTableFullscreen}
           onToggleFullscreen={() => setIsTableFullscreen(!isTableFullscreen)}
+          onNeglectedDataChange={handleNeglectedDataChange}
+          neglectedData={neglectedData}
         />
       </div>
 

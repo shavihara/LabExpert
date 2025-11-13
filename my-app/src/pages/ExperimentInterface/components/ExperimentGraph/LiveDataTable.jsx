@@ -1,8 +1,13 @@
-import React, { useState, useMemo } from 'react';
-import { FiMaximize2, FiMinimize2, FiDownload, FiCopy } from 'react-icons/fi';
+import React, { useState, useMemo, useEffect } from 'react';
+import { FiMaximize2, FiMinimize2, FiDownload, FiCopy, FiEye, FiEyeOff } from 'react-icons/fi';
 
-const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen }) => {
+const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen, onNeglectedDataChange, neglectedData: propNeglectedData }) => {
   const [sortConfig, setSortConfig] = useState({ key: 'time', direction: 'ascending' });
+  const [localNeglectedData, setLocalNeglectedData] = useState(new Set());
+  
+  // Use propNeglectedData if provided, otherwise use local state
+  const neglectedData = propNeglectedData !== undefined ? propNeglectedData : localNeglectedData;
+  const setNeglectedData = propNeglectedData !== undefined ? onNeglectedDataChange : setLocalNeglectedData;
 
   const sortedData = useMemo(() => {
     if (!data.length) return [];
@@ -71,6 +76,32 @@ const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen }) => {
     }
   };
 
+  const toggleNeglectData = (index) => {
+    const newNeglectedData = new Set(neglectedData);
+    if (newNeglectedData.has(index)) {
+      newNeglectedData.delete(index);
+    } else {
+      newNeglectedData.add(index);
+    }
+    setNeglectedData(newNeglectedData);
+  };
+
+  const clearAllNeglected = () => {
+    setNeglectedData(new Set());
+  };
+
+  const neglectAll = () => {
+    const allIndices = new Set(data.map((_, index) => index));
+    setNeglectedData(allIndices);
+  };
+
+  // Notify parent component when neglected data changes
+  useEffect(() => {
+    if (onNeglectedDataChange) {
+      onNeglectedDataChange(neglectedData);
+    }
+  }, [neglectedData, onNeglectedDataChange]);
+
   if (!data.length) {
     return (
       <div className="bg-slate-50 rounded-xl p-8 text-center">
@@ -91,10 +122,31 @@ const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen }) => {
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="text-lg font-semibold text-slate-800">Live Data Table</h3>
-          <p className="text-sm text-slate-500">{data.length} samples recorded</p>
+          <p className="text-sm text-slate-500">
+            {data.length} samples recorded
+            {neglectedData.size > 0 && (
+              <span className="ml-2 text-orange-600">
+                ({neglectedData.size} neglected)
+              </span>
+            )}
+          </p>
         </div>
         
         <div className="flex items-center gap-2">
+          {neglectedData.size > 0 && (
+            <button
+              onClick={clearAllNeglected}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700 transition-all"
+            >
+              <FiEye size={14} /> Show All
+            </button>
+          )}
+          <button
+            onClick={neglectAll}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-600 text-white rounded-lg text-sm font-medium hover:bg-gray-700 transition-all"
+          >
+            <FiEyeOff size={14} /> Neglect All
+          </button>
           <button
             onClick={exportToCSV}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-all"
@@ -125,6 +177,9 @@ const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen }) => {
           <table className="w-full">
             <thead className="bg-slate-50">
               <tr>
+                <th className="px-3 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  Neglect
+                </th>
                 {Object.keys(data[0]).map((key) => (
                   <th
                     key={key}
@@ -144,18 +199,34 @@ const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen }) => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {sortedData.map((row, index) => (
-                <tr key={index} className="hover:bg-slate-50 transition-colors">
-                  {Object.values(row).map((value, cellIndex) => (
-                    <td
-                      key={cellIndex}
-                      className="px-4 py-3 text-sm text-slate-700 font-mono"
-                    >
-                      {typeof value === 'number' ? value.toFixed(4) : value}
+              {sortedData.map((row, sortedIndex) => {
+                // Use the unique index stored in the row data (added by parent component)
+                const originalIndex = row.__originalIndex || sortedIndex;
+                const isNeglected = neglectedData.has(originalIndex);
+                return (
+                  <tr 
+                    key={originalIndex} 
+                    className={`hover:bg-slate-50 transition-colors ${isNeglected ? 'bg-slate-100 opacity-60' : ''}`}
+                  >
+                    <td className="px-3 py-3">
+                      <input
+                        type="checkbox"
+                        checked={isNeglected}
+                        onChange={() => toggleNeglectData(originalIndex)}
+                        className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                      />
                     </td>
-                  ))}
-                </tr>
-              ))}
+                    {Object.values(row).map((value, cellIndex) => (
+                      <td
+                        key={cellIndex}
+                        className="px-4 py-3 text-sm text-slate-700 font-mono"
+                      >
+                        {typeof value === 'number' ? value.toFixed(4) : value}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

@@ -15,6 +15,7 @@ const PlotlyGraph = ({
   sharedWebSocket, 
   sharedExperimentManager,
   chartData,
+  fullChartData,
   graphType,
   isRunning,
   isPaused,
@@ -22,6 +23,7 @@ const PlotlyGraph = ({
   onPause,
   onStop,
   onReset,
+  onNeglectedDataRange,
   config = { max_distance_cm: 150 } // Default to 150cm if not provided
 }) => {
   const [plotlyLib, setPlotlyLib] = useState(null);
@@ -51,6 +53,7 @@ const PlotlyGraph = ({
   });
   const [selectedRegion, setSelectedRegion] = useState(null);
   const [measurements, setMeasurements] = useState({});
+  const [isNeglectMode, setIsNeglectMode] = useState(false);
   const [plotConfig, setPlotConfig] = useState({
     displayModeBar: true,
     displaylogo: false,
@@ -215,10 +218,37 @@ const PlotlyGraph = ({
     }
   };
 
+  const handleNeglectRangeClick = () => {
+    setIsNeglectMode(prev => !prev);
+  };
+
   const handleSelection = (event) => {
     if (mode === 'analysis' && event && event.range) {
       setSelectedRegion(event.range);
-      calculateRegionMeasurements(event.range);
+      
+      if (isNeglectMode) {
+        // Handle neglect range selection
+        const { x: [x0, x1] } = event.range;
+        const neglectedIndices = [];
+        
+        // Find indices of data points within the selected range using full data
+        fullChartData.forEach((dataPoint, index) => {
+          if (dataPoint.time >= x0 && dataPoint.time <= x1) {
+            neglectedIndices.push(index);
+          }
+        });
+        
+        // Call the onNeglectedDataRange callback with neglected indices
+        if (neglectedIndices.length > 0 && onNeglectedDataRange) {
+          onNeglectedDataRange(neglectedIndices);
+        }
+        
+        // Reset neglect mode after selection
+        setIsNeglectMode(false);
+      } else {
+        // Normal region selection for measurements
+        calculateRegionMeasurements(event.range);
+      }
     }
   };
 
@@ -328,6 +358,19 @@ const PlotlyGraph = ({
       >
         <FiMove size={12} />
         Pan Tool
+      </button>
+      
+      <button
+        onClick={handleNeglectRangeClick}
+        className={`px-2 py-1 bg-white border rounded text-xs flex items-center gap-1 hover:bg-blue-50 ${
+          isNeglectMode 
+            ? 'border-orange-500 bg-orange-50 text-orange-700' 
+            : 'border-blue-300'
+        }`}
+        title="Select range to neglect data points"
+      >
+        <FiEyeOff size={12} />
+        Neglect Range
       </button>
     </div>
   );
