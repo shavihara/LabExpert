@@ -15,6 +15,8 @@ const PlotlyGraph = ({
   sharedWebSocket, 
   sharedExperimentManager,
   chartData,
+  fullChartData,
+  neglectedData = new Set(),
   graphType,
   isRunning,
   isPaused,
@@ -22,7 +24,12 @@ const PlotlyGraph = ({
   onPause,
   onStop,
   onReset,
-  config = { max_distance_cm: 150 } // Default to 150cm if not provided
+  onNeglectedDataRange,
+  config = { max_distance_cm: 150 },
+  availableTraces = ['distance','velocity','acceleration'],
+  axis = { x: { label: 'Time', unit: 's' }, y: { distance:{label:'Displacement',unit:'cm'}, velocity:{label:'Velocity',unit:'cm/s'}, acceleration:{label:'Acceleration',unit:'cm/s²'}, intensity:{label:'Intensity',unit:'lux'} } },
+  onModeChange,
+  onAnalysisData
 }) => {
   const [plotlyLib, setPlotlyLib] = useState(null);
   useEffect(() => {
@@ -41,16 +48,19 @@ const PlotlyGraph = ({
 
   const [mode, setMode] = useState('live'); // 'live' or 'analysis'
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [visibleTraces, setVisibleTraces] = useState({
-    's-t': true,
-    'v-t': true,
-    'a-t': true,
-    'ke': false,
-    'pe': false,
-    'te': false
+  const mapKey = useCallback((k) => ({
+    intensity: 'i-t', distance: 's-t', velocity: 'v-t', acceleration: 'a-t'
+  })[k] || `${k}-t`, []);
+
+  const [visibleTraces, setVisibleTraces] = useState(() => {
+    const initial = { 'ke': false, 'pe': false, 'te': false };
+    (availableTraces || []).forEach(k => { initial[mapKey(k)] = true; });
+    return initial;
   });
   const [selectedRegion, setSelectedRegion] = useState(null);
   const [measurements, setMeasurements] = useState({});
+  const [isNeglectMode, setIsNeglectMode] = useState(false);
+  const [activeTool, setActiveTool] = useState(null);
   const [plotConfig, setPlotConfig] = useState({
     displayModeBar: true,
     displaylogo: false,
@@ -99,40 +109,57 @@ const PlotlyGraph = ({
   // Prepare data for Plotly
   const preparePlotData = useCallback(() => {
     const data = mode === 'analysis' ? analysisDataRef.current : chartData;
+    // Filter out neglected points entirely from graph rendering
+    const effectiveData = (neglectedData && neglectedData.size > 0)
+      ? data.filter((_, i) => !neglectedData.has(i))
+      : data;
     
     const traces = [];
     
-    if (visibleTraces['s-t'] && data.some(d => d.distance != null)) {
+    if (visibleTraces['s-t'] && effectiveData.some(d => d.distance != null)) {
       traces.push({
-        x: data.map(d => d.time || d.timeDisplay),
-        y: data.map(d => d.distance || 0),
+        x: effectiveData.map(d => d.time || d.timeDisplay),
+        y: effectiveData.map(d => d.distance || 0),
         type: 'scatter',
         mode: 'lines',
-        name: 'Displacement (cm)',
+        name: `${axis?.y?.distance?.label || 'Displacement'}${axis?.y?.distance?.unit ? ' ('+axis.y.distance.unit+')' : ''}`,
         line: { color: '#6366f1', width: 2.5 },
         visible: visibleTraces['s-t'] ? true : 'legendonly'
       });
     }
     
-    if (visibleTraces['v-t'] && data.some(d => d.velocity != null)) {
+    // Intensity trace (for light intensity experiments)
+    if (visibleTraces['i-t'] && effectiveData.some(d => d.intensity != null)) {
       traces.push({
-        x: data.map(d => d.time || d.timeDisplay),
-        y: data.map(d => d.velocity || 0),
+        x: effectiveData.map(d => d.time || d.timeDisplay),
+        y: effectiveData.map(d => d.intensity || 0),
         type: 'scatter',
         mode: 'lines',
-        name: 'Velocity (cm/s)',
+        name: `${axis?.y?.intensity?.label || 'Intensity'}${axis?.y?.intensity?.unit ? ' ('+axis.y.intensity.unit+')' : ''}`,
+        line: { color: '#f59e0b', width: 2.5 },
+        visible: visibleTraces['i-t'] ? true : 'legendonly'
+      });
+    }
+    
+    if (visibleTraces['v-t'] && effectiveData.some(d => d.velocity != null)) {
+      traces.push({
+        x: effectiveData.map(d => d.time || d.timeDisplay),
+        y: effectiveData.map(d => d.velocity || 0),
+        type: 'scatter',
+        mode: 'lines',
+        name: `${axis?.y?.velocity?.label || 'Velocity'}${axis?.y?.velocity?.unit ? ' ('+axis.y.velocity.unit+')' : ''}`,
         line: { color: '#10b981', width: 2.5 },
         visible: visibleTraces['v-t'] ? true : 'legendonly'
       });
     }
     
-    if (visibleTraces['a-t'] && data.some(d => d.acceleration != null)) {
+    if (visibleTraces['a-t'] && effectiveData.some(d => d.acceleration != null)) {
       traces.push({
-        x: data.map(d => d.time || d.timeDisplay),
-        y: data.map(d => d.acceleration || 0),
+        x: effectiveData.map(d => d.time || d.timeDisplay),
+        y: effectiveData.map(d => d.acceleration || 0),
         type: 'scatter',
         mode: 'lines',
-        name: 'Acceleration (cm/s²)',
+        name: `${axis?.y?.acceleration?.label || 'Acceleration'}${axis?.y?.acceleration?.unit ? ' ('+axis.y.acceleration.unit+')' : ''}`,
         line: { color: '#ef4444', width: 2.5 },
         visible: visibleTraces['a-t'] ? true : 'legendonly'
       });
@@ -140,10 +167,10 @@ const PlotlyGraph = ({
 
     // Energy traces (only in analysis mode)
     if (mode === 'analysis') {
-      if (visibleTraces['ke'] && data.some(d => d.kineticEnergy != null)) {
+      if (visibleTraces['ke'] && effectiveData.some(d => d.kineticEnergy != null)) {
         traces.push({
-          x: data.map(d => d.time || d.timeDisplay),
-          y: data.map(d => d.kineticEnergy || 0),
+          x: effectiveData.map(d => d.time || d.timeDisplay),
+          y: effectiveData.map(d => d.kineticEnergy || 0),
           type: 'scatter',
           mode: 'lines',
           name: 'Kinetic Energy (J)',
@@ -152,10 +179,10 @@ const PlotlyGraph = ({
         });
       }
       
-      if (visibleTraces['pe'] && data.some(d => d.potentialEnergy != null)) {
+      if (visibleTraces['pe'] && effectiveData.some(d => d.potentialEnergy != null)) {
         traces.push({
-          x: data.map(d => d.time || d.timeDisplay),
-          y: data.map(d => d.potentialEnergy || 0),
+          x: effectiveData.map(d => d.time || d.timeDisplay),
+          y: effectiveData.map(d => d.potentialEnergy || 0),
           type: 'scatter',
           mode: 'lines',
           name: 'Potential Energy (J)',
@@ -164,10 +191,10 @@ const PlotlyGraph = ({
         });
       }
       
-      if (visibleTraces['te'] && data.some(d => d.totalEnergy != null)) {
+      if (visibleTraces['te'] && effectiveData.some(d => d.totalEnergy != null)) {
         traces.push({
-          x: data.map(d => d.time || d.timeDisplay),
-          y: data.map(d => d.totalEnergy || 0),
+          x: effectiveData.map(d => d.time || d.timeDisplay),
+          y: effectiveData.map(d => d.totalEnergy || 0),
           type: 'scatter',
           mode: 'lines',
           name: 'Total Energy (J)',
@@ -178,32 +205,17 @@ const PlotlyGraph = ({
     }
 
     return traces;
-  }, [chartData, mode, visibleTraces]);
+  }, [chartData, mode, visibleTraces, neglectedData]);
 
-  // Calculate energy values for analysis
-  const calculateEnergyValues = useCallback((data) => {
-    return data.map(point => {
-      const mass = 0.1; // Default mass in kg (adjust based on experiment)
-      const g = 9.81; // Gravity constant
-      
-      const ke = 0.5 * mass * Math.pow((point.velocity || 0) / 100, 2); // Convert cm/s to m/s
-      const pe = mass * g * (point.distance || 0) / 100; // Convert cm to m
-      const te = ke + pe;
-      
-      return {
-        ...point,
-        kineticEnergy: ke,
-        potentialEnergy: pe,
-        totalEnergy: te
-      };
-    });
-  }, []);
+  // Backend provides energy values for experiments 1.1/1.2, so analysis uses raw chartData
+  const calculateEnergyValues = useCallback((data) => data, []);
 
   // Handle mode switching
   useEffect(() => {
     if (mode === 'analysis') {
       // Capture current data for analysis
       analysisDataRef.current = calculateEnergyValues(chartData);
+      if (onAnalysisData) onAnalysisData(analysisDataRef.current);
     }
   }, [mode, chartData, calculateEnergyValues]);
 
@@ -215,10 +227,49 @@ const PlotlyGraph = ({
     }
   };
 
+  const handleNeglectRangeClick = () => {
+    setIsNeglectMode(prev => !prev);
+  };
+
+  const handleClearNeglectSelections = () => {
+    // Clear all neglected data
+    if (onNeglectedDataChange) {
+      onNeglectedDataChange(new Set());
+    }
+  };
+
   const handleSelection = (event) => {
     if (mode === 'analysis' && event && event.range) {
       setSelectedRegion(event.range);
-      calculateRegionMeasurements(event.range);
+      
+      if (isNeglectMode) {
+        // Handle neglect range selection
+        const { x: [x0, x1] } = event.range;
+        const neglectedIndices = [];
+        
+        // Find indices of data points within the selected range using full data
+        fullChartData.forEach((dataPoint, index) => {
+          if (dataPoint.time >= x0 && dataPoint.time <= x1) {
+            neglectedIndices.push(index);
+          }
+        });
+        
+        // Call the onNeglectedDataRange callback with neglected indices
+        if (neglectedIndices.length > 0 && onNeglectedDataRange) {
+          onNeglectedDataRange(neglectedIndices);
+        }
+        
+        // DON'T reset neglect mode - keep it active for multiple selections
+        // setIsNeglectMode(false);
+      } else {
+        // Normal region selection for measurements
+        if (activeTool === 'slope') {
+          calculateSlopeMeasurements(event.range);
+        } else {
+          // Default region selection (including region tool)
+          calculateRegionMeasurements(event.range);
+        }
+      }
     }
   };
 
@@ -239,7 +290,40 @@ const PlotlyGraph = ({
         deltaDistance: last.distance - first.distance,
         deltaVelocity: last.velocity - first.velocity,
         deltaAcceleration: last.acceleration - first.acceleration,
-        dataPoints: filteredData.length
+        dataPoints: filteredData.length,
+        toolType: 'region'
+      });
+    }
+  };
+
+  const calculateSlopeMeasurements = (range) => {
+    if (!range || !analysisDataRef.current.length) return;
+    
+    const { x: [x0, x1] } = range;
+    const filteredData = analysisDataRef.current.filter(
+      d => d.time >= x0 && d.time <= x1
+    );
+    
+    if (filteredData.length > 1) {
+      const first = filteredData[0];
+      const last = filteredData[filteredData.length - 1];
+      
+      // Calculate slopes for different measurements
+      const timeDelta = last.time - first.time;
+      const distanceSlope = timeDelta !== 0 ? (last.distance - first.distance) / timeDelta : 0;
+      const velocitySlope = timeDelta !== 0 ? (last.velocity - first.velocity) / timeDelta : 0;
+      const accelerationSlope = timeDelta !== 0 ? (last.acceleration - first.acceleration) / timeDelta : 0;
+      
+      setMeasurements({
+        deltaTime: timeDelta,
+        deltaDistance: last.distance - first.distance,
+        deltaVelocity: last.velocity - first.velocity,
+        deltaAcceleration: last.acceleration - first.acceleration,
+        dataPoints: filteredData.length,
+        distanceSlope: distanceSlope,
+        velocitySlope: velocitySlope,
+        accelerationSlope: accelerationSlope,
+        toolType: 'slope'
       });
     }
   };
@@ -257,12 +341,13 @@ const PlotlyGraph = ({
 
   const exportToCSV = () => {
     const data = mode === 'analysis' ? analysisDataRef.current : chartData;
-    const csvContent = [
-      'Time,Distance,Velocity,Acceleration,Kinetic Energy,Potential Energy,Total Energy',
-      ...data.map(d => 
-        `${d.time || d.timeDisplay},${d.distance || 0},${d.velocity || 0},${d.acceleration || 0},${d.kineticEnergy || 0},${d.potentialEnergy || 0},${d.totalEnergy || 0}`
-      )
-    ].join('\n');
+    const headers = 'Sample,Time (s),Distance,Velocity,Acceleration,Kinetic Energy (J),Potential Energy (J),Total Energy (J),Neglected';
+    const rows = data.map((d, i) => {
+      const t = d.time != null ? d.time : d.timeDisplay;
+      const neg = neglectedData && neglectedData.has(i) ? 'neglected' : '';
+      return `${i + 1},${t},${d.distance || 0},${d.velocity || 0},${d.acceleration || 0},${d.kineticEnergy || 0},${d.potentialEnergy || 0},${d.totalEnergy || 0},${neg}`;
+    });
+    const csvContent = [headers, ...rows].join('\n');
     
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -277,7 +362,7 @@ const PlotlyGraph = ({
   const ModeToggle = () => (
     <div className="flex gap-1 bg-slate-100 p-1 rounded-lg">
       <button
-        onClick={() => setMode('live')}
+        onClick={() => { setMode('live'); if (onModeChange) onModeChange('live'); }}
         className={`px-3 py-2 font-semibold transition-all rounded-md text-xs ${
           mode === 'live'
             ? 'bg-white text-purple-700 shadow-md'
@@ -287,7 +372,7 @@ const PlotlyGraph = ({
         Live Mode
       </button>
       <button
-        onClick={() => setMode('analysis')}
+        onClick={() => { setMode('analysis'); if (onModeChange) onModeChange('analysis'); }}
         className={`px-3 py-2 font-semibold transition-all rounded-md text-xs ${
           mode === 'analysis'
             ? 'bg-white text-purple-700 shadow-md'
@@ -299,101 +384,220 @@ const PlotlyGraph = ({
     </div>
   );
 
-  const AnalysisTools = () => (
-    <div className="flex flex-wrap gap-2 p-2 bg-blue-50 rounded-lg border border-blue-200">
-      <div className="flex items-center gap-1 text-xs font-semibold text-blue-700">
-        <FiBarChart2 size={14} />
-        Measurement Tools:
+  const AnalysisTools = () => {
+    const handleToolClick = (tool) => {
+      setActiveTool(tool);
+      
+      // Update plot configuration based on selected tool
+      switch (tool) {
+        case 'region':
+          setPlotConfig(prev => ({
+            ...prev,
+            dragmode: 'select',
+            modeBarButtonsToRemove: ['lasso2d']
+          }));
+          break;
+        case 'slope':
+          setPlotConfig(prev => ({
+            ...prev,
+            dragmode: 'select',
+            modeBarButtonsToRemove: ['lasso2d']
+          }));
+          break;
+        case 'pan':
+          setPlotConfig(prev => ({
+            ...prev,
+            dragmode: 'pan',
+            modeBarButtonsToRemove: ['select2d', 'lasso2d']
+          }));
+          break;
+        default:
+          setPlotConfig(prev => ({
+            ...prev,
+            dragmode: 'select',
+            modeBarButtonsToRemove: ['lasso2d']
+          }));
+      }
+    };
+    
+    return (
+      <div className="flex flex-wrap gap-2 p-2 bg-blue-50 rounded-lg border border-blue-200">
+        <div className="flex items-center gap-1 text-xs font-semibold text-blue-700">
+          <FiBarChart2 size={14} />
+          Measurement Tools:
+        </div>
+        
+        <button
+          onClick={() => handleToolClick('region')}
+          className={`px-2 py-1 border rounded text-xs flex items-center gap-1 hover:bg-blue-50 ${
+            activeTool === 'region'
+              ? 'bg-blue-100 border-blue-500 text-blue-700'
+              : 'bg-white border-blue-300'
+          }`}
+          title="Select region to measure differences"
+        >
+          <FiTarget size={12} />
+          Region Select
+        </button>
+        
+        <button
+          onClick={() => handleToolClick('slope')}
+          className={`px-2 py-1 border rounded text-xs flex items-center gap-1 hover:bg-blue-50 ${
+            activeTool === 'slope'
+              ? 'bg-blue-100 border-blue-500 text-blue-700'
+              : 'bg-white border-blue-300'
+          }`}
+          title="Calculate slope of selected region"
+        >
+          <FiTrendingUp size={12} />
+          Slope Tool
+        </button>
+        
+        <button
+          onClick={() => handleToolClick('pan')}
+          className={`px-2 py-1 border rounded text-xs flex items-center gap-1 hover:bg-blue-50 ${
+            activeTool === 'pan'
+              ? 'bg-blue-100 border-blue-500 text-blue-700'
+              : 'bg-white border-blue-300'
+          }`}
+          title="Pan and move the plot"
+        >
+          <FiMove size={12} />
+          Pan Tool
+        </button>
+        
+        <div className="flex items-center gap-1 ml-auto">
+          {neglectedData && neglectedData.size > 0 && (
+            <span className="text-xs text-orange-600 font-medium px-2 py-1 bg-orange-50 rounded border border-orange-200">
+              {neglectedData.size} neglected
+            </span>
+          )}
+          
+          <button
+            onClick={handleNeglectRangeClick}
+            className={`px-2 py-1 bg-white border rounded text-xs flex items-center gap-1 hover:bg-blue-50 ${
+              isNeglectMode 
+                ? 'border-orange-500 bg-orange-50 text-orange-700' 
+                : 'border-blue-300'
+            }`}
+            title="Select range to neglect data points (stay active for multiple selections)"
+          >
+            <FiEyeOff size={12} />
+            Neglect Range
+            {isNeglectMode && <span className="ml-1 text-[10px]">(ACTIVE)</span>}
+          </button>
+          
+          {neglectedData && neglectedData.size > 0 && (
+            <button
+              onClick={handleClearNeglectSelections}
+              className="px-2 py-1 bg-red-50 border border-red-300 rounded text-xs flex items-center gap-1 hover:bg-red-100 text-red-700"
+              title="Clear all neglected selections"
+            >
+              <FiRefreshCw size={12} />
+              Clear
+            </button>
+          )}
+        </div>
       </div>
-      
-      <button
-        className="px-2 py-1 bg-white border border-blue-300 rounded text-xs flex items-center gap-1 hover:bg-blue-50"
-        title="Select region to measure differences"
-      >
-        <FiTarget size={12} />
-        Region Select
-      </button>
-      
-      <button
-        className="px-2 py-1 bg-white border border-blue-300 rounded text-xs flex items-center gap-1 hover:bg-blue-50"
-        title="Calculate slope of selected region"
-      >
-        <FiTrendingUp size={12} />
-        Slope Tool
-      </button>
-      
-      <button
-        className="px-2 py-1 bg-white border border-blue-300 rounded text-xs flex items-center gap-1 hover:bg-blue-50"
-        title="Pan and move the plot"
-      >
-        <FiMove size={12} />
-        Pan Tool
-      </button>
-    </div>
-  );
+    );
+  };
 
-  const TraceVisibilityControls = () => (
-    <div className="flex flex-wrap gap-2 p-2 bg-green-50 rounded-lg border border-green-200">
-      <div className="flex items-center gap-1 text-xs font-semibold text-green-700">
-        <FiEye size={14} />
-        Show Traces:
-      </div>
-      
-      {['s-t', 'v-t', 'a-t'].map(trace => (
-        <label key={trace} className="flex items-center gap-1 text-xs">
-          <input
-            type="checkbox"
-            checked={visibleTraces[trace]}
-            onChange={(e) => setVisibleTraces(prev => ({ ...prev, [trace]: e.target.checked }))}
-            className="rounded border-slate-300"
-          />
-          {{
-            's-t': 'Displacement',
-            'v-t': 'Velocity', 
-            'a-t': 'Acceleration'
-          }[trace]}
-        </label>
-      ))}
-      
-      {mode === 'analysis' && (
-        <>
-          <div className="border-l border-green-300 mx-2 h-4"></div>
-          {['ke', 'pe', 'te'].map(trace => (
-            <label key={trace} className="flex items-center gap-1 text-xs">
-              <input
-                type="checkbox"
-                checked={visibleTraces[trace]}
-                onChange={(e) => setVisibleTraces(prev => ({ ...prev, [trace]: e.target.checked }))}
-                className="rounded border-slate-300"
-              />
-              {{
-                'ke': 'Kinetic Energy',
-                'pe': 'Potential Energy',
-                'te': 'Total Energy'
-              }[trace]}
-            </label>
+  const TraceVisibilityControls = () => {
+    const getTraceLabel = (trace) => ({
+      'i-t': axis?.y?.intensity?.label || 'Intensity',
+      's-t': axis?.y?.distance?.label || 'Displacement',
+      'v-t': axis?.y?.velocity?.label || 'Velocity', 
+      'a-t': axis?.y?.acceleration?.label || 'Acceleration',
+      'ke': 'Kinetic Energy',
+      'pe': 'Potential Energy',
+      'te': 'Total Energy'
+    }[trace]);
+
+    const getTraceColor = (trace) => ({
+      'i-t': 'bg-yellow-500 hover:bg-yellow-600',
+      's-t': 'bg-blue-500 hover:bg-blue-600',
+      'v-t': 'bg-green-500 hover:bg-green-600',
+      'a-t': 'bg-red-500 hover:bg-red-600',
+      'ke': 'bg-orange-500 hover:bg-orange-600',
+      'pe': 'bg-purple-500 hover:bg-purple-600',
+      'te': 'bg-cyan-500 hover:bg-cyan-600'
+    }[trace]);
+
+    const TraceButton = ({ trace, label }) => (
+      <button
+        onClick={() => setVisibleTraces(prev => ({ ...prev, [trace]: !prev[trace] }))}
+        className={`px-3 py-2 rounded-lg font-medium text-xs transition-all duration-200 shadow-sm border-2 ${
+          visibleTraces[trace]
+            ? `${getTraceColor(trace)} text-white border-transparent shadow-md transform scale-105`
+            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-slate-300'
+        }`}
+      >
+        <div className="flex items-center gap-2">
+          <div className={`w-3 h-3 rounded-full ${
+            visibleTraces[trace] ? 'bg-white' : 'bg-slate-300'
+          }`}></div>
+          <span>{label}</span>
+        </div>
+      </button>
+    );
+
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <FiEye size={16} className="text-slate-600" />
+          <span className="text-sm font-semibold text-slate-700">Show Traces</span>
+        </div>
+        
+        <div className="flex flex-wrap gap-2">
+          {(availableTraces || []).map(k => mapKey(k)).map(trace => (
+            <TraceButton key={trace} trace={trace} label={getTraceLabel(trace)} />
           ))}
-        </>
-      )}
-    </div>
-  );
+        </div>
+        
+        {mode === 'analysis' && (
+          <div className="pt-3 border-t border-slate-200">
+            <div className="flex items-center gap-2 mb-2">
+              <FiBarChart2 size={16} className="text-slate-600" />
+              <span className="text-sm font-semibold text-slate-700">Energy Analysis</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {['ke', 'pe', 'te'].map(trace => (
+                <TraceButton key={trace} trace={trace} label={getTraceLabel(trace)} />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
-  const MeasurementDisplay = () => (
-    selectedRegion && Object.keys(measurements).length > 0 && (
+  const MeasurementDisplay = () => {
+    if (!selectedRegion || Object.keys(measurements).length === 0) return null;
+    
+    const isSlopeTool = measurements.toolType === 'slope';
+    
+    return (
       <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
         <h4 className="font-semibold text-yellow-800 text-sm mb-2 flex items-center gap-2">
           <FiDollarSign size={14} />
-          Region Measurements
+          {isSlopeTool ? 'Slope Measurements' : 'Region Measurements'}
         </h4>
         <div className="grid grid-cols-2 gap-2 text-xs">
           <div>ΔTime: <span className="font-semibold">{measurements.deltaTime?.toFixed(3)}s</span></div>
           <div>ΔDistance: <span className="font-semibold">{measurements.deltaDistance?.toFixed(3)}cm</span></div>
           <div>ΔVelocity: <span className="font-semibold">{measurements.deltaVelocity?.toFixed(3)}cm/s</span></div>
+          {isSlopeTool && (
+            <>
+              <div>Distance Slope: <span className="font-semibold">{measurements.distanceSlope?.toFixed(3)}cm/s</span></div>
+              <div>Velocity Slope: <span className="font-semibold">{measurements.velocitySlope?.toFixed(3)}cm/s²</span></div>
+              <div>Acceleration Slope: <span className="font-semibold">{measurements.accelerationSlope?.toFixed(3)}cm/s³</span></div>
+            </>
+          )}
           <div>Data Points: <span className="font-semibold">{measurements.dataPoints}</span></div>
         </div>
       </div>
-    )
-  );
+    );
+  };
 
   // Guard: wait until Plotly library is loaded
   if (!plotlyLib) {
@@ -413,7 +617,9 @@ const PlotlyGraph = ({
       {mode === 'analysis' && <AnalysisTools />}
 
       {/* Trace Visibility Controls */}
-      <TraceVisibilityControls />
+      <div className="bg-gradient-to-r from-slate-50 to-blue-50 rounded-xl shadow-md border border-slate-200 p-4">
+        <TraceVisibilityControls />
+      </div>
 
       {/* Measurement Display */}
       {mode === 'analysis' && <MeasurementDisplay />}
@@ -471,13 +677,17 @@ const PlotlyGraph = ({
                 font: { size: 16 }
               },
               xaxis: {
-                title: 'Time (s)',
+                title: `${axis?.x?.label || 'Time'}${axis?.x?.unit ? ' ('+axis.x.unit+')' : ''}`,
                 showgrid: true,
                 gridcolor: '#e2e8f0',
                 zeroline: false
               },
               yaxis: {
-                title: 'Value',
+                title: (() => {
+                  const active = (availableTraces || []).find(k => visibleTraces[mapKey(k)]);
+                  const meta = active ? axis?.y?.[active] : null;
+                  return meta ? `${meta.label}${meta.unit ? ' ('+meta.unit+')' : ''}` : 'Value';
+                })(),
                 showgrid: true,
                 gridcolor: '#e2e8f0',
                 zeroline: true,
@@ -495,7 +705,7 @@ const PlotlyGraph = ({
               plot_bgcolor: '#f8fafc',
               paper_bgcolor: '#ffffff',
               ...(mode === 'analysis' && {
-                dragmode: 'select',
+                dragmode: activeTool === 'pan' ? 'pan' : 'select',
                 selectdirection: 'h'
               })
             }}

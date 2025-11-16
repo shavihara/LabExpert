@@ -245,7 +245,7 @@ function Header() {
         </>
       )}
 
-      <style jsx>{`
+      <style>{`
         @keyframes shimmer {
           0% { transform: translateX(0); }
           100% { transform: translateX(200%); }

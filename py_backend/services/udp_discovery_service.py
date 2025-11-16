@@ -66,6 +66,10 @@ class UDPDiscoveryService:
     
     async def start(self):
         """Start the discovery service"""
+        if self.is_running:
+            logger.warning("UDP discovery service is already running")
+            return True
+            
         if not await self.initialize():
             return False
             
@@ -78,10 +82,19 @@ class UDPDiscoveryService:
     async def stop(self):
         """Stop the discovery service"""
         self.is_running = False
+        
+        # Close sockets - this will cause any pending socket operations to abort
         if self.broadcast_socket:
-            self.broadcast_socket.close()
+            try:
+                self.broadcast_socket.close()
+            except:
+                pass
         if self.response_socket:
-            self.response_socket.close()
+            try:
+                self.response_socket.close()
+            except:
+                pass
+        
         logger.info("UDP discovery service stopped")
     
     async def _discovery_loop(self):
@@ -113,8 +126,20 @@ class UDPDiscoveryService:
                 
             except asyncio.TimeoutError:
                 continue  # No data, continue listening
+            except OSError as e:
+                # Handle socket operation aborted errors (Windows error 995)
+                if e.winerror == 995 or "operation has been aborted" in str(e).lower():
+                    # Socket was closed, this is expected when service is stopping
+                    if not self.is_running:
+                        break  # Exit the loop if service is stopping
+                    else:
+                        logger.debug(f"Socket operation aborted: {e}")
+                        continue
+                else:
+                    logger.error(f"Socket error in response listener: {e}")
+                    await asyncio.sleep(1)
             except Exception as e:
-                logger.error(f"Error in response listener: {e}")
+                logger.error(f"Unexpected error in response listener: {e}")
                 await asyncio.sleep(1)
     
     async def broadcast_discovery(self):

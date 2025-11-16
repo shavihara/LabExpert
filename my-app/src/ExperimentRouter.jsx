@@ -1,5 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import ExperimentInterface from './pages/ExperimentInterface';
+import NewExperimentInterface from './pages/ExperimentInterface/ExperimentInterface.jsx';
 import OSIInterface from './components/OSIInterface';
 
 function ExperimentRouter() {
@@ -14,20 +15,17 @@ function ExperimentRouter() {
   // Load different components based on experiment ID
   switch(id) {
     case '1':
-      return <ExperimentInterface goBack={goBack} />;
+      return <ExperimentInterface experimentId={'1'} goBack={goBack} />;
 
     case '2':
       return <OSIInterface goBack={goBack} />;
 
     case '5':
-      // For experiments that don't have pages yet
-      return (
-        <div style={{ padding: '20px', textAlign: 'center' }}>
-          <h1>Motion Detection Interface</h1>
-          <p>Coming Soon...</p>
-          <button onClick={goBack}>Back to Home</button>
-        </div>
-      );
+      return <ExperimentInterface experimentId={'5'} goBack={goBack} />;
+
+    case '4':
+      console.log('Rendering NewExperimentInterface for ID 4');
+      return <NewExperimentInterface experimentId={'4'} goBack={goBack} />;
 
     default:
       // If ID doesn't match any experiment
