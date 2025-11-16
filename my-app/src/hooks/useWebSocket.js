@@ -468,12 +468,41 @@ export const useExperimentManager = (webSocketInstance, externalExperimentData =
           console.log('Received firmware_flash_result:', data);
           console.log('Setting firmwareStatus to:', {
             success: data.success,
-            message: data.message || data.detail || 'Firmware operation completed'
+            message: data.message || data.detail || 'Firmware operation completed',
+            progress: data.progress || null
           });
           setFirmwareStatus({
             success: data.success,
-            message: data.message || data.detail || 'Firmware operation completed'
+            message: data.message || data.detail || 'Firmware operation completed',
+            progress: data.progress || null
           });
+          break;
+        case 'firmware_flash_progress':
+          console.log('Received firmware_flash_progress:', data);
+          setFirmwareStatus({
+            success: null,
+            message: data.message || 'Flashing firmware...',
+            progress: data.progress || 0
+          });
+          break;
+        case 'log_message':
+          console.log('Received log message:', data);
+          // Handle backend log messages for firmware progress
+          if (data.message && data.message.includes('Firmware upload successful')) {
+            console.log('Detected firmware upload success log message');
+            setFirmwareStatus({
+              success: true,
+              message: 'Firmware upload successful',
+              progress: 99 // Set to 99% when upload is successful
+            });
+          } else if (data.message && data.message.includes('Firmware upload')) {
+            // Generic firmware upload progress
+            setFirmwareStatus({
+              success: null,
+              message: data.message,
+              progress: 50 // Set to 50% for generic upload messages
+            });
+          }
           break;
         case 'experiment_configured':
           console.log('Received experiment_configured:', data);
@@ -561,7 +590,7 @@ export const useExperimentManager = (webSocketInstance, externalExperimentData =
 
     setConfigStatus({ success: null, message: 'Applying configuration...' });
     
-    // Map frontend field names to backend expected format
+    // Map frontend field names to backend expected format (device-safe)
     const backendConfig = {
       frequency: config.frequency_hz || config.frequency || 50,
       duration: config.duration_s || config.duration || 60,
@@ -571,11 +600,18 @@ export const useExperimentManager = (webSocketInstance, externalExperimentData =
     if (config.max_distance_cm != null && !Number.isNaN(config.max_distance_cm)) {
       backendConfig.maxRange = Math.round(config.max_distance_cm * 10); // Convert cm to mm
     }
+    // Do not include mass in device configuration to avoid ESP32 failures
     
+    const analysis = {};
+    if (config.mass !== undefined && !Number.isNaN(config.mass)) {
+      analysis.mass = Number(config.mass);
+    }
+
     sendMessage({ 
       action: 'configure_experiment', 
       device_id: deviceId, 
-      config: backendConfig 
+      config: backendConfig,
+      analysis
     });
   }, [isConnected, sendMessage]);
 

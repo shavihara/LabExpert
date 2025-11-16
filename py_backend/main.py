@@ -1291,6 +1291,21 @@ except Exception as e:
     print(f"❌ Email config error: {e}")
 
 
+# ------------------ Background Session Cleanup ------------------
+async def background_session_cleanup():
+    """Background task to clean up expired sessions every 5 minutes"""
+    from services.session_service import SessionService
+    import asyncio
+    
+    while True:
+        try:
+            await SessionService.cleanup_expired_sessions()
+            await asyncio.sleep(300)  # Run every 5 minutes
+        except Exception as e:
+            logger.error(f"Error in background session cleanup: {e}")
+            await asyncio.sleep(60)  # Wait 1 minute before retrying on error
+
+
 # ------------------ Startup Event ------------------
 @app.on_event("startup")
 async def startup_event():
@@ -1303,6 +1318,9 @@ async def startup_event():
     logger.info(f"🔌 WS Client Endpoint: ws://{LOCAL_IP}:5000/ws/client?token=...")
     logger.info(f"🔌 WS Device Endpoint: ws://{LOCAL_IP}:5000/ws/device?device_id=...")
     logger.info("=" * 60)
+    
+    # Start background session cleanup task
+    asyncio.create_task(background_session_cleanup())
 
 
 # ------------------ Run ------------------
@@ -1315,6 +1333,18 @@ if __name__ == "__main__":
         port=int(os.getenv("PORT", 5000)),
         log_level="info"
     )
+
+
+@app.post("/api/admin/cleanup-sessions")
+async def cleanup_sessions_endpoint(current_user=Depends(get_current_user)):
+    """Manual endpoint to trigger session cleanup (for testing)"""
+    try:
+        from services.session_service import SessionService
+        await SessionService.cleanup_expired_sessions()
+        return {"success": True, "message": "Session cleanup completed successfully"}
+    except Exception as e:
+        logger.error(f"Error in manual session cleanup: {e}")
+        raise HTTPException(500, f"Failed to clean up sessions: {str(e)}")
 
 
 # ------------------ Firmware Serving ------------------

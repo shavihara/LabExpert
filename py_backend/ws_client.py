@@ -140,7 +140,7 @@ class ClientWebSocketManager:
                 elif action == "stop_experiment":
                     await self._handle_simple_device_command(user_id, {"type": "stop_experiment"}, "experiment_stopped")
                 elif action == "configure_experiment":
-                    await self._handle_configure_experiment(user_id, message.get("config", {}), message.get("experiment_type"))
+                    await self._handle_configure_experiment(user_id, message.get("config", {}), message.get("experiment_type"), message.get("analysis") or {})
                 elif action == "save_experiment_data":
                     await self._handle_save_experiment_data(user_id, message.get("experiment_type"), message.get("graph_type"), message.get("data"), message.get("timestamp"))
         except Exception as e:
@@ -285,13 +285,29 @@ class ClientWebSocketManager:
             logger.error(f"Failed to send {command_type} command via MQTT: {e}")
             await self.send_to_user(user_id, {"type": "error", "message": f"Failed to {success_event}"})
 
-    async def _handle_configure_experiment(self, user_id: str, config: dict, experiment_type: str):
+    async def _handle_configure_experiment(self, user_id: str, config: dict, experiment_type: str, analysis: dict):
         from services.mqtt_service import MQTTService
-        devices = await self.session_manager.get_user_devices(user_id)
-        if not devices:
-            await self.send_to_user(user_id, {"type": "error", "message": "No device allocated"})
-            return
-        device_id = devices[0]
+        from processor.processor_manager import SensorProcessorManager
+        
+        # Check if device_id is provided in the config for direct configuration
+        device_id = config.get("device_id")
+        
+        # If no device_id provided, check user's allocated devices
+        if not device_id:
+            devices = await self.session_manager.get_user_devices(user_id)
+            if not devices:
+                await self.send_to_user(user_id, {"type": "error", "message": "No device allocated - please select a device first"})
+                return
+            device_id = devices[0]
+        else:
+            # If device_id is provided, verify it's allocated to the user or allocate it
+            user_devices = await self.session_manager.get_user_devices(user_id)
+            if device_id not in user_devices:
+                # Try to allocate the device to the user
+                success = await self.session_manager.allocate_device_to_user(device_id, user_id)
+                if not success:
+                    await self.send_to_user(user_id, {"type": "error", "message": f"Device {device_id} is not available or already allocated to another user"})
+                    return
 
         # Normalize incoming config keys to backend expectations
         try:
@@ -333,10 +349,25 @@ class ClientWebSocketManager:
                 except Exception:
                     pass
 
-            config = normalized_config
+            # Keep normalized device config separate from analysis config
+            device_config = normalized_config
         except Exception as e:
             # Fall back to the original config if normalization fails
             logger.warning(f"Config normalization failed: {e}. Using raw config: {config}")
+            device_config = config
+
+        # Configure backend processor with analysis parameters (e.g., mass)
+        try:
+            processor_manager = SensorProcessorManager.get_instance()
+            # Determine experiment type context
+            mapped_type = experiment_type or processor_manager.get_device_experiment(device_id) or "displacement"
+            # Prefer explicit analysis payload from client
+            analysis_cfg = analysis if isinstance(analysis, dict) else {}
+            # Configure processor if any analysis parameters provided
+            if analysis_cfg:
+                processor_manager.configure_processor(device_id, mapped_type, analysis_cfg)
+        except Exception as e:
+            logger.warning(f"Failed to configure backend processor during configure_experiment: {e}")
 
         try:
             # Use MQTT for configuration (WebSocket removed)
@@ -345,8 +376,8 @@ class ClientWebSocketManager:
                 await self.send_to_user(user_id, {"type": "error", "message": "MQTT service not available"})
                 return
 
-            logger.info(f"Publishing configuration via MQTT to device {device_id}: {config}")
-            mqtt_service.publish_config(device_id, config)
+            logger.info(f"Publishing configuration via MQTT to device {device_id}: {device_config}")
+            mqtt_service.publish_config(device_id, device_config)
             await self.send_to_user(user_id, {"type": "experiment_configured", "device_id": device_id, "config": config})
             await self.send_to_user(user_id, {"type": "configuration_result", "success": True, "message": "Configuration applied", "device_id": device_id, "config": config})
         except Exception as e:
@@ -406,6 +437,9 @@ class ClientWebSocketManager:
                     "message": f"Unknown experiment type: {experiment_type}"
                 })
                 return
+            
+            # Set current context for progress updates
+            ota_manager.set_current_context(user_id, device_id)
             
             # Perform OTA update
             result = await ota_manager.start_ota_update(

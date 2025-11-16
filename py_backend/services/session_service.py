@@ -1,7 +1,13 @@
 import secrets
+import asyncio
+import logging
 from datetime import datetime, timedelta
 from sqlalchemy import text
 from config.database import engine
+import sqlite3
+import time
+
+logger = logging.getLogger(__name__)
 
 class SessionService:
     @staticmethod
@@ -134,3 +140,71 @@ class SessionService:
                     "last_activity": row[3]
                 } for row in result.fetchall()
             ]
+
+    @staticmethod
+    async def cleanup_expired_sessions():
+        """Clean up all expired sessions and their associated device allocations"""
+        from session_manager import SessionManager
+        
+        current_time = datetime.now().isoformat()
+        expired_sessions = []
+        
+        # Find expired active sessions with retry logic for database locking
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                stmt = text("""
+                    SELECT id, user_id 
+                    FROM sessions 
+                    WHERE expires_at < :now AND is_active = 1
+                """)
+                with engine.connect() as conn:
+                    result = conn.execute(stmt, {"now": current_time})
+                    expired_sessions = [{"id": row[0], "user_id": row[1]} for row in result.fetchall()]
+                break
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    logger.error(f"Failed to find expired sessions after {max_retries} attempts: {e}")
+                    return
+                time.sleep(0.5 * (attempt + 1))
+        
+        if not expired_sessions:
+            return
+        
+        unique_users = set()
+        for session in expired_sessions:
+            # Invalidate session with retry logic
+            for attempt in range(max_retries):
+                try:
+                    SessionService.invalidate_by_id(session["id"])
+                    unique_users.add(session["user_id"])
+                    break
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        logger.error(f"Failed to invalidate session {session['id']} after {max_retries} attempts: {e}")
+                    time.sleep(0.5 * (attempt + 1))
+        
+        # Free devices for affected users
+        session_manager = SessionManager.get_instance()
+        for user_id in unique_users:
+            try:
+                await session_manager.free_user_devices(user_id)
+                logger.info(f"Freed devices for user {user_id} due to expired session")
+            except Exception as e:
+                logger.error(f"Failed to free devices for user {user_id}: {e}")
+        
+        logger.info(f"Cleaned up {len(expired_sessions)} expired sessions for {len(unique_users)} users")
+
+    @staticmethod
+    def invalidate_by_id(session_id):
+        """Invalidate a session by its ID"""
+        stmt = text("""
+            UPDATE sessions
+            SET is_active = 0,
+                expires_at = :now
+            WHERE id = :session_id
+        """)
+        now = datetime.now().isoformat()
+        
+        with engine.begin() as conn:
+            conn.execute(stmt, {"session_id": session_id, "now": now})
