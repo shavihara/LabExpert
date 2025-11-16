@@ -58,7 +58,7 @@ function UserDashboard() {
       name: 'Light Intensity Analysis',
       description: 'Analyze light intensity variations',
       icon: '💡',
-      difficulty: 'Unavailable',
+      difficulty: 'Available',
       duration: '18 min',
       category: 'Optics',
       color: '#d97706'

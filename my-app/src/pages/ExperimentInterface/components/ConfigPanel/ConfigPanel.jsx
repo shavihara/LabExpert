@@ -77,20 +77,37 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
             <p className="text-xs text-slate-500 mt-1">Recommended: 20-50 Hz</p>
           </div>
 
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">
-              Max Distance (cm)
-            </label>
-            <input
-              type="number"
-              value={config.max_distance_cm}
-              onChange={(e) => onChange({ ...config, max_distance_cm: parseInt(e.target.value) })}
-              className="w-full px-4 py-2 border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none transition-all"
-              min="10"
-              max="400"
-            />
-            <p className="text-xs text-slate-500 mt-1">Maximum measurable distance</p>
-          </div>
+          {config.max_intensity_lux !== undefined ? (
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">
+                Max Intensity (lux)
+              </label>
+              <input
+                type="number"
+                value={config.max_intensity_lux}
+                onChange={(e) => onChange({ ...config, max_intensity_lux: parseInt(e.target.value) })}
+                className="w-full px-4 py-2 border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none transition-all"
+                min="1"
+                max="100000"
+              />
+              <p className="text-xs text-slate-500 mt-1">Maximum expected ambient intensity</p>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">
+                Max Distance (cm)
+              </label>
+              <input
+                type="number"
+                value={config.max_distance_cm}
+                onChange={(e) => onChange({ ...config, max_distance_cm: parseInt(e.target.value) })}
+                className="w-full px-4 py-2 border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none transition-all"
+                min="10"
+                max="400"
+              />
+              <p className="text-xs text-slate-500 mt-1">Maximum measurable distance</p>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-2">
@@ -106,6 +123,24 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
             />
             <p className="text-xs text-slate-500 mt-1">Total experiment duration</p>
           </div>
+
+          {config.mass !== undefined && (
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">
+                Mass of object (kg)
+              </label>
+              <input
+                type="number"
+                value={config.mass}
+                onChange={(e) => onChange({ ...config, mass: parseFloat(e.target.value || 0) })}
+                className="w-full px-4 py-2 border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none transition-all"
+                min="0"
+                step="0.01"
+                placeholder="0"
+              />
+              <p className="text-xs text-slate-500 mt-1">Used for KE/PE/TE energy calculations</p>
+            </div>
+          )}
 
           {statusMessage && (
             <div className={`p-3 rounded-lg text-sm font-medium text-center ${

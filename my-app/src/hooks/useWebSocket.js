@@ -590,7 +590,7 @@ export const useExperimentManager = (webSocketInstance, externalExperimentData =
 
     setConfigStatus({ success: null, message: 'Applying configuration...' });
     
-    // Map frontend field names to backend expected format
+    // Map frontend field names to backend expected format (device-safe)
     const backendConfig = {
       frequency: config.frequency_hz || config.frequency || 50,
       duration: config.duration_s || config.duration || 60,
@@ -600,11 +600,18 @@ export const useExperimentManager = (webSocketInstance, externalExperimentData =
     if (config.max_distance_cm != null && !Number.isNaN(config.max_distance_cm)) {
       backendConfig.maxRange = Math.round(config.max_distance_cm * 10); // Convert cm to mm
     }
+    // Do not include mass in device configuration to avoid ESP32 failures
     
+    const analysis = {};
+    if (config.mass !== undefined && !Number.isNaN(config.mass)) {
+      analysis.mass = Number(config.mass);
+    }
+
     sendMessage({ 
       action: 'configure_experiment', 
       device_id: deviceId, 
-      config: backendConfig 
+      config: backendConfig,
+      analysis
     });
   }, [isConnected, sendMessage]);
 

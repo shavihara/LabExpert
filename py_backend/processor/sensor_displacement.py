@@ -271,22 +271,33 @@ class DisplacementProcessor(SensorProcessor):
                         analysis["estimated_period"] = np.mean(periods)
                         analysis["period_std"] = np.std(periods)
             
-            # Energy calculations (if mass is provided in config)
-            mass = self.config.get("mass", 1.0)  # kg
-            if mass > 0:
-                # Kinetic energy: KE = 0.5 * m * v^2
-                current_velocity = recent_velocities[-1] if recent_velocities else 0
-                kinetic_energy = 0.5 * mass * (current_velocity ** 2)
-                
-                # Potential energy (assuming gravitational, relative to lowest point)
-                min_position = min(recent_positions) if recent_positions else 0
-                current_position = recent_positions[-1] if recent_positions else 0
-                g = 9.81  # m/s^2
-                potential_energy = mass * g * (current_position - min_position)
-                
-                analysis["ke"] = round(kinetic_energy, 2)
-                analysis["pe"] = round(potential_energy, 2)
-                analysis["te"] = round(kinetic_energy + potential_energy, 2)
+            # Energy calculations (use SI units; always include keys)
+            mass = self.config.get("mass", 0.0)  # kg
+            try:
+                mass = float(mass)
+            except Exception:
+                mass = 0.0
+
+            # Convert velocity from cm/s to m/s and position from cm to m
+            current_velocity_cm_s = recent_velocities[-1] if recent_velocities else 0.0
+            current_velocity_m_s = (current_velocity_cm_s or 0.0) / 100.0
+
+            min_position_cm = min(recent_positions) if recent_positions else 0.0
+            current_position_cm = recent_positions[-1] if recent_positions else 0.0
+            delta_height_m = (current_position_cm - min_position_cm) / 100.0
+
+            g = 9.81  # m/s^2
+
+            if mass > 0.0:
+                kinetic_energy = 0.5 * mass * (current_velocity_m_s ** 2)
+                potential_energy = mass * g * max(0.0, delta_height_m)
+            else:
+                kinetic_energy = 0.0
+                potential_energy = 0.0
+
+            analysis["ke"] = round(float(kinetic_energy), 3)
+            analysis["pe"] = round(float(potential_energy), 3)
+            analysis["te"] = round(float(kinetic_energy + potential_energy), 3)
             
             return analysis
             

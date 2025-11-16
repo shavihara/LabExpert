@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { FiMaximize2, FiMinimize2, FiDownload, FiCopy, FiEye, FiEyeOff } from 'react-icons/fi';
 
-const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen, onNeglectedDataChange, neglectedData: propNeglectedData }) => {
+const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen, onNeglectedDataChange, neglectedData: propNeglectedData, columns }) => {
   const [sortConfig, setSortConfig] = useState({ key: 'time', direction: 'ascending' });
   const [localNeglectedData, setLocalNeglectedData] = useState(new Set());
   
@@ -38,15 +38,19 @@ const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen, onNeglectedData
   const exportToCSV = () => {
     if (!data.length) return;
     
-    const headers = Object.keys(data[0]).join(',');
-    const csvContent = [
-      headers,
-      ...data.map(row => 
-        Object.values(row).map(value => 
-          typeof value === 'string' && value.includes(',') ? `"${value}"` : value
-        ).join(',')
-      )
-    ].join('\n');
+    const cols = columns && columns.length ? columns : Object.keys(data[0] || {}).filter(k => k !== '__originalIndex').map(k => ({ key: k, label: k }));
+    const headers = `${cols.map(c => c.label).join(',')},Neglected`;
+    const csvRows = data.map((row, idx) => {
+      const originalIndex = row.__originalIndex ?? idx;
+      const neg = neglectedData.has(originalIndex) ? 'neglected' : '';
+      const base = cols.map(c => {
+        const value = row[c.key];
+        if (typeof value === 'string' && value.includes(',')) return `"${value}"`;
+        return value;
+      }).join(',');
+      return `${base},${neg}`;
+    });
+    const csvContent = [headers, ...csvRows].join('\n');
     
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -62,13 +66,12 @@ const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen, onNeglectedData
   const copyToClipboard = async () => {
     if (!data.length) return;
     
-    const csvContent = [
-      Object.keys(data[0]).join('\t'),
-      ...data.map(row => Object.values(row).join('\t'))
-    ].join('\n');
+    const cols = columns && columns.length ? columns : Object.keys(data[0] || {}).filter(k => k !== '__originalIndex').map(k => ({ key: k, label: k }));
+    const tsvRows = data.map(row => cols.map(c => row[c.key]).join('\t'));
+    const tsvContent = [cols.map(c => c.label).join('\t'), ...tsvRows].join('\n');
     
     try {
-      await navigator.clipboard.writeText(csvContent);
+      await navigator.clipboard.writeText(tsvContent);
       alert('✓ Data copied to clipboard!');
     } catch (err) {
       console.error('Failed to copy:', err);
@@ -91,7 +94,7 @@ const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen, onNeglectedData
   };
 
   const neglectAll = () => {
-    const allIndices = new Set(data.map((_, index) => index));
+    const allIndices = new Set(data.map((row, index) => row.__originalIndex ?? index));
     setNeglectedData(allIndices);
   };
 
@@ -180,15 +183,15 @@ const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen, onNeglectedData
                 <th className="px-3 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                   Neglect
                 </th>
-                {Object.keys(data[0]).map((key) => (
+                {(columns && columns.length ? columns : Object.keys(data[0] || {}).filter(k => k !== '__originalIndex').map(k => ({ key: k, label: k }))).map((col) => (
                   <th
-                    key={key}
-                    onClick={() => requestSort(key)}
+                    key={col.key}
+                    onClick={() => requestSort(col.key)}
                     className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
                   >
                     <div className="flex items-center gap-1">
-                      {key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}
-                      {sortConfig.key === key && (
+                      {col.label}
+                      {sortConfig.key === col.key && (
                         <span>
                           {sortConfig.direction === 'ascending' ? '↑' : '↓'}
                         </span>
@@ -216,14 +219,16 @@ const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen, onNeglectedData
                         className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                       />
                     </td>
-                    {Object.values(row).map((value, cellIndex) => (
-                      <td
-                        key={cellIndex}
-                        className="px-4 py-3 text-sm text-slate-700 font-mono"
-                      >
-                        {typeof value === 'number' ? value.toFixed(4) : value}
-                      </td>
-                    ))}
+                    {(columns && columns.length ? columns : Object.keys(row || {}).filter(k => k !== '__originalIndex').map(k => ({ key: k, label: k }))).map((col, cellIndex) => {
+                      const value = row[col.key];
+                      const precision = typeof col.precision === 'number' ? col.precision : (col.format === 'int' ? 0 : 4);
+                      const formatted = typeof value === 'number' ? value.toFixed(precision) : value;
+                      return (
+                        <td key={cellIndex} className="px-4 py-3 text-sm text-slate-700 font-mono">
+                          {formatted}
+                        </td>
+                      );
+                    })}
                   </tr>
                 );
               })}

@@ -13,7 +13,7 @@ import ExperimentGraph from './ExperimentInterface/components/ExperimentGraph/Ex
 // =================================================================================
 // MAIN INTERFACE COMPONENT
 // =================================================================================
-const ExperimentInterface = ({ experimentId = 1 }) => {
+const ExperimentInterface = ({ experimentId = 4 }) => {
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [config, setConfig] = useState({ frequency_hz: 20, max_distance_cm: 150, duration_s: 10 });
   const [experimentType, setExperimentType] = useState('tof');
@@ -70,6 +70,24 @@ const ExperimentInterface = ({ experimentId = 1 }) => {
     
     console.log('handleComplete completed - should hide modal and show main interface');
   };
+
+  useEffect(() => {
+    const needsMass = ['distance', 'inclined_plane', 'tof', 'displacement'].includes(experimentType);
+    setConfig((prev) => {
+      if (needsMass) {
+        if (prev.mass === undefined) {
+          return { ...prev, mass: 0 };
+        }
+        return prev;
+      } else {
+        if (prev.mass !== undefined) {
+          const { mass, ...rest } = prev;
+          return rest;
+        }
+        return prev;
+      }
+    });
+  }, [experimentType]);
 
   const getExperimentName = () => {
     if (experimentType === 'tof') return 'Displacement Analysis';

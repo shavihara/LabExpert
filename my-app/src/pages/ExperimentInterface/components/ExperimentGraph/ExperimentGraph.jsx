@@ -6,7 +6,7 @@ import {
 import PlotlyGraph from '../../../../components/PlotlyGraph';
 import LiveDataTable from './LiveDataTable';
 
-const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperimentManager, config = { max_distance_cm: 150 } }) => {
+const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperimentManager, config = { max_distance_cm: 150 }, subExperiment }) => {
   // ===== DATA HANDLING STATE =====
   const [chartData, setChartData] = useState([]);
   const [neglectedData, setNeglectedData] = useState(new Set());
@@ -16,6 +16,8 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   const [timeRemaining, setTimeRemaining] = useState(0);
   const [totalDuration, setTotalDuration] = useState(0);
   const [saveStatus, setSaveStatus] = useState(null);
+  const [isAnalysisMode, setIsAnalysisMode] = useState(false);
+  const [analysisData, setAnalysisData] = useState([]);
   
   const chartDataRef = useRef([]);
   const timerRef = useRef(null);
@@ -51,6 +53,10 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
           distance: Number(d.s ?? d.displacement ?? d.distance ?? 0),
           velocity: Number(d.v ?? d.velocity ?? 0),
           acceleration: Number(d.a ?? d.acceleration ?? 0),
+          intensity: Number(d.intensity ?? d.lux ?? d.light ?? 0),
+          kineticEnergy: Number(d.ke ?? d.kineticEnergy ?? 0),
+          potentialEnergy: Number(d.pe ?? d.potentialEnergy ?? 0),
+          totalEnergy: Number(d.te ?? d.totalEnergy ?? 0),
           sample: d.sample ?? d.packet_id ?? null,
           packet_id: d.packet_id ?? null,
           __originalIndex: chartDataRef.current.length // Add original index for neglect tracking
@@ -90,6 +96,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         distance: Number(d.distance ?? d.displacement ?? 0),
         velocity: Number(d.velocity ?? 0),
         acceleration: Number(d.acceleration ?? 0),
+        intensity: Number(d.intensity ?? d.lux ?? d.light ?? 0),
         __originalIndex: chartDataRef.current.length // Add original index for neglect tracking
       };
       chartDataRef.current = [...chartDataRef.current, point];
@@ -186,10 +193,11 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     setIsRunning(true);
     setIsPaused(false);
     
+    let startConfig = { duration_s: 10 };
     try {
-      const config = JSON.parse(localStorage.getItem('experimentConfig') || '{"duration_s": 10}');
-      setTotalDuration(config.duration_s || 10);
-      setTimeRemaining(config.duration_s || 10);
+      startConfig = JSON.parse(localStorage.getItem('experimentConfig') || '{"duration_s": 10}');
+      setTotalDuration(startConfig.duration_s || 10);
+      setTimeRemaining(startConfig.duration_s || 10);
     } catch (e) {
       setTotalDuration(10);
       setTimeRemaining(10);
@@ -252,13 +260,8 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     }
   };
 
-  // Filter out neglected data points
-  const getFilteredChartData = useCallback(() => {
-    if (neglectedData.size === 0) {
-      return chartData;
-    }
-    return chartData.filter((_, index) => !neglectedData.has(index));
-  }, [chartData, neglectedData]);
+  // Keep full data for display; analysis tools can choose to ignore neglected points if needed
+  const getFilteredChartData = useCallback(() => chartData, [chartData]);
 
   // Handle neglected data changes from LiveDataTable
   const handleNeglectedDataChange = (newNeglectedData) => {
@@ -267,9 +270,12 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
 
   // Handle neglected data range selection from PlotlyGraph
   const handleNeglectedDataRange = (neglectedIndices) => {
-    // Create a new Set with the neglected indices
-    const newNeglectedData = new Set(neglectedIndices);
-    setNeglectedData(newNeglectedData);
+    // Union new indices with existing neglected set to allow multiple selections
+    setNeglectedData((prev) => {
+      const s = new Set(prev);
+      neglectedIndices.forEach((i) => s.add(i));
+      return s;
+    });
   };
 
   const handleSaveToProfile = async () => {
@@ -326,6 +332,79 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
   }, [isTableFullscreen]);
+
+  // ===== METADATA-DERIVED TRACES AND AXIS =====
+  const availableTraces = React.useMemo(() => {
+    if (!subExperiment || !subExperiment.graphConfig) {
+      return experimentType === 'light_intensity' ? ['intensity'] : ['distance','velocity','acceleration'];
+    }
+    const yAxes = subExperiment.graphConfig.yAxes;
+    return Array.isArray(yAxes) ? yAxes : (typeof yAxes === 'string' ? [yAxes] : []);
+  }, [subExperiment, experimentType]);
+
+  const axisMeta = React.useMemo(() => {
+    const units = (subExperiment && subExperiment.units) || { time: 's' };
+    const labels = (subExperiment && subExperiment.graphConfig && subExperiment.graphConfig.yAxisLabels) || [];
+    const yAxes = availableTraces;
+    const y = {};
+    yAxes.forEach((k, i) => {
+      y[k] = { label: labels[i] || (k.charAt(0).toUpperCase() + k.slice(1)), unit: units[k] || '' };
+    });
+    return { x: { label: 'Time', unit: units.time || 's' }, y };
+  }, [subExperiment, availableTraces]);
+
+  const tableColumns = React.useMemo(() => {
+    if (subExperiment && subExperiment.tableConfig && Array.isArray(subExperiment.tableConfig.columns)) {
+      const base = subExperiment.tableConfig.columns.slice();
+      const timeCol = base.find(c => c.key === 'time') || { key: 'time', label: `Time (${axisMeta.x.unit})`, format: 'float', precision: 2 };
+      const rest = base.filter(c => c.key !== 'time' && c.key !== 'sample');
+      const cols = [
+        { key: 'sample', label: 'Sample', format: 'int' },
+        timeCol,
+        ...rest
+      ];
+      if (isAnalysisMode) {
+        cols.push(
+          { key: 'kineticEnergy', label: 'Kinetic Energy (J)', format: 'float', precision: 3 },
+          { key: 'potentialEnergy', label: 'Potential Energy (J)', format: 'float', precision: 3 },
+          { key: 'totalEnergy', label: 'Total Energy (J)', format: 'float', precision: 3 }
+        );
+      }
+      return cols;
+    }
+    const cols = [
+      { key: 'sample', label: 'Sample', format: 'int' },
+      { key: 'time', label: `Time (${axisMeta.x.unit})`, format: 'float', precision: 2 }
+    ];
+    availableTraces.forEach(k => {
+      const meta = axisMeta.y[k] || { label: k, unit: '' };
+      cols.push({ key: k, label: meta.unit ? `${meta.label} (${meta.unit})` : meta.label, format: 'float', precision: 2 });
+    });
+    if (isAnalysisMode) {
+      cols.push(
+        { key: 'kineticEnergy', label: 'Kinetic Energy (J)', format: 'float', precision: 3 },
+        { key: 'potentialEnergy', label: 'Potential Energy (J)', format: 'float', precision: 3 },
+        { key: 'totalEnergy', label: 'Total Energy (J)', format: 'float', precision: 3 }
+      );
+    }
+    return cols;
+  }, [subExperiment, availableTraces, axisMeta, isAnalysisMode]);
+
+  const tableData = React.useMemo(() => {
+    const source = isAnalysisMode ? analysisData : chartData;
+    return source.map(row => {
+      const obj = { time: Number((row.time / 1000).toFixed(2)), __originalIndex: row.__originalIndex };
+      availableTraces.forEach(k => { obj[k] = row[k]; });
+      const s = row.sample != null ? row.sample : (row.packet_id != null ? row.packet_id : (row.__originalIndex != null ? row.__originalIndex + 1 : null));
+      obj.sample = s;
+      if (isAnalysisMode) {
+        obj.kineticEnergy = row.kineticEnergy;
+        obj.potentialEnergy = row.potentialEnergy;
+        obj.totalEnergy = row.totalEnergy;
+      }
+      return obj;
+    });
+  }, [chartData, analysisData, availableTraces, isAnalysisMode]);
 
   return (
     <div className="space-y-4">
@@ -419,8 +498,9 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
           token={token}
           sharedWebSocket={sharedWebSocket}
           sharedExperimentManager={sharedExperimentManager}
-          chartData={getFilteredChartData()}
+          chartData={chartData}
           fullChartData={chartData} // Pass full data for proper index calculation
+          neglectedData={neglectedData}
           isRunning={isRunning}
           isPaused={isPaused}
           onStart={handleStart}
@@ -429,17 +509,22 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
           onReset={handleReset}
           onNeglectedDataRange={handleNeglectedDataRange} // Handle range selection for neglecting data
           config={config} // Pass configuration for fixed axis bounds
+          availableTraces={availableTraces}
+          axis={axisMeta}
+          onModeChange={(m) => setIsAnalysisMode(m === 'analysis')}
+          onAnalysisData={(data) => setAnalysisData(data)}
         />
       </div>
 
       {/* ===== LIVE DATA TABLE ===== */}
       <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-4">
         <LiveDataTable 
-          data={chartData}
+          data={tableData}
           isFullscreen={isTableFullscreen}
           onToggleFullscreen={() => setIsTableFullscreen(!isTableFullscreen)}
           onNeglectedDataChange={handleNeglectedDataChange}
           neglectedData={neglectedData}
+          columns={tableColumns}
         />
       </div>
 
