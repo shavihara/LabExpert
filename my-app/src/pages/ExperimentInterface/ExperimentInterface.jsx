@@ -92,6 +92,10 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
       }, 100);
     }
   }, [experimentId, setSelectedExperimentId, setActiveExperiment]); // Removed showInfo and showError from dependencies
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('labex:header:collapse'))
+  }, [])
   
   // Handle WebSocket connection status
   useEffect(() => {
@@ -201,6 +205,7 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
       localStorage.removeItem('experimentType');
       
       showInfo('Device disconnected');
+      window.dispatchEvent(new CustomEvent('labex:header:expand'))
       navigate('/dashboard');
     } catch (error) {
       console.error('Error disconnecting device:', error);
@@ -338,8 +343,8 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
           </ResponsiveCard>
           
           {/* Main Content */}
-          <ResponsiveCard className="p-3 md:p-6">
-            <div className="flex items-center justify-between mb-4 md:mb-6">
+          <ResponsiveCard padding="xs">
+            <div className="flex items-center justify-between mb-1 md:mb-6">
               <h2 className="text-lg md:text-2xl font-bold text-slate-800 flex items-center gap-2">
                 <FiBarChart2 className="text-purple-600" />
                 Live Data Feed

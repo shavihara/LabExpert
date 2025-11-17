@@ -1,3 +1,14 @@
 .app {
   min-height: 100vh;
 }
+
+/* Remove top margins/paddings from page sections to respond to header collapse */
+.app main > * {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
+/* Smooth content reposition when header collapses/expands */
+.app main {
+  transition: padding-top 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}

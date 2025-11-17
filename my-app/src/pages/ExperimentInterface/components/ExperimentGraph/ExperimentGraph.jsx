@@ -18,6 +18,25 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   const [saveStatus, setSaveStatus] = useState(null);
   const [isAnalysisMode, setIsAnalysisMode] = useState(false);
   const [analysisData, setAnalysisData] = useState([]);
+  const [graphCardHeight, setGraphCardHeight] = useState(null);
+  const graphRORef = useRef(null);
+  const graphCardElRef = useRef(null);
+  const setGraphCardEl = useCallback((el) => {
+    graphCardElRef.current = el;
+    if (graphRORef.current) {
+      try { graphRORef.current.disconnect(); } catch {}
+      graphRORef.current = null;
+    }
+    if (el) {
+      setGraphCardHeight(el.clientHeight);
+      const ro = new ResizeObserver(() => {
+        setGraphCardHeight(el.clientHeight);
+      });
+      ro.observe(el);
+      graphRORef.current = ro;
+    }
+  }, []);
+  const [isLg, setIsLg] = useState(() => typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : false);
   
   const chartDataRef = useRef([]);
   const timerRef = useRef(null);
@@ -34,6 +53,26 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   // Keep refs in sync with state
   useEffect(() => { isRunningRef.current = isRunning; }, [isRunning]);
   useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
+
+  useEffect(() => {
+    const mq = typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)') : null;
+    const handler = (e) => setIsLg(e.matches);
+    if (mq) {
+      mq.addEventListener('change', handler);
+    }
+    return () => {
+      if (mq) mq.removeEventListener('change', handler);
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (graphRORef.current) {
+        try { graphRORef.current.disconnect(); } catch {}
+        graphRORef.current = null;
+      }
+    };
+  }, []);
 
   // ===== DIRECT DATA STREAMING HANDLER =====
   const handleDataMessage = useCallback((message) => {
@@ -441,13 +480,6 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
           <div className="text-sm text-purple-900">
             <div>Duration: {totalDuration || 10}s</div>
             <div className="text-xs opacity-75">Samples: {chartData.length}</div>
-            {/* Sample count debugging */}
-            {chartData.length > 0 && (
-              <div className="text-xs opacity-75 mt-1 border-t border-purple-200 pt-1">
-                <div>First: {new Date(chartData[0].timestamp).toLocaleTimeString()}</div>
-                <div>Last: {new Date(chartData[chartData.length - 1].timestamp).toLocaleTimeString()}</div>
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -490,43 +522,89 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         </div>
       </div>
 
-      {/* ===== PLOTLY GRAPH INTEGRATION ===== */}
-      {/* This replaces the old Chart.js/Recharts implementation */}
-      <div className="bg-gradient-to-br from-white to-slate-50 rounded-2xl shadow-xl border-2 border-slate-200 p-4">
-        <PlotlyGraph 
-          experimentType={experimentType}
-          token={token}
-          sharedWebSocket={sharedWebSocket}
-          sharedExperimentManager={sharedExperimentManager}
-          chartData={chartData}
-          fullChartData={chartData} // Pass full data for proper index calculation
-          neglectedData={neglectedData}
-          isRunning={isRunning}
-          isPaused={isPaused}
-          onStart={handleStart}
-          onPause={handlePause}
-          onStop={handleStop}
-          onReset={handleReset}
-          onNeglectedDataRange={handleNeglectedDataRange} // Handle range selection for neglecting data
-          config={config} // Pass configuration for fixed axis bounds
-          availableTraces={availableTraces}
-          axis={axisMeta}
-          onModeChange={(m) => setIsAnalysisMode(m === 'analysis')}
-          onAnalysisData={(data) => setAnalysisData(data)}
-        />
-      </div>
-
-      {/* ===== LIVE DATA TABLE ===== */}
-      <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-4">
-        <LiveDataTable 
-          data={tableData}
-          isFullscreen={isTableFullscreen}
-          onToggleFullscreen={() => setIsTableFullscreen(!isTableFullscreen)}
-          onNeglectedDataChange={handleNeglectedDataChange}
-          neglectedData={neglectedData}
-          columns={tableColumns}
-        />
-      </div>
+      {isAnalysisMode ? (
+        <>
+          <div className="bg-gradient-to-br from-white to-slate-50 rounded-2xl shadow-xl border-2 border-slate-200 p-2 sm:p-3 md:p-4">
+            <PlotlyGraph 
+              experimentType={experimentType}
+              token={token}
+              sharedWebSocket={sharedWebSocket}
+              sharedExperimentManager={sharedExperimentManager}
+              chartData={chartData}
+              fullChartData={chartData}
+              neglectedData={neglectedData}
+              isRunning={isRunning}
+              isPaused={isPaused}
+              onStart={handleStart}
+              onPause={handlePause}
+              onStop={handleStop}
+              onReset={handleReset}
+              onNeglectedDataRange={handleNeglectedDataRange}
+              config={config}
+              availableTraces={availableTraces}
+              axis={axisMeta}
+              onModeChange={(m) => setIsAnalysisMode(m === 'analysis')}
+              onAnalysisData={(data) => setAnalysisData(data)}
+              externalMode={isAnalysisMode ? 'analysis' : 'live'}
+            />
+          </div>
+          <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-4">
+            <LiveDataTable 
+              data={tableData}
+              isFullscreen={isTableFullscreen}
+              onToggleFullscreen={() => setIsTableFullscreen(!isTableFullscreen)}
+              onNeglectedDataChange={handleNeglectedDataChange}
+              neglectedData={neglectedData}
+              columns={tableColumns}
+              visibleRowCount={20}
+            />
+          </div>
+        </>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-10 gap-4">
+          <div ref={setGraphCardEl} className="bg-gradient-to-br from-white to-slate-50 rounded-2xl shadow-xl border-2 border-slate-200 p-2 sm:p-3 md:p-4 lg:col-span-6">
+            <PlotlyGraph 
+              experimentType={experimentType}
+              token={token}
+              sharedWebSocket={sharedWebSocket}
+              sharedExperimentManager={sharedExperimentManager}
+              chartData={chartData}
+              fullChartData={chartData}
+              neglectedData={neglectedData}
+              isRunning={isRunning}
+              isPaused={isPaused}
+              onStart={handleStart}
+              onPause={handlePause}
+              onStop={handleStop}
+              onReset={handleReset}
+              onNeglectedDataRange={handleNeglectedDataRange}
+              config={config}
+              availableTraces={availableTraces}
+              axis={axisMeta}
+              onModeChange={(m) => setIsAnalysisMode(m === 'analysis')}
+              onAnalysisData={(data) => setAnalysisData(data)}
+              externalMode={isAnalysisMode ? 'analysis' : 'live'}
+            />
+          </div>
+          <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-2 sm:p-3 md:p-4 lg:col-span-4 overflow-y-auto min-h-0" style={isLg && !isTableFullscreen ? { height: (graphCardHeight || 400), maxHeight: (graphCardHeight || 400) } : undefined}>
+            <LiveDataTable 
+              data={tableData}
+              isFullscreen={isTableFullscreen}
+              onToggleFullscreen={() => setIsTableFullscreen(!isTableFullscreen)}
+              onNeglectedDataChange={handleNeglectedDataChange}
+              neglectedData={neglectedData}
+              columns={tableColumns}
+              hideNeglectColumn={true}
+              hideSampleColumn={true}
+              hideCopyButton={true}
+              hideNeglectAllButton={true}
+              hideCsvButton={true}
+              visibleRowCount={isAnalysisMode ? 20 : undefined}
+              containerClassName=""
+            />
+          </div>
+        </div>
+      )}
 
       {/* ===== EXPORT AND SAVE BUTTONS ===== */}
       <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-xl shadow-md border-2 border-purple-200 p-4">

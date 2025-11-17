@@ -1,3 +1,77 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Modern Header Animations */
+.header-swipe-up {
+  animation: headerSwipeUp 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.header-swipe-down {
+  animation: headerSwipeDown 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes headerSwipeUp {
+  0% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-100%);
+    opacity: 0.8;
+  }
+}
+
+@keyframes headerSwipeDown {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Modern button hover effects */
+.modern-button-hover {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.modern-button-hover::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  transition: left 0.7s ease;
+}
+
+.modern-button-hover:hover::before {
+  left: 100%;
+}
+
+/* Modern navigation item animations */
+.nav-item-modern {
+  position: relative;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.nav-item-modern::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, white, transparent);
+  transition: width 0.3s ease;
+}
+
+.nav-item-modern:hover::after {
+  width: 100%;
+}

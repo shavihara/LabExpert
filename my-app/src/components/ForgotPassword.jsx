@@ -184,8 +184,8 @@ function ForgotPassword() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-500 via-purple-600 to-purple-800  relative">
-      <div className="bg-white/95 backdrop-blur-xl p-8 rounded-3xl shadow-2xl border border-white/20 w-11/12 max-w-md animate-[fadeSlideUp_1s_ease-out_0.1s_forwards] opacity-0">
+    <div className="auth-container min-h-[calc(100vh-var(--header-height))] pt-[var(--header-height)] px-8 sm:px-12 lg:px-20 xl:px-28 flex items-center justify-center bg-gradient-to-br from-purple-500 via-purple-600 to-purple-800 relative overflow-auto">
+      <div className="auth-card bg-white/95 backdrop-blur-xl p-6 md:p-10 rounded-3xl shadow-2xl border border-white/20 w-full max-w-lg mx-4 animate-[fadeSlideUp_1s_ease-out_0.1s_forwards] opacity-0">
         <h1 className="text-center text-purple-600 text-4xl mb-2 font-extrabold">
           Lab Expert
         </h1>
@@ -194,7 +194,7 @@ function ForgotPassword() {
         </h2>
 
         {step === 1 && (
-          <form onSubmit={handleEmailSubmit} className="flex flex-col gap-6">
+          <form onSubmit={handleEmailSubmit} className="auth-form flex flex-col gap-4 md:gap-6">
             {error && (
               <div className="bg-red-50 text-red-600 px-4 py-3 rounded-lg border border-red-200 text-sm text-center animate-[shake_0.3s_ease-in-out]">
                 {error}
@@ -230,7 +230,7 @@ function ForgotPassword() {
         )}
 
         {step === 2 && (
-          <form onSubmit={handleOtpSubmit} className="flex flex-col gap-6">
+          <form onSubmit={handleOtpSubmit} className="auth-form flex flex-col gap-4 md:gap-6">
             {error && (
               <div className="bg-red-50 text-red-600 px-4 py-3 rounded-lg border border-red-200 text-sm text-center animate-[shake_0.3s_ease-in-out]">
                 {error}
@@ -258,16 +258,16 @@ function ForgotPassword() {
               <label htmlFor="otp" className="text-gray-700 font-semibold text-sm">
                 Enter 6-Digit OTP
               </label>
-              <div className="flex justify-center items-center gap-3 my-4">
-                {[0, 1, 2, 3, 4, 5].map((i) => (
-                  <input
-                    key={i}
-                    type="text"
-                    className={`otp-box w-12 h-12 text-center text-xl font-bold border-2 rounded-lg bg-white transition-all duration-300 outline-none focus:border-purple-600 focus:ring-4 focus:ring-purple-100 ${
-                      otp[i] ? 'border-green-600 bg-green-50' : 'border-gray-200'
-                    }`}
-                    value={otp[i] || ''}
-                    onChange={(e) => handleOtpChange(i, e.target.value, e)}
+                <div className="flex justify-center items-center gap-2 sm:gap-3 my-2 md:my-4">
+                  {[0, 1, 2, 3, 4, 5].map((i) => (
+                    <input
+                      key={i}
+                      type="text"
+                      className={`otp-box w-9 h-9 sm:w-12 sm:h-12 text-center text-lg sm:text-xl font-bold border-2 rounded-lg bg-white transition-all duration-300 outline-none focus:border-purple-600 focus:ring-4 focus:ring-purple-100 ${
+                        otp[i] ? 'border-green-600 bg-green-50' : 'border-gray-200'
+                      }`}
+                  value={otp[i] || ''}
+                  onChange={(e) => handleOtpChange(i, e.target.value, e)}
                     onKeyDown={(e) => {
                       if (e.key === 'Backspace' && !otp[i] && i > 0) {
                         e.preventDefault();
@@ -282,7 +282,7 @@ function ForgotPassword() {
             </div>
             <button
               type="submit"
-              className="bg-gradient-to-br from-purple-600 to-purple-800 text-white px-4 py-4 rounded-xl text-base font-bold cursor-pointer transition-all duration-300 hover:-translate-y-0.5 hover:shadow-2xl hover:shadow-purple-500/30 disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none disabled:bg-gray-500"
+              className="bg-gradient-to-br from-purple-600 to-purple-800 text-white px-4 py-3 md:py-4 rounded-xl text-base font-bold cursor-pointer transition-all duration-300 hover:-translate-y-0.5 hover:shadow-2xl hover:shadow-purple-500/30 disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none disabled:bg-gray-500"
               disabled={loading || timeRemaining === 0}
             >
               {loading ? 'Verifying...' : 'Verify OTP'}
@@ -308,7 +308,7 @@ function ForgotPassword() {
         )}
 
         {step === 3 && (
-          <form onSubmit={handlePasswordReset} className="flex flex-col gap-6">
+          <form onSubmit={handlePasswordReset} className="auth-form flex flex-col gap-4 md:gap-6">
             {error && (
               <div className="bg-red-50 text-red-600 px-4 py-3 rounded-lg border border-red-200 text-sm text-center animate-[shake_0.3s_ease-in-out]">
                 {error}
@@ -349,7 +349,7 @@ function ForgotPassword() {
             </div>
             <button
               type="submit"
-              className="bg-gradient-to-br from-purple-600 to-purple-800 text-white px-4 py-4 rounded-xl text-base font-bold cursor-pointer transition-all duration-300 hover:-translate-y-0.5 hover:shadow-2xl hover:shadow-purple-500/30 disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none"
+              className="bg-gradient-to-br from-purple-600 to-purple-800 text-white px-4 py-3 md:py-4 rounded-xl text-base font-bold cursor-pointer transition-all duration-300 hover:-translate-y-0.5 hover:shadow-2xl hover:shadow-purple-500/30 disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none"
               disabled={loading}
             >
               {loading ? 'Resetting...' : 'Reset Password'}
@@ -382,6 +382,16 @@ function ForgotPassword() {
           0%, 100% { transform: translateX(0); }
           25% { transform: translateX(-5px); }
           75% { transform: translateX(5px); }
+        }
+        @media (max-height: 740px) {
+          .auth-card { padding: 18px; max-width: 24rem; border-radius: 18px; }
+          .auth-form { gap: 14px; }
+          .otp-box { width: 40px; height: 40px; }
+        }
+        @media (max-height: 620px) {
+          .auth-card { padding: 14px; max-width: 22rem; border-radius: 16px; }
+          .auth-form { gap: 12px; }
+          .otp-box { width: 36px; height: 36px; font-size: 1rem; }
         }
       `}</style>
     </div>
