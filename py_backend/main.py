@@ -114,7 +114,19 @@ MQTTService.set_instance(mqtt_service)
 
 async def periodic_cleanup():
     while True:
-        await session_manager.cleanup_expired_allocations()
+        try:
+            # Clean up expired session allocations
+            await session_manager.cleanup_expired_allocations()
+            
+            # Synchronize device states between database and memory
+            await session_manager.sync_device_states_with_database()
+            
+            # Check online status for all available devices
+            await session_manager.check_all_available_devices_online_status()
+            
+        except Exception as e:
+            logger.error(f"Periodic cleanup failed: {e}")
+        
         await asyncio.sleep(60)  # Run every 60 seconds
 
 @app.on_event("startup")
