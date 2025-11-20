@@ -14,6 +14,7 @@ import PrivateRoute from './components/PrivateRoute';
 import { getCurrentUser, bootstrapDevAuth } from './utils/api';
 import { ThemeProvider } from './context/ThemeContext';
 import './App.css';
+import SensorProvisioning from './pages/SensorProvisioning';
 
 function AppContent() {
   const [currentUser, setCurrentUser] = useState(null);
@@ -120,6 +121,14 @@ function AppContent() {
             element={
               <PrivateRoute requiredRole="admin">
                 <AdminDashboard />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/sensor"
+            element={
+              <PrivateRoute>
+                <SensorProvisioning token={localStorage.getItem('token')} />
               </PrivateRoute>
             }
           />

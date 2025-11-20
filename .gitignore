@@ -31,7 +31,7 @@ Binn
 # -------------------------
 # Environment & secret files
 # -------------------------
-.env
+.back
 
 # -------------------------
 # Logs and system files
@@ -52,3 +52,5 @@ Binn/
 py_backend/bin/THEEEEETOF.bin
 py_backend/bin/TOF.bin
 py_backend/bin/TOF.bin
+
+LabExpert_Sensor_Communications/
