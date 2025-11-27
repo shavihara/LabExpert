@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { FiChevronUp, FiChevronDown } from 'react-icons/fi'
 import { Link, useLocation } from 'react-router-dom'
 import { api } from '../utils/api';
@@ -8,14 +8,33 @@ function Header() {
   const [isScrolled, setIsScrolled] = useState(false)
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false)
   const location = useLocation()
+  const isAuthPage = ['/login', '/signup', '/forgot-password'].includes(location.pathname)
 
+  const lastScrollYRef = useRef(0)
   useEffect(() => {
+    let ticking = false
     const handleScroll = () => {
-      setIsScrolled(window.scrollY > 20)
+      const currentY = window.scrollY || 0
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          const isScrollingDown = currentY > lastScrollYRef.current
+          lastScrollYRef.current = currentY
+          if (!isAuthPage) {
+            if (isScrollingDown && currentY > 10) {
+              setIsHeaderCollapsed(true)
+            } else if (currentY <= 10) {
+              setIsHeaderCollapsed(false)
+            }
+          }
+          ticking = false
+        })
+        ticking = true
+      }
+      setIsScrolled(currentY > 20)
     }
-    window.addEventListener('scroll', handleScroll)
+    window.addEventListener('scroll', handleScroll, { passive: true })
     return () => window.removeEventListener('scroll', handleScroll)
-  }, [])
+  }, [isAuthPage])
 
   useEffect(() => {
     setIsMenuOpen(false)
@@ -37,7 +56,6 @@ function Header() {
   }
 
   const isLoggedIn = localStorage.getItem('user') !== null
-  const isAuthPage = ['/login', '/signup', '/forgot-password'].includes(location.pathname)
 
   useEffect(() => {
     const hh = isAuthPage ? '80px' : '70px'

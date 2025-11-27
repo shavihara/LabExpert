@@ -7,6 +7,7 @@ import PlotlyGraph from '../../../../components/PlotlyGraph';
 import LiveDataTable from './LiveDataTable';
 
 const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperimentManager, config = { max_distance_cm: 150 }, subExperiment }) => {
+  const BACKEND_URL = `http://${window.location.hostname.replace(':3000', '')}:5000`;
   // ===== DATA HANDLING STATE =====
   const [chartData, setChartData] = useState([]);
   const [neglectedData, setNeglectedData] = useState(new Set());
@@ -37,6 +38,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     }
   }, []);
   const [isLg, setIsLg] = useState(() => typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : false);
+  const [notif, setNotif] = useState(null);
   
   const chartDataRef = useRef([]);
   const timerRef = useRef(null);
@@ -319,25 +321,52 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
 
   const handleSaveToProfile = async () => {
     try {
-      saveExperimentData({
-        experiment_type: experimentType,
-        data: chartData,
-        timestamp: new Date().toISOString()
-      });
-      
-      setSaveStatus({ status: 'loading', message: 'Saving data...' });
-      
-      const checkStatus = () => {
-        if (saveStatus && saveStatus.status !== 'loading') {
-          clearInterval(statusInterval);
-        }
-      };
-      
-      const statusInterval = setInterval(checkStatus, 100);
-      setTimeout(() => clearInterval(statusInterval), 5000);
-      
+      if (!token || tableData.length === 0) {
+        alert('❌ No data to save or not logged in');
+        return;
+      }
+      setSaveStatus({ status: 'loading', message: 'Uploading CSV...' });
+      setNotif({ type: 'info', message: 'Saving to profile...' });
+      setTimeout(() => setNotif(null), 3000);
+      const cols = tableColumns
+      const headers = `${cols.map(c => c.label).join(',')},Neglected`
+      const csvRows = tableData.map((row, idx) => {
+        const originalIndex = row.__originalIndex ?? idx
+        const neg = neglectedData.has(originalIndex) ? 'neglected' : ''
+        const base = cols.map(c => {
+          const value = row[c.key]
+          if (typeof value === 'string' && value.includes(',')) return `"${value}"`
+          return value
+        }).join(',')
+        return `${base},${neg}`
+      })
+      const csvContent = [headers, ...csvRows].join('\n')
+      const blob = new Blob([csvContent], { type: 'text/csv' })
+      const filename = `experiment_data_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`
+      const form = new FormData()
+      form.append('experiment_type', experimentType)
+      form.append('sub_experiment', (subExperiment && (subExperiment.id || subExperiment.key || subExperiment.name)) || 'default')
+      form.append('timestamp', new Date().toISOString())
+      form.append('file', blob, filename)
+      const response = await fetch(`${BACKEND_URL}/api/experiments/upload_csv`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: form
+      })
+      if (response.ok) {
+        setSaveStatus({ status: 'success', message: 'Saved to profile' })
+        setNotif({ type: 'success', message: 'Saved to profile' });
+        setTimeout(() => setNotif(null), 3000);
+      } else {
+        setSaveStatus({ status: 'error', message: 'Failed to save' })
+        setNotif({ type: 'error', message: 'Failed to save data' });
+        setTimeout(() => setNotif(null), 3000);
+      }
     } catch (error) {
-      alert('❌ Error saving data: ' + error.message);
+      setSaveStatus({ status: 'error', message: 'Error saving' })
+      alert('❌ Error saving data: ' + error.message)
+      setNotif({ type: 'error', message: 'Error saving data' });
+      setTimeout(() => setNotif(null), 3000);
     }
   };
 
@@ -617,12 +646,30 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
             <FiSave size={16} /> Save to Profile
           </button>
         </div>
+        {saveStatus && (
+          <div className={`mt-3 text-xs font-semibold px-3 py-2 rounded-lg inline-block border ${
+            saveStatus.status === 'loading' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+            saveStatus.status === 'success' ? 'bg-green-50 text-green-700 border-green-200' :
+            'bg-red-50 text-red-700 border-red-200'
+          }`}>
+            {saveStatus.message}
+          </div>
+        )}
         {chartData.length === 0 && (
           <p className="text-center text-xs text-slate-500 mt-2">
             Start the experiment to enable save options
           </p>
         )}
       </div>
+      {notif && (
+        <div className={`fixed top-[calc(var(--header-height)+8px)] right-4 z-50 px-4 py-3 rounded-xl shadow-lg border-2 ${
+          notif.type === 'success' ? 'bg-green-50 border-green-300 text-green-800' :
+          notif.type === 'error' ? 'bg-red-50 border-red-300 text-red-800' :
+          'bg-blue-50 border-blue-300 text-blue-800'
+        }`}>
+          <span className="text-sm font-semibold">{notif.message}</span>
+        </div>
+      )}
     </div>
   );
 };

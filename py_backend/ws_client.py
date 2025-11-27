@@ -397,25 +397,25 @@ class ClientWebSocketManager:
         try:
             logger.info(f"Flashing firmware for device {device_id}, experiment type: {experiment_type}")
             
-            # Get device IP from session manager
+            # Resolve device IP (in-memory or on-demand UDP discovery)
             device_status = await self.session_manager.get_device_status(device_id)
             logger.info(f"Device status for {device_id}: {device_status}")
-            
-            # Extract IP from nested status structure
+
             device_ip = None
-            if device_status:
-                # Try different possible locations for IP address
-                device_ip = device_status.get("ip_address")  # Direct access
-                if not device_ip and "status" in device_status:
-                    device_ip = device_status["status"].get("ip_address")  # Nested in status
+            if device_status and isinstance(device_status, dict):
+                device_ip = (device_status.get("status") or {}).get("ip_address")
+            
+            if not device_ip:
+                logger.info(f"IP not found in memory for {device_id}. Performing quick UDP discovery...")
+                device_ip = await self.session_manager.get_or_discover_device_ip(device_id, timeout=4)
             
             logger.info(f"Resolved device IP for {device_id}: {device_ip}")
             
             if not device_ip:
                 await self.send_to_user(user_id, {
-                    "type": "firmware_flash_result", 
-                    "success": False, 
-                    "message": f"Device IP not available for device {device_id}"
+                    "type": "firmware_flash_result",
+                    "success": False,
+                    "message": f"Device IP not available for device {device_id}. Please scan devices and ensure the device is online."
                 })
                 return
             
@@ -486,24 +486,24 @@ class ClientWebSocketManager:
             })
 
     async def _handle_save_experiment_data(self, user_id: str, experiment_type: str, graph_type: str, data: dict, timestamp: str):
-        """Handle experiment data saving request"""
         try:
-            logger.info(f"Saving experiment data for user {user_id}, type: {experiment_type}")
-            
-            # In a real implementation, you would save this to a database
-            # For now, we'll just log and return success
-            logger.info(f"Experiment data received: {json.dumps(data, indent=2)}")
-            
+            from services.file_service import FileService
+            meta = {
+                "experiment_type": experiment_type or "experiment",
+                "graph_type": graph_type or "default",
+                "timestamp": timestamp
+            }
+            result = FileService.save_experiment_csv(user_id, data or [], meta)
             await self.send_to_user(user_id, {
-                "type": "save_experiment_result", 
-                "success": True, 
-                "message": "Experiment data saved successfully"
+                "type": "save_experiment_result",
+                "success": True,
+                "message": "Experiment data saved successfully",
+                "file": result
             })
-            
         except Exception as e:
             logger.error(f"Error saving experiment data for user {user_id}: {e}")
             await self.send_to_user(user_id, {
-                "type": "save_experiment_result", 
-                "success": False, 
+                "type": "save_experiment_result",
+                "success": False,
                 "message": f"Failed to save experiment data: {str(e)}"
             })

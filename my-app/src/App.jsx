@@ -5,7 +5,12 @@ import Signup from './components/Signup';
 import ForgotPassword from './components/ForgotPassword';
 import Home from './components/Home';
 import Header from './components/Header';
+import { ToastContainer } from './components/common/Toast';
 import AdminDashboard from './pages/AdminDashboard';
+import AdminLogin from './components/AdminLogin';
+import AdminChangePassword from './components/AdminChangePassword';
+import AdminManage from './pages/AdminManage';
+import AdminPrivateRoute from './components/AdminPrivateRoute';
 import UserDashboard from './pages/UserDashboard';
 import ExperimentInterface from './pages/ExperimentInterface';
 import OSIInterface from './components/OSIInterface';
@@ -127,16 +132,19 @@ function AppContent() {
             }
           />
 
+          <Route path="/admin/login" element={<AdminLogin />} />
+          <Route path="/admin/change-password" element={<AdminChangePassword />} />
           <Route
-            path="/admin"
+            path="/admin/manage"
             element={
-              <PrivateRoute requiredRole="admin">
-                <AdminDashboard />
-              </PrivateRoute>
+              <AdminPrivateRoute>
+                <AdminManage />
+              </AdminPrivateRoute>
             }
           />
         </Routes>
       </main>
+      <ToastContainer />
     </div>
   );
 }

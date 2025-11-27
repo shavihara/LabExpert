@@ -74,6 +74,8 @@ const PlotlyGraph = ({
   const plotRef = useRef(null);
   const analysisDataRef = useRef([]);
   const [isMobile, setIsMobile] = useState(false);
+  const axisLockRef = useRef(null);
+  const axisRangeRef = useRef({ x: null, y: null });
 
   useEffect(() => {
     const onFsChange = () => {
@@ -119,6 +121,43 @@ const PlotlyGraph = ({
     }
   };
 
+  useEffect(() => {
+    const el = plotRef.current?.el;
+    if (!el || !plotlyLib) return;
+    let unlockTimeout = null;
+    let currentLock = null;
+    const lockAxes = (target) => {
+      if (target === currentLock) return;
+      currentLock = target;
+      if (target === 'x') {
+        plotlyLib.relayout(el, { 'yaxis.fixedrange': true, 'xaxis.fixedrange': false });
+      } else if (target === 'y') {
+        plotlyLib.relayout(el, { 'xaxis.fixedrange': true, 'yaxis.fixedrange': false });
+      } else {
+        plotlyLib.relayout(el, { 'xaxis.fixedrange': false, 'yaxis.fixedrange': false });
+      }
+    };
+    const onWheel = (e) => {
+      const rect = el.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const bandY = rect.height - Math.min(rect.height * 0.15, 80);
+      const bandX = Math.min(rect.width * 0.12, 80);
+      const target = y >= bandY ? 'x' : (x <= bandX ? 'y' : null);
+      lockAxes(target);
+      if (unlockTimeout) clearTimeout(unlockTimeout);
+      unlockTimeout = setTimeout(() => {
+        currentLock = null;
+        lockAxes(null);
+      }, 220);
+    };
+    el.addEventListener('wheel', onWheel, { passive: true });
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+      if (unlockTimeout) clearTimeout(unlockTimeout);
+    };
+  }, [plotlyLib, isFullscreen]);
+
   // Get intelligent y-axis range based on data type and configuration
   const getYAxisRange = () => {
     const maxDistance = config.max_distance_cm || 150;
@@ -160,14 +199,18 @@ const PlotlyGraph = ({
     const effectiveData = (neglectedData && neglectedData.size > 0)
       ? data.filter((_, i) => !neglectedData.has(i))
       : data;
+    const maxPoints = 5000;
+    const step = effectiveData.length > maxPoints ? Math.ceil(effectiveData.length / maxPoints) : 1;
+    const decimated = step > 1 ? effectiveData.filter((_, i) => i % step === 0) : effectiveData;
+    const useGL = true;
     
     const traces = [];
     
-    if (visibleTraces['s-t'] && effectiveData.some(d => d.distance != null)) {
+    if (visibleTraces['s-t'] && decimated.some(d => d.distance != null)) {
       traces.push({
-        x: effectiveData.map(d => d.time || d.timeDisplay),
-        y: effectiveData.map(d => d.distance || 0),
-        type: 'scatter',
+        x: decimated.map(d => d.time || d.timeDisplay),
+        y: decimated.map(d => d.distance || 0),
+        type: useGL ? 'scattergl' : 'scatter',
         mode: 'lines',
         name: `${axis?.y?.distance?.label || 'Displacement'}${axis?.y?.distance?.unit ? ' ('+axis.y.distance.unit+')' : ''}`,
         line: { color: '#6366f1', width: 2.5 },
@@ -176,11 +219,11 @@ const PlotlyGraph = ({
     }
     
     // Intensity trace (for light intensity experiments)
-    if (visibleTraces['i-t'] && effectiveData.some(d => d.intensity != null)) {
+    if (visibleTraces['i-t'] && decimated.some(d => d.intensity != null)) {
       traces.push({
-        x: effectiveData.map(d => d.time || d.timeDisplay),
-        y: effectiveData.map(d => d.intensity || 0),
-        type: 'scatter',
+        x: decimated.map(d => d.time || d.timeDisplay),
+        y: decimated.map(d => d.intensity || 0),
+        type: useGL ? 'scattergl' : 'scatter',
         mode: 'lines',
         name: `${axis?.y?.intensity?.label || 'Intensity'}${axis?.y?.intensity?.unit ? ' ('+axis.y.intensity.unit+')' : ''}`,
         line: { color: '#f59e0b', width: 2.5 },
@@ -188,11 +231,11 @@ const PlotlyGraph = ({
       });
     }
     
-    if (visibleTraces['v-t'] && effectiveData.some(d => d.velocity != null)) {
+    if (visibleTraces['v-t'] && decimated.some(d => d.velocity != null)) {
       traces.push({
-        x: effectiveData.map(d => d.time || d.timeDisplay),
-        y: effectiveData.map(d => d.velocity || 0),
-        type: 'scatter',
+        x: decimated.map(d => d.time || d.timeDisplay),
+        y: decimated.map(d => d.velocity || 0),
+        type: useGL ? 'scattergl' : 'scatter',
         mode: 'lines',
         name: `${axis?.y?.velocity?.label || 'Velocity'}${axis?.y?.velocity?.unit ? ' ('+axis.y.velocity.unit+')' : ''}`,
         line: { color: '#10b981', width: 2.5 },
@@ -200,11 +243,11 @@ const PlotlyGraph = ({
       });
     }
     
-    if (visibleTraces['a-t'] && effectiveData.some(d => d.acceleration != null)) {
+    if (visibleTraces['a-t'] && decimated.some(d => d.acceleration != null)) {
       traces.push({
-        x: effectiveData.map(d => d.time || d.timeDisplay),
-        y: effectiveData.map(d => d.acceleration || 0),
-        type: 'scatter',
+        x: decimated.map(d => d.time || d.timeDisplay),
+        y: decimated.map(d => d.acceleration || 0),
+        type: useGL ? 'scattergl' : 'scatter',
         mode: 'lines',
         name: `${axis?.y?.acceleration?.label || 'Acceleration'}${axis?.y?.acceleration?.unit ? ' ('+axis.y.acceleration.unit+')' : ''}`,
         line: { color: '#ef4444', width: 2.5 },
@@ -214,11 +257,11 @@ const PlotlyGraph = ({
 
     // Energy traces (only in analysis mode)
     if (mode === 'analysis') {
-      if (visibleTraces['ke'] && effectiveData.some(d => d.kineticEnergy != null)) {
+      if (visibleTraces['ke'] && decimated.some(d => d.kineticEnergy != null)) {
         traces.push({
-          x: effectiveData.map(d => d.time || d.timeDisplay),
-          y: effectiveData.map(d => d.kineticEnergy || 0),
-          type: 'scatter',
+          x: decimated.map(d => d.time || d.timeDisplay),
+          y: decimated.map(d => d.kineticEnergy || 0),
+          type: useGL ? 'scattergl' : 'scatter',
           mode: 'lines',
           name: 'Kinetic Energy (J)',
           line: { color: '#f59e0b', width: 2, dash: 'dot' },
@@ -226,11 +269,11 @@ const PlotlyGraph = ({
         });
       }
       
-      if (visibleTraces['pe'] && effectiveData.some(d => d.potentialEnergy != null)) {
+      if (visibleTraces['pe'] && decimated.some(d => d.potentialEnergy != null)) {
         traces.push({
-          x: effectiveData.map(d => d.time || d.timeDisplay),
-          y: effectiveData.map(d => d.potentialEnergy || 0),
-          type: 'scatter',
+          x: decimated.map(d => d.time || d.timeDisplay),
+          y: decimated.map(d => d.potentialEnergy || 0),
+          type: useGL ? 'scattergl' : 'scatter',
           mode: 'lines',
           name: 'Potential Energy (J)',
           line: { color: '#8b5cf6', width: 2, dash: 'dot' },
@@ -238,11 +281,11 @@ const PlotlyGraph = ({
         });
       }
       
-      if (visibleTraces['te'] && effectiveData.some(d => d.totalEnergy != null)) {
+      if (visibleTraces['te'] && decimated.some(d => d.totalEnergy != null)) {
         traces.push({
-          x: effectiveData.map(d => d.time || d.timeDisplay),
-          y: effectiveData.map(d => d.totalEnergy || 0),
-          type: 'scatter',
+          x: decimated.map(d => d.time || d.timeDisplay),
+          y: decimated.map(d => d.totalEnergy || 0),
+          type: useGL ? 'scattergl' : 'scatter',
           mode: 'lines',
           name: 'Total Energy (J)',
           line: { color: '#06b6d4', width: 3 },
@@ -665,6 +708,7 @@ const PlotlyGraph = ({
             plotly={plotlyLib}
             data={preparePlotData()}
             layout={{
+              uirevision: 'keep-zoom',
               title: {
                 text: `${mode === 'live' ? 'Real-time Plot' : 'Analysis Plot'}`,
                 font: { size: isFullscreen ? 18 : 14 },
@@ -701,7 +745,9 @@ const PlotlyGraph = ({
                 tickangle: isFullscreen ? 0 : 0,
                 automargin: true,
                 nticks: isFullscreen ? 15 : 10,
-                tickformat: isFullscreen ? '.2f' : undefined
+                tickformat: isFullscreen ? '.2f' : undefined,
+                range: axisRangeRef.current.x || undefined,
+                autorange: axisRangeRef.current.x ? false : true
               },
               yaxis: {
                 title: (() => {
@@ -714,7 +760,8 @@ const PlotlyGraph = ({
                 zeroline: true,
                 zerolinecolor: '#94a3b8',
                 zerolinewidth: 1,
-                range: getYAxisRange(), // Dynamic y-axis bounds based on data type and configuration
+                range: axisRangeRef.current.y || getYAxisRange(),
+                autorange: axisRangeRef.current.y ? false : true,
                 showticklabels: true,
                 tickfont: { size: isFullscreen ? 14 : 12 },
                 titlefont: { size: isFullscreen ? 16 : 14 },
@@ -743,6 +790,18 @@ const PlotlyGraph = ({
             }}
             onClick={handlePlotClick}
             onSelected={handleSelection}
+            onRelayout={(ed) => {
+              const xr0 = ed['xaxis.range[0]'];
+              const xr1 = ed['xaxis.range[1]'];
+              if (typeof xr0 === 'number' && typeof xr1 === 'number') {
+                axisRangeRef.current.x = [xr0, xr1];
+              }
+              const yr0 = ed['yaxis.range[0]'];
+              const yr1 = ed['yaxis.range[1]'];
+              if (typeof yr0 === 'number' && typeof yr1 === 'number') {
+                axisRangeRef.current.y = [yr0, yr1];
+              }
+            }}
             useResizeHandler={true}
             style={{ width: '100%', height: '100%' }}
           />
