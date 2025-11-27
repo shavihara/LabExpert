@@ -36,7 +36,9 @@ import logging
 from collections import deque
 import numpy as np
 from datetime import datetime
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Query, Request, Header, WebSocket, WebSocketDisconnect
+import secrets
+import uuid
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Query, Request, Header, WebSocket, WebSocketDisconnect, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse, FileResponse
@@ -83,6 +85,10 @@ from services.oscillation_service import (
     live_oscillation_generator,
     get_osi_data
 )
+from services.admin_user_service import AdminUserService, AdminSessionService, password_meets_policy
+from services.admin_auth_service import issue_admin_tokens, verify_jwt, log_attempt, rate_limiter, validate_password
+from sqlalchemy import text
+from config.database import engine
 
 # Import MQTT service
 from services.mqtt_service import MQTTService
@@ -327,6 +333,14 @@ class SignupRequest(BaseModel):
     name: str
     email: EmailStr
     password: str
+
+class AdminLoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+class AdminChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -903,8 +917,8 @@ async def handle_upload_firmware(
 async def save_experiment_data(data: ExperimentData, current_user=Depends(get_current_user)):
     try:
         logger.info(f"Saving experiment data for user {current_user['id']}")
-        # In a real app, you would save data.data and data.metadata to the database
-        return {"success": True, "message": "Data saved to profile"}
+        result = FileService.save_experiment_csv(current_user['id'], data.data, data.metadata or {})
+        return {"success": True, "file": result}
     except Exception as e:
         logger.error(f"Failed to save experiment data: {e}")
         raise HTTPException(500, f"Failed to save data: {str(e)}")
@@ -1026,10 +1040,70 @@ async def get_osi_data_endpoint(current_user=Depends(get_current_user)):
 async def save_osi_data(data: ExperimentData, current_user=Depends(get_current_user)):
     try:
         logger.info(f"Saving OSI data for user {current_user['id']}")
-        return {"success": True, "message": "Data saved to profile"}
+        meta = dict(data.metadata or {})
+        if 'experiment_type' not in meta:
+            meta['experiment_type'] = 'oscillation'
+        result = FileService.save_experiment_csv(current_user['id'], data.data, meta)
+        return {"success": True, "file": result}
     except Exception as e:
         logger.error(f"Failed to save OSI data: {e}")
         raise HTTPException(500, f"Failed to save data: {str(e)}")
+
+@app.post("/api/experiments/upload_csv")
+async def upload_experiment_csv(
+    experiment_type: str = Form(...),
+    sub_experiment: str = Form("default"),
+    timestamp: str = Form(None),
+    file: UploadFile = File(...),
+    current_user=Depends(get_current_user)
+):
+    try:
+        content = await file.read()
+        meta = {"experiment_type": experiment_type, "sub_experiment": sub_experiment}
+        if timestamp:
+            meta["timestamp"] = timestamp
+        result = FileService.save_uploaded_csv(current_user['id'], content, file.filename, meta)
+        return {"success": True, "file": result}
+    except Exception as e:
+        logger.error(f"Failed to upload CSV: {e}")
+        raise HTTPException(500, f"Failed to upload CSV: {str(e)}")
+
+@app.get("/api/experiments/files")
+async def list_experiment_files(
+    experiment_type: Optional[str] = Query(None),
+    sub_experiment: Optional[str] = Query(None),
+    date: Optional[str] = Query(None),
+    page: int = Query(1),
+    limit: int = Query(20),
+    current_user=Depends(get_current_user)
+):
+    from config.database import prepare
+    base_sql = "SELECT * FROM experiment_runs WHERE user_id = :user_id"
+    params = {"user_id": current_user['id']}
+    if experiment_type:
+        base_sql += " AND experiment_type = :experiment_type"
+        params["experiment_type"] = experiment_type
+    if sub_experiment:
+        base_sql += " AND sub_experiment = :sub_experiment"
+        params["sub_experiment"] = sub_experiment
+    if date:
+        base_sql += " AND DATE(performed_at) = :date"
+        params["date"] = date
+    base_sql += " ORDER BY performed_at DESC LIMIT :limit OFFSET :offset"
+    params["limit"] = limit
+    params["offset"] = max(0, (page - 1) * limit)
+    stmt = prepare(base_sql)
+    rows = stmt(params).fetchall()
+    return {"success": True, "files": [dict(r) for r in rows]}
+
+@app.get("/api/experiments/download/{run_id}")
+async def download_experiment_file(run_id: str, current_user=Depends(get_current_user)):
+    from config.database import prepare
+    stmt = prepare("SELECT * FROM experiment_runs WHERE id = :id AND user_id = :user_id")
+    row = stmt({"id": run_id, "user_id": current_user['id']}).fetchone()
+    if not row:
+        raise HTTPException(404, "Not found")
+    return FileResponse(path=row['file_path'], media_type="text/csv", filename=row['filename'])
 
 
 # -----------------------------------------------------EXPERIMENT SELECTION---------------------------------------------------------
@@ -1324,15 +1398,6 @@ async def startup_event():
 
 
 # ------------------ Run ------------------
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=int(os.getenv("PORT", 5000)),
-        log_level="info"
-    )
 
 
 @app.post("/api/admin/cleanup-sessions")
@@ -1354,3 +1419,172 @@ async def get_firmware_file(sensor_id: str, current_user=Depends(get_current_use
     if not path:
         raise HTTPException(404, f"No firmware mapped for sensor: {sensor_id}")
     return FileResponse(path, media_type="application/octet-stream", filename=os.path.basename(path))
+
+
+# ------------------ Admin Auth (JWT + CSRF) ------------------
+
+def get_admin_token_from_request(request: Request) -> str | None:
+    token = request.cookies.get("admin_access_token")
+    if not token:
+        auth = request.headers.get("Authorization")
+        if auth and auth.startswith("Bearer "):
+            token = auth.split(" ")[1]
+    return token
+
+async def get_current_admin(request: Request):
+    token = get_admin_token_from_request(request)
+    if not token:
+        raise HTTPException(401, "Missing admin token")
+    payload = verify_jwt(token)
+    if not payload:
+        raise HTTPException(401, "Invalid or expired admin token")
+    session = AdminSessionService.find(payload.get("sid", ""))
+    if not session or not session.get("is_active"):
+        raise HTTPException(401, "Admin session inactive")
+    AdminSessionService.update_activity(payload.get("sid", ""))
+    admin = AdminUserService.find_by_id(payload.get("uid"))
+    if not admin or not admin.get("is_active"):
+        raise HTTPException(403, "Admin inactive")
+    if int(admin.get("token_version", 0)) != int(payload.get("ver", 0)):
+        raise HTTPException(401, "Admin token invalidated")
+    return admin
+
+def require_csrf(request: Request):
+    csrf_cookie = request.cookies.get("admin_csrf_token")
+    csrf_header = request.headers.get("X-CSRF-Token")
+    if not csrf_cookie or not csrf_header or csrf_cookie != csrf_header:
+        raise HTTPException(403, "CSRF token mismatch")
+
+@app.get("/api/admin/csrf")
+async def get_admin_csrf(request: Request):
+    token = secrets.token_hex(16)
+    resp = JSONResponse({"success": True, "csrf": token})
+    resp.set_cookie("admin_csrf_token", token, httponly=False, samesite="strict")
+    return resp
+
+@app.post("/api/admin/auth/login")
+async def admin_login(req: AdminLoginRequest, request: Request):
+    ip = request.client.host
+    ua = request.headers.get("User-Agent", "")
+    key = f"admin-login:{ip}"
+    if not rate_limiter.allow(key):
+        raise HTTPException(429, "Too many login attempts")
+    admin = AdminUserService.find_by_email(req.email)
+    success = False
+    if admin and validate_password(req.password, admin["password_hash"]):
+        success = True
+    log_attempt(req.email, ip, ua, success)
+    if not success:
+        logger.info(f"Admin login failed for {req.email}. Found={bool(admin)}")
+        raise HTTPException(401, "Invalid admin credentials")
+    AdminUserService.update_last_login(admin["id"])
+    tokens = issue_admin_tokens(admin)
+    resp = JSONResponse({"success": True, "must_change_password": bool(admin.get("must_change_password"))})
+    resp.set_cookie("admin_access_token", tokens["token"], httponly=True, samesite="strict")
+    resp.set_cookie("admin_csrf_token", tokens["csrf"], httponly=False, samesite="strict")
+    return resp
+
+@app.get("/api/admin/auth/me")
+async def admin_me(admin=Depends(get_current_admin)):
+    return {"success": True, "admin": {"id": admin["id"], "email": admin["email"], "role": admin["role"], "must_change_password": bool(admin.get("must_change_password")), "last_login": admin.get("last_login")}}
+
+@app.post("/api/admin/auth/change-password")
+async def admin_change_password(req: AdminChangePasswordRequest, request: Request, admin=Depends(get_current_admin)):
+    require_csrf(request)
+    if not validate_password(req.current_password, admin["password_hash"]):
+        raise HTTPException(400, "Current password incorrect")
+    if not password_meets_policy(req.new_password):
+        raise HTTPException(400, "Password does not meet complexity requirements")
+    import bcrypt
+    new_hash = bcrypt.hashpw(req.new_password.encode(), bcrypt.gensalt()).decode()
+    if AdminUserService.password_in_history(admin["id"], req.new_password):
+        raise HTTPException(400, "Password was used recently")
+    AdminUserService.set_password(admin["id"], new_hash)
+    AdminUserService.add_password_history(admin["id"], new_hash)
+    AdminUserService.clear_force_change(admin["id"])
+    AdminUserService.increment_token_version(admin["id"]) 
+    # Sync password to normal users table so admin can use /login
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text("UPDATE users SET password = :ph, role = :role WHERE email = :email"),
+                {"ph": new_hash, "role": admin.get("role", "admin"), "email": admin["email"]}
+            )
+    except Exception:
+        pass
+    resp = JSONResponse({"success": True})
+    resp.delete_cookie("admin_access_token")
+    return resp
+
+@app.post("/api/admin/auth/logout")
+async def admin_logout(request: Request, admin=Depends(get_current_admin)):
+    token = get_admin_token_from_request(request)
+    payload = verify_jwt(token or "")
+    if payload:
+        AdminSessionService.invalidate(payload.get("sid", ""))
+    resp = JSONResponse({"success": True})
+    resp.delete_cookie("admin_access_token")
+    return resp
+
+@app.get("/api/admin/users")
+async def list_admins(admin=Depends(get_current_admin)):
+    if admin.get("role") != "superadmin":
+        raise HTTPException(403, "Forbidden")
+    return {"success": True, "admins": AdminUserService.list_admins()}
+
+class CreateAdminRequest(BaseModel):
+    email: EmailStr
+    password: str
+    role: str = "admin"
+
+@app.post("/api/admin/users")
+async def create_admin(req: CreateAdminRequest, request: Request, admin=Depends(get_current_admin)):
+    require_csrf(request)
+    if admin.get("role") != "superadmin":
+        raise HTTPException(403, "Forbidden")
+    if not password_meets_policy(req.password):
+        raise HTTPException(400, "Password does not meet complexity requirements")
+    import bcrypt
+    ph = bcrypt.hashpw(req.password.encode(), bcrypt.gensalt()).decode()
+    existing = AdminUserService.find_by_email(req.email)
+    if existing:
+        raise HTTPException(400, "Admin email already exists")
+    created = AdminUserService.create_admin(req.email, ph, req.role)
+    AdminUserService.add_password_history(created["id"], ph)
+    # Sync to normal users table so the admin can use /login and access legacy dashboard
+    try:
+        with engine.begin() as conn:
+            # Upsert user with same email and hashed password
+            user_row = conn.execute(text("SELECT id FROM users WHERE email = :email"), {"email": created["email"]}).fetchone()
+            if user_row:
+                conn.execute(
+                    text("UPDATE users SET password = :ph, role = :role, is_active = 1 WHERE email = :email"),
+                    {"ph": ph, "role": created.get("role", "admin"), "email": created["email"]}
+                )
+            else:
+                conn.execute(
+                    text("""
+                        INSERT INTO users (id, name, email, password, role, is_email_verified, is_active, created_at)
+                        VALUES (:id, :name, :email, :password, :role, 1, 1, CURRENT_TIMESTAMP)
+                    """),
+                    {
+                        "id": str(uuid.uuid4()),
+                        "name": f"Admin {created['email']}",
+                        "email": created["email"],
+                        "password": ph,
+                        "role": created.get("role", "admin")
+                    }
+                )
+    except Exception:
+        pass
+    return {"success": True, "admin": {"id": created["id"], "email": created["email"], "role": created["role"]}}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", 5000)),
+        log_level="info"
+    )

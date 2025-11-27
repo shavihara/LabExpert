@@ -1,12 +1,12 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import Plot from 'react-plotly.js';
 
 // Dynamically import the Plotly library and pass it to react-plotly.js via the 'plotly' prop.
 // This avoids the factory class component path and bypasses any dynamic require inside the library.
 import {
-  FiPlay, FiPause, FiStopCircle, FiRefreshCw, FiMaximize, FiMinimize,
+  FiPlay, FiPause, FiStopCircle, FiMaximize, FiMinimize,
   FiZoomIn, FiZoomOut, FiTrendingUp, FiBarChart2, FiDownload,
-  FiSave, FiEye, FiEyeOff, FiDollarSign, FiTarget, FiMove
+  FiSave, FiEye, FiEyeOff, FiDollarSign, FiTarget
 } from 'react-icons/fi';
 
 const PlotlyGraph = ({ 
@@ -29,7 +29,8 @@ const PlotlyGraph = ({
   availableTraces = ['distance','velocity','acceleration'],
   axis = { x: { label: 'Time', unit: 's' }, y: { distance:{label:'Displacement',unit:'cm'}, velocity:{label:'Velocity',unit:'cm/s'}, acceleration:{label:'Acceleration',unit:'cm/s²'}, intensity:{label:'Intensity',unit:'lux'} } },
   onModeChange,
-  onAnalysisData
+  onAnalysisData,
+  externalMode
 }) => {
   const [plotlyLib, setPlotlyLib] = useState(null);
   useEffect(() => {
@@ -48,6 +49,7 @@ const PlotlyGraph = ({
 
   const [mode, setMode] = useState('live'); // 'live' or 'analysis'
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const plotContainerRef = useRef(null);
   const mapKey = useCallback((k) => ({
     intensity: 'i-t', distance: 's-t', velocity: 'v-t', acceleration: 'a-t'
   })[k] || `${k}-t`, []);
@@ -71,6 +73,90 @@ const PlotlyGraph = ({
 
   const plotRef = useRef(null);
   const analysisDataRef = useRef([]);
+  const [isMobile, setIsMobile] = useState(false);
+  const axisLockRef = useRef(null);
+  const axisRangeRef = useRef({ x: null, y: null });
+
+  useEffect(() => {
+    const onFsChange = () => {
+      const active = !!document.fullscreenElement;
+      setIsFullscreen(active);
+      document.body.style.overflow = active ? 'hidden' : '';
+    };
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, []);
+
+  useEffect(() => {
+    if (externalMode && externalMode !== mode) {
+      setMode(externalMode);
+    }
+  }, [externalMode]);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 640);
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const toggleFullscreen = async () => {
+    try {
+      if (!document.fullscreenElement) {
+        if (plotContainerRef.current && plotContainerRef.current.requestFullscreen) {
+          await plotContainerRef.current.requestFullscreen();
+        } else {
+          setIsFullscreen(true);
+          document.body.style.overflow = 'hidden';
+        }
+      } else {
+        await document.exitFullscreen();
+        setIsFullscreen(false);
+        document.body.style.overflow = '';
+      }
+    } catch (e) {
+      setIsFullscreen(prev => !prev);
+      const active = !isFullscreen;
+      document.body.style.overflow = active ? 'hidden' : '';
+    }
+  };
+
+  useEffect(() => {
+    const el = plotRef.current?.el;
+    if (!el || !plotlyLib) return;
+    let unlockTimeout = null;
+    let currentLock = null;
+    const lockAxes = (target) => {
+      if (target === currentLock) return;
+      currentLock = target;
+      if (target === 'x') {
+        plotlyLib.relayout(el, { 'yaxis.fixedrange': true, 'xaxis.fixedrange': false });
+      } else if (target === 'y') {
+        plotlyLib.relayout(el, { 'xaxis.fixedrange': true, 'yaxis.fixedrange': false });
+      } else {
+        plotlyLib.relayout(el, { 'xaxis.fixedrange': false, 'yaxis.fixedrange': false });
+      }
+    };
+    const onWheel = (e) => {
+      const rect = el.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const bandY = rect.height - Math.min(rect.height * 0.15, 80);
+      const bandX = Math.min(rect.width * 0.12, 80);
+      const target = y >= bandY ? 'x' : (x <= bandX ? 'y' : null);
+      lockAxes(target);
+      if (unlockTimeout) clearTimeout(unlockTimeout);
+      unlockTimeout = setTimeout(() => {
+        currentLock = null;
+        lockAxes(null);
+      }, 220);
+    };
+    el.addEventListener('wheel', onWheel, { passive: true });
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+      if (unlockTimeout) clearTimeout(unlockTimeout);
+    };
+  }, [plotlyLib, isFullscreen]);
 
   // Get intelligent y-axis range based on data type and configuration
   const getYAxisRange = () => {
@@ -113,14 +199,18 @@ const PlotlyGraph = ({
     const effectiveData = (neglectedData && neglectedData.size > 0)
       ? data.filter((_, i) => !neglectedData.has(i))
       : data;
+    const maxPoints = 5000;
+    const step = effectiveData.length > maxPoints ? Math.ceil(effectiveData.length / maxPoints) : 1;
+    const decimated = step > 1 ? effectiveData.filter((_, i) => i % step === 0) : effectiveData;
+    const useGL = true;
     
     const traces = [];
     
-    if (visibleTraces['s-t'] && effectiveData.some(d => d.distance != null)) {
+    if (visibleTraces['s-t'] && decimated.some(d => d.distance != null)) {
       traces.push({
-        x: effectiveData.map(d => d.time || d.timeDisplay),
-        y: effectiveData.map(d => d.distance || 0),
-        type: 'scatter',
+        x: decimated.map(d => d.time || d.timeDisplay),
+        y: decimated.map(d => d.distance || 0),
+        type: useGL ? 'scattergl' : 'scatter',
         mode: 'lines',
         name: `${axis?.y?.distance?.label || 'Displacement'}${axis?.y?.distance?.unit ? ' ('+axis.y.distance.unit+')' : ''}`,
         line: { color: '#6366f1', width: 2.5 },
@@ -129,11 +219,11 @@ const PlotlyGraph = ({
     }
     
     // Intensity trace (for light intensity experiments)
-    if (visibleTraces['i-t'] && effectiveData.some(d => d.intensity != null)) {
+    if (visibleTraces['i-t'] && decimated.some(d => d.intensity != null)) {
       traces.push({
-        x: effectiveData.map(d => d.time || d.timeDisplay),
-        y: effectiveData.map(d => d.intensity || 0),
-        type: 'scatter',
+        x: decimated.map(d => d.time || d.timeDisplay),
+        y: decimated.map(d => d.intensity || 0),
+        type: useGL ? 'scattergl' : 'scatter',
         mode: 'lines',
         name: `${axis?.y?.intensity?.label || 'Intensity'}${axis?.y?.intensity?.unit ? ' ('+axis.y.intensity.unit+')' : ''}`,
         line: { color: '#f59e0b', width: 2.5 },
@@ -141,11 +231,11 @@ const PlotlyGraph = ({
       });
     }
     
-    if (visibleTraces['v-t'] && effectiveData.some(d => d.velocity != null)) {
+    if (visibleTraces['v-t'] && decimated.some(d => d.velocity != null)) {
       traces.push({
-        x: effectiveData.map(d => d.time || d.timeDisplay),
-        y: effectiveData.map(d => d.velocity || 0),
-        type: 'scatter',
+        x: decimated.map(d => d.time || d.timeDisplay),
+        y: decimated.map(d => d.velocity || 0),
+        type: useGL ? 'scattergl' : 'scatter',
         mode: 'lines',
         name: `${axis?.y?.velocity?.label || 'Velocity'}${axis?.y?.velocity?.unit ? ' ('+axis.y.velocity.unit+')' : ''}`,
         line: { color: '#10b981', width: 2.5 },
@@ -153,11 +243,11 @@ const PlotlyGraph = ({
       });
     }
     
-    if (visibleTraces['a-t'] && effectiveData.some(d => d.acceleration != null)) {
+    if (visibleTraces['a-t'] && decimated.some(d => d.acceleration != null)) {
       traces.push({
-        x: effectiveData.map(d => d.time || d.timeDisplay),
-        y: effectiveData.map(d => d.acceleration || 0),
-        type: 'scatter',
+        x: decimated.map(d => d.time || d.timeDisplay),
+        y: decimated.map(d => d.acceleration || 0),
+        type: useGL ? 'scattergl' : 'scatter',
         mode: 'lines',
         name: `${axis?.y?.acceleration?.label || 'Acceleration'}${axis?.y?.acceleration?.unit ? ' ('+axis.y.acceleration.unit+')' : ''}`,
         line: { color: '#ef4444', width: 2.5 },
@@ -167,11 +257,11 @@ const PlotlyGraph = ({
 
     // Energy traces (only in analysis mode)
     if (mode === 'analysis') {
-      if (visibleTraces['ke'] && effectiveData.some(d => d.kineticEnergy != null)) {
+      if (visibleTraces['ke'] && decimated.some(d => d.kineticEnergy != null)) {
         traces.push({
-          x: effectiveData.map(d => d.time || d.timeDisplay),
-          y: effectiveData.map(d => d.kineticEnergy || 0),
-          type: 'scatter',
+          x: decimated.map(d => d.time || d.timeDisplay),
+          y: decimated.map(d => d.kineticEnergy || 0),
+          type: useGL ? 'scattergl' : 'scatter',
           mode: 'lines',
           name: 'Kinetic Energy (J)',
           line: { color: '#f59e0b', width: 2, dash: 'dot' },
@@ -179,11 +269,11 @@ const PlotlyGraph = ({
         });
       }
       
-      if (visibleTraces['pe'] && effectiveData.some(d => d.potentialEnergy != null)) {
+      if (visibleTraces['pe'] && decimated.some(d => d.potentialEnergy != null)) {
         traces.push({
-          x: effectiveData.map(d => d.time || d.timeDisplay),
-          y: effectiveData.map(d => d.potentialEnergy || 0),
-          type: 'scatter',
+          x: decimated.map(d => d.time || d.timeDisplay),
+          y: decimated.map(d => d.potentialEnergy || 0),
+          type: useGL ? 'scattergl' : 'scatter',
           mode: 'lines',
           name: 'Potential Energy (J)',
           line: { color: '#8b5cf6', width: 2, dash: 'dot' },
@@ -191,11 +281,11 @@ const PlotlyGraph = ({
         });
       }
       
-      if (visibleTraces['te'] && effectiveData.some(d => d.totalEnergy != null)) {
+      if (visibleTraces['te'] && decimated.some(d => d.totalEnergy != null)) {
         traces.push({
-          x: effectiveData.map(d => d.time || d.timeDisplay),
-          y: effectiveData.map(d => d.totalEnergy || 0),
-          type: 'scatter',
+          x: decimated.map(d => d.time || d.timeDisplay),
+          y: decimated.map(d => d.totalEnergy || 0),
+          type: useGL ? 'scattergl' : 'scatter',
           mode: 'lines',
           name: 'Total Energy (J)',
           line: { color: '#06b6d4', width: 3 },
@@ -229,13 +319,6 @@ const PlotlyGraph = ({
 
   const handleNeglectRangeClick = () => {
     setIsNeglectMode(prev => !prev);
-  };
-
-  const handleClearNeglectSelections = () => {
-    // Clear all neglected data
-    if (onNeglectedDataChange) {
-      onNeglectedDataChange(new Set());
-    }
   };
 
   const handleSelection = (event) => {
@@ -360,23 +443,26 @@ const PlotlyGraph = ({
 
   // Toolbar components
   const ModeToggle = () => (
-    <div className="flex gap-1 bg-slate-100 p-1 rounded-lg">
+    <div className="relative inline-flex w-[240px] max-w-full items-center rounded-full bg-slate-100 p-[2px] border border-slate-200 shadow-sm">
+      <span
+        className={`absolute inset-y-[2px] left-[2px] w-1/2 rounded-full bg-white shadow transition-transform duration-300 ease-out ${
+          mode === 'analysis' ? 'translate-x-full' : 'translate-x-0'
+        }`}
+      />
       <button
         onClick={() => { setMode('live'); if (onModeChange) onModeChange('live'); }}
-        className={`px-3 py-2 font-semibold transition-all rounded-md text-xs ${
-          mode === 'live'
-            ? 'bg-white text-purple-700 shadow-md'
-            : 'text-slate-600 hover:text-slate-800'
+        aria-pressed={mode === 'live'}
+        className={`relative z-10 flex-1 py-2 text-xs font-semibold text-center cursor-pointer select-none transition-colors ${
+          mode === 'live' ? 'text-purple-700' : 'text-slate-600 hover:text-slate-800'
         }`}
       >
         Live Mode
       </button>
       <button
         onClick={() => { setMode('analysis'); if (onModeChange) onModeChange('analysis'); }}
-        className={`px-3 py-2 font-semibold transition-all rounded-md text-xs ${
-          mode === 'analysis'
-            ? 'bg-white text-purple-700 shadow-md'
-            : 'text-slate-600 hover:text-slate-800'
+        aria-pressed={mode === 'analysis'}
+        className={`relative z-10 flex-1 py-2 text-xs font-semibold text-center cursor-pointer select-none transition-colors ${
+          mode === 'analysis' ? 'text-purple-700' : 'text-slate-600 hover:text-slate-800'
         }`}
       >
         Analysis Mode
@@ -404,13 +490,6 @@ const PlotlyGraph = ({
             modeBarButtonsToRemove: ['lasso2d']
           }));
           break;
-        case 'pan':
-          setPlotConfig(prev => ({
-            ...prev,
-            dragmode: 'pan',
-            modeBarButtonsToRemove: ['select2d', 'lasso2d']
-          }));
-          break;
         default:
           setPlotConfig(prev => ({
             ...prev,
@@ -422,7 +501,7 @@ const PlotlyGraph = ({
     
     return (
       <div className="flex flex-wrap gap-2 p-2 bg-blue-50 rounded-lg border border-blue-200">
-        <div className="flex items-center gap-1 text-xs font-semibold text-blue-700">
+        <div className="hidden sm:flex items-center gap-1 text-xs font-semibold text-blue-700">
           <FiBarChart2 size={14} />
           Measurement Tools:
         </div>
@@ -453,18 +532,6 @@ const PlotlyGraph = ({
           Slope Tool
         </button>
         
-        <button
-          onClick={() => handleToolClick('pan')}
-          className={`px-2 py-1 border rounded text-xs flex items-center gap-1 hover:bg-blue-50 ${
-            activeTool === 'pan'
-              ? 'bg-blue-100 border-blue-500 text-blue-700'
-              : 'bg-white border-blue-300'
-          }`}
-          title="Pan and move the plot"
-        >
-          <FiMove size={12} />
-          Pan Tool
-        </button>
         
         <div className="flex items-center gap-1 ml-auto">
           {neglectedData && neglectedData.size > 0 && (
@@ -487,16 +554,7 @@ const PlotlyGraph = ({
             {isNeglectMode && <span className="ml-1 text-[10px]">(ACTIVE)</span>}
           </button>
           
-          {neglectedData && neglectedData.size > 0 && (
-            <button
-              onClick={handleClearNeglectSelections}
-              className="px-2 py-1 bg-red-50 border border-red-300 rounded text-xs flex items-center gap-1 hover:bg-red-100 text-red-700"
-              title="Clear all neglected selections"
-            >
-              <FiRefreshCw size={12} />
-              Clear
-            </button>
-          )}
+          
         </div>
       </div>
     );
@@ -523,50 +581,44 @@ const PlotlyGraph = ({
       'te': 'bg-cyan-500 hover:bg-cyan-600'
     }[trace]);
 
-    const TraceButton = ({ trace, label }) => (
-      <button
-        onClick={() => setVisibleTraces(prev => ({ ...prev, [trace]: !prev[trace] }))}
-        className={`px-3 py-2 rounded-lg font-medium text-xs transition-all duration-200 shadow-sm border-2 ${
-          visibleTraces[trace]
-            ? `${getTraceColor(trace)} text-white border-transparent shadow-md transform scale-105`
-            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-slate-300'
-        }`}
-      >
-        <div className="flex items-center gap-2">
-          <div className={`w-3 h-3 rounded-full ${
-            visibleTraces[trace] ? 'bg-white' : 'bg-slate-300'
-          }`}></div>
-          <span>{label}</span>
-        </div>
-      </button>
-    );
+    const tone = (t) => ({
+      's-t': { ring: 'ring-blue-200', text: 'text-blue-700', bar: 'bg-blue-500' },
+      'v-t': { ring: 'ring-green-200', text: 'text-green-700', bar: 'bg-green-500' },
+      'a-t': { ring: 'ring-red-200', text: 'text-red-700', bar: 'bg-red-500' },
+      'i-t': { ring: 'ring-yellow-200', text: 'text-yellow-700', bar: 'bg-yellow-500' },
+      'ke':  { ring: 'ring-orange-200', text: 'text-orange-700', bar: 'bg-orange-500' },
+      'pe':  { ring: 'ring-purple-200', text: 'text-purple-700', bar: 'bg-purple-500' },
+      'te':  { ring: 'ring-cyan-200', text: 'text-cyan-700', bar: 'bg-cyan-500' }
+    }[t] || { ring: 'ring-slate-200', text: 'text-slate-800', bar: 'bg-slate-500' });
+
+    const TraceButton = ({ trace, label }) => {
+      const t = tone(trace);
+      return (
+        <button
+          onClick={() => setVisibleTraces(prev => ({ ...prev, [trace]: !prev[trace] }))}
+          className={`relative flex-1 min-w-[90px] px-3 py-1.5 text-xs font-medium focus:outline-none border transition-all duration-200 ${
+            visibleTraces[trace]
+              ? `bg-gradient-to-b from-white to-slate-50 border-slate-300 shadow-sm ring-1 ${t.ring} ${t.text}`
+              : 'bg-transparent text-slate-600 border-transparent hover:bg-slate-50'
+          }`}
+          aria-pressed={visibleTraces[trace]}
+        >
+          {visibleTraces[trace] && <span className={`absolute left-0 right-0 top-0 h-[2px] ${t.bar}`}></span>}
+          {label}
+        </button>
+      );
+    };
+
+    const allTraces = useMemo(() => {
+      const base = (availableTraces || []).map(k => mapKey(k));
+      return mode === 'analysis' ? [...base, 'ke', 'pe', 'te'] : base;
+    }, [availableTraces, mode, mapKey]);
 
     return (
-      <div className="space-y-3">
-        <div className="flex items-center gap-2">
-          <FiEye size={16} className="text-slate-600" />
-          <span className="text-sm font-semibold text-slate-700">Show Traces</span>
-        </div>
-        
-        <div className="flex flex-wrap gap-2">
-          {(availableTraces || []).map(k => mapKey(k)).map(trace => (
-            <TraceButton key={trace} trace={trace} label={getTraceLabel(trace)} />
-          ))}
-        </div>
-        
-        {mode === 'analysis' && (
-          <div className="pt-3 border-t border-slate-200">
-            <div className="flex items-center gap-2 mb-2">
-              <FiBarChart2 size={16} className="text-slate-600" />
-              <span className="text-sm font-semibold text-slate-700">Energy Analysis</span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {['ke', 'pe', 'te'].map(trace => (
-                <TraceButton key={trace} trace={trace} label={getTraceLabel(trace)} />
-              ))}
-            </div>
-          </div>
-        )}
+      <div className="flex flex-wrap w-full rounded-md border border-slate-200 bg-white overflow-hidden">
+        {allTraces.map(trace => (
+          <TraceButton key={trace} trace={trace} label={getTraceLabel(trace)} />
+        ))}
       </div>
     );
   };
@@ -610,41 +662,20 @@ const PlotlyGraph = ({
 
   return (
     <div className="space-y-4">
-      {/* Mode Toggle */}
-      <ModeToggle />
 
-      {/* Analysis Tools */}
-      {mode === 'analysis' && <AnalysisTools />}
 
-      {/* Trace Visibility Controls */}
-      <div className="bg-gradient-to-r from-slate-50 to-blue-50 rounded-xl shadow-md border border-slate-200 p-4">
-        <TraceVisibilityControls />
-      </div>
+      {/* Trace Visibility Controls moved inside plot container */}
 
       {/* Measurement Display */}
       {mode === 'analysis' && <MeasurementDisplay />}
 
       {/* Plot Container */}
-      <div className={`bg-white rounded-xl shadow-lg border border-slate-200 p-4 ${
-        isFullscreen ? 'fixed inset-4 z-50' : ''
+      <div ref={plotContainerRef} className={`bg-white rounded-xl shadow-lg border border-slate-200 ${
+        isFullscreen ? 'fixed inset-0 z-[10000] p-4 md:p-6' : 'p-2 sm:p-3 md:p-4'
       }`}>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-base md:text-lg font-bold text-slate-800 flex items-center gap-2">
-            <FiBarChart2 className="text-purple-600" />
-            {mode === 'live' ? 'Real-time Plot' : 'Analysis Plot'}
-          </h3>
-          
+        <div className={`flex items-center justify-between ${isFullscreen ? 'mb-4' : 'mb-2'}`}>
+          <ModeToggle />
           <div className="flex gap-2">
-            {/* Export Buttons */}
-            <button
-              onClick={exportToImage}
-              className="px-2 py-1.5 bg-blue-50 text-blue-700 rounded hover:bg-blue-100 transition-all text-xs flex items-center gap-1"
-              title="Export to Image"
-            >
-              <FiDownload size={14} />
-              <span className="hidden sm:inline">Image</span>
-            </button>
-            
             <button
               onClick={exportToCSV}
               className="px-2 py-1.5 bg-green-50 text-green-700 rounded hover:bg-green-100 transition-all text-xs flex items-center gap-1"
@@ -656,7 +687,7 @@ const PlotlyGraph = ({
 
             {/* Fullscreen Toggle */}
             <button
-              onClick={() => setIsFullscreen(!isFullscreen)}
+              onClick={toggleFullscreen}
               className="px-2 py-1.5 bg-purple-50 text-purple-700 rounded hover:bg-purple-100 transition-all text-xs flex items-center gap-1"
             >
               {isFullscreen ? <FiMinimize size={14} /> : <FiMaximize size={14} />}
@@ -665,22 +696,58 @@ const PlotlyGraph = ({
           </div>
         </div>
 
+        {/* Unified trace tabs inside the same container */}
+        <div className="mb-3">
+          <TraceVisibilityControls />
+        </div>
+
         {/* Plotly Graph */}
-        <div style={{ height: isFullscreen ? 'calc(100vh - 150px)' : '400px' }}>
+        <div style={{ height: isFullscreen ? 'calc(100vh - 120px)' : '400px' }}>
           <Plot
             ref={plotRef}
             plotly={plotlyLib}
             data={preparePlotData()}
             layout={{
+              uirevision: 'keep-zoom',
               title: {
-                text: `${mode === 'live' ? 'Real-time' : 'Analysis'} Physics Experiment`,
-                font: { size: 16 }
+                text: `${mode === 'live' ? 'Real-time Plot' : 'Analysis Plot'}`,
+                font: { size: isFullscreen ? 18 : 14 },
+                x: isMobile ? 0.02 : 0.5,
+                y: isMobile ? 0.932:1.085,
+                xanchor: isMobile ? 'left' : 'center'
               },
+              images: [
+                {
+                  source:
+                    'data:image/svg+xml;utf8,' +
+                    encodeURIComponent(
+                      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 20V4"/><path d="M10 20V10"/><path d="M14 20V14"/><path d="M18 20V8"/></svg>'
+                    ),
+                  xref: 'paper',
+                  yref: 'paper',
+                  x: isMobile ? 0.252 : 0.41,
+                  y: isMobile ? 1.05:1.085,
+                  sizex: 0.06,
+                  sizey: 0.06,
+                  xanchor: isMobile ? 'left' : 'center',
+                  yanchor: 'bottom',
+                  layer: 'above'
+                }
+              ],
               xaxis: {
                 title: `${axis?.x?.label || 'Time'}${axis?.x?.unit ? ' ('+axis.x.unit+')' : ''}`,
                 showgrid: true,
                 gridcolor: '#e2e8f0',
-                zeroline: false
+                zeroline: false,
+                showticklabels: true,
+                tickfont: { size: isFullscreen ? 14 : 12 },
+                titlefont: { size: isFullscreen ? 16 : 14 },
+                tickangle: isFullscreen ? 0 : 0,
+                automargin: true,
+                nticks: isFullscreen ? 15 : 10,
+                tickformat: isFullscreen ? '.2f' : undefined,
+                range: axisRangeRef.current.x || undefined,
+                autorange: axisRangeRef.current.x ? false : true
               },
               yaxis: {
                 title: (() => {
@@ -693,19 +760,27 @@ const PlotlyGraph = ({
                 zeroline: true,
                 zerolinecolor: '#94a3b8',
                 zerolinewidth: 1,
-                range: getYAxisRange() // Dynamic y-axis bounds based on data type and configuration
+                range: axisRangeRef.current.y || getYAxisRange(),
+                autorange: axisRangeRef.current.y ? false : true,
+                showticklabels: true,
+                tickfont: { size: isFullscreen ? 14 : 12 },
+                titlefont: { size: isFullscreen ? 16 : 14 },
+                automargin: true,
+                nticks: isFullscreen ? 12 : 8
               },
               legend: {
                 x: 0,
                 y: 1.1,
-                orientation: 'h'
+                orientation: 'h',
+                font: { size: isFullscreen ? 14 : 12 }
               },
-              margin: { l: 60, r: 30, t: 60, b: 60 },
+              margin: isFullscreen ? { l: 50, r: 35, t: 70, b: 60 } : { l: 40, r: 20, t: 55, b: 45 },
               hovermode: 'closest',
               plot_bgcolor: '#f8fafc',
               paper_bgcolor: '#ffffff',
+              autosize: true,
+              dragmode: mode === 'analysis' ? 'select' : 'pan',
               ...(mode === 'analysis' && {
-                dragmode: activeTool === 'pan' ? 'pan' : 'select',
                 selectdirection: 'h'
               })
             }}
@@ -715,11 +790,28 @@ const PlotlyGraph = ({
             }}
             onClick={handlePlotClick}
             onSelected={handleSelection}
+            onRelayout={(ed) => {
+              const xr0 = ed['xaxis.range[0]'];
+              const xr1 = ed['xaxis.range[1]'];
+              if (typeof xr0 === 'number' && typeof xr1 === 'number') {
+                axisRangeRef.current.x = [xr0, xr1];
+              }
+              const yr0 = ed['yaxis.range[0]'];
+              const yr1 = ed['yaxis.range[1]'];
+              if (typeof yr0 === 'number' && typeof yr1 === 'number') {
+                axisRangeRef.current.y = [yr0, yr1];
+              }
+            }}
             useResizeHandler={true}
             style={{ width: '100%', height: '100%' }}
           />
         </div>
 
+        {mode === 'analysis' && (
+          <div className="mt-3">
+            <AnalysisTools />
+          </div>
+        )}
         {isFullscreen && (
           <div className="text-center text-xs text-slate-500 mt-2">
             {mode === 'live' 

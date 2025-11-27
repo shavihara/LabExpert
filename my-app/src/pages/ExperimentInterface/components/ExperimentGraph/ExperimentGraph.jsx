@@ -7,6 +7,7 @@ import PlotlyGraph from '../../../../components/PlotlyGraph';
 import LiveDataTable from './LiveDataTable';
 
 const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperimentManager, config = { max_distance_cm: 150 }, subExperiment }) => {
+  const BACKEND_URL = `http://${window.location.hostname.replace(':3000', '')}:5000`;
   // ===== DATA HANDLING STATE =====
   const [chartData, setChartData] = useState([]);
   const [neglectedData, setNeglectedData] = useState(new Set());
@@ -18,6 +19,26 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   const [saveStatus, setSaveStatus] = useState(null);
   const [isAnalysisMode, setIsAnalysisMode] = useState(false);
   const [analysisData, setAnalysisData] = useState([]);
+  const [graphCardHeight, setGraphCardHeight] = useState(null);
+  const graphRORef = useRef(null);
+  const graphCardElRef = useRef(null);
+  const setGraphCardEl = useCallback((el) => {
+    graphCardElRef.current = el;
+    if (graphRORef.current) {
+      try { graphRORef.current.disconnect(); } catch {}
+      graphRORef.current = null;
+    }
+    if (el) {
+      setGraphCardHeight(el.clientHeight);
+      const ro = new ResizeObserver(() => {
+        setGraphCardHeight(el.clientHeight);
+      });
+      ro.observe(el);
+      graphRORef.current = ro;
+    }
+  }, []);
+  const [isLg, setIsLg] = useState(() => typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : false);
+  const [notif, setNotif] = useState(null);
   
   const chartDataRef = useRef([]);
   const timerRef = useRef(null);
@@ -34,6 +55,26 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   // Keep refs in sync with state
   useEffect(() => { isRunningRef.current = isRunning; }, [isRunning]);
   useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
+
+  useEffect(() => {
+    const mq = typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)') : null;
+    const handler = (e) => setIsLg(e.matches);
+    if (mq) {
+      mq.addEventListener('change', handler);
+    }
+    return () => {
+      if (mq) mq.removeEventListener('change', handler);
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (graphRORef.current) {
+        try { graphRORef.current.disconnect(); } catch {}
+        graphRORef.current = null;
+      }
+    };
+  }, []);
 
   // ===== DIRECT DATA STREAMING HANDLER =====
   const handleDataMessage = useCallback((message) => {
@@ -280,25 +321,52 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
 
   const handleSaveToProfile = async () => {
     try {
-      saveExperimentData({
-        experiment_type: experimentType,
-        data: chartData,
-        timestamp: new Date().toISOString()
-      });
-      
-      setSaveStatus({ status: 'loading', message: 'Saving data...' });
-      
-      const checkStatus = () => {
-        if (saveStatus && saveStatus.status !== 'loading') {
-          clearInterval(statusInterval);
-        }
-      };
-      
-      const statusInterval = setInterval(checkStatus, 100);
-      setTimeout(() => clearInterval(statusInterval), 5000);
-      
+      if (!token || tableData.length === 0) {
+        alert('❌ No data to save or not logged in');
+        return;
+      }
+      setSaveStatus({ status: 'loading', message: 'Uploading CSV...' });
+      setNotif({ type: 'info', message: 'Saving to profile...' });
+      setTimeout(() => setNotif(null), 3000);
+      const cols = tableColumns
+      const headers = `${cols.map(c => c.label).join(',')},Neglected`
+      const csvRows = tableData.map((row, idx) => {
+        const originalIndex = row.__originalIndex ?? idx
+        const neg = neglectedData.has(originalIndex) ? 'neglected' : ''
+        const base = cols.map(c => {
+          const value = row[c.key]
+          if (typeof value === 'string' && value.includes(',')) return `"${value}"`
+          return value
+        }).join(',')
+        return `${base},${neg}`
+      })
+      const csvContent = [headers, ...csvRows].join('\n')
+      const blob = new Blob([csvContent], { type: 'text/csv' })
+      const filename = `experiment_data_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`
+      const form = new FormData()
+      form.append('experiment_type', experimentType)
+      form.append('sub_experiment', (subExperiment && (subExperiment.id || subExperiment.key || subExperiment.name)) || 'default')
+      form.append('timestamp', new Date().toISOString())
+      form.append('file', blob, filename)
+      const response = await fetch(`${BACKEND_URL}/api/experiments/upload_csv`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: form
+      })
+      if (response.ok) {
+        setSaveStatus({ status: 'success', message: 'Saved to profile' })
+        setNotif({ type: 'success', message: 'Saved to profile' });
+        setTimeout(() => setNotif(null), 3000);
+      } else {
+        setSaveStatus({ status: 'error', message: 'Failed to save' })
+        setNotif({ type: 'error', message: 'Failed to save data' });
+        setTimeout(() => setNotif(null), 3000);
+      }
     } catch (error) {
-      alert('❌ Error saving data: ' + error.message);
+      setSaveStatus({ status: 'error', message: 'Error saving' })
+      alert('❌ Error saving data: ' + error.message)
+      setNotif({ type: 'error', message: 'Error saving data' });
+      setTimeout(() => setNotif(null), 3000);
     }
   };
 
@@ -441,13 +509,6 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
           <div className="text-sm text-purple-900">
             <div>Duration: {totalDuration || 10}s</div>
             <div className="text-xs opacity-75">Samples: {chartData.length}</div>
-            {/* Sample count debugging */}
-            {chartData.length > 0 && (
-              <div className="text-xs opacity-75 mt-1 border-t border-purple-200 pt-1">
-                <div>First: {new Date(chartData[0].timestamp).toLocaleTimeString()}</div>
-                <div>Last: {new Date(chartData[chartData.length - 1].timestamp).toLocaleTimeString()}</div>
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -490,43 +551,89 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         </div>
       </div>
 
-      {/* ===== PLOTLY GRAPH INTEGRATION ===== */}
-      {/* This replaces the old Chart.js/Recharts implementation */}
-      <div className="bg-gradient-to-br from-white to-slate-50 rounded-2xl shadow-xl border-2 border-slate-200 p-4">
-        <PlotlyGraph 
-          experimentType={experimentType}
-          token={token}
-          sharedWebSocket={sharedWebSocket}
-          sharedExperimentManager={sharedExperimentManager}
-          chartData={chartData}
-          fullChartData={chartData} // Pass full data for proper index calculation
-          neglectedData={neglectedData}
-          isRunning={isRunning}
-          isPaused={isPaused}
-          onStart={handleStart}
-          onPause={handlePause}
-          onStop={handleStop}
-          onReset={handleReset}
-          onNeglectedDataRange={handleNeglectedDataRange} // Handle range selection for neglecting data
-          config={config} // Pass configuration for fixed axis bounds
-          availableTraces={availableTraces}
-          axis={axisMeta}
-          onModeChange={(m) => setIsAnalysisMode(m === 'analysis')}
-          onAnalysisData={(data) => setAnalysisData(data)}
-        />
-      </div>
-
-      {/* ===== LIVE DATA TABLE ===== */}
-      <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-4">
-        <LiveDataTable 
-          data={tableData}
-          isFullscreen={isTableFullscreen}
-          onToggleFullscreen={() => setIsTableFullscreen(!isTableFullscreen)}
-          onNeglectedDataChange={handleNeglectedDataChange}
-          neglectedData={neglectedData}
-          columns={tableColumns}
-        />
-      </div>
+      {isAnalysisMode ? (
+        <>
+          <div className="bg-gradient-to-br from-white to-slate-50 rounded-2xl shadow-xl border-2 border-slate-200 p-2 sm:p-3 md:p-4">
+            <PlotlyGraph 
+              experimentType={experimentType}
+              token={token}
+              sharedWebSocket={sharedWebSocket}
+              sharedExperimentManager={sharedExperimentManager}
+              chartData={chartData}
+              fullChartData={chartData}
+              neglectedData={neglectedData}
+              isRunning={isRunning}
+              isPaused={isPaused}
+              onStart={handleStart}
+              onPause={handlePause}
+              onStop={handleStop}
+              onReset={handleReset}
+              onNeglectedDataRange={handleNeglectedDataRange}
+              config={config}
+              availableTraces={availableTraces}
+              axis={axisMeta}
+              onModeChange={(m) => setIsAnalysisMode(m === 'analysis')}
+              onAnalysisData={(data) => setAnalysisData(data)}
+              externalMode={isAnalysisMode ? 'analysis' : 'live'}
+            />
+          </div>
+          <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-4">
+            <LiveDataTable 
+              data={tableData}
+              isFullscreen={isTableFullscreen}
+              onToggleFullscreen={() => setIsTableFullscreen(!isTableFullscreen)}
+              onNeglectedDataChange={handleNeglectedDataChange}
+              neglectedData={neglectedData}
+              columns={tableColumns}
+              visibleRowCount={20}
+            />
+          </div>
+        </>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-10 gap-4">
+          <div ref={setGraphCardEl} className="bg-gradient-to-br from-white to-slate-50 rounded-2xl shadow-xl border-2 border-slate-200 p-2 sm:p-3 md:p-4 lg:col-span-6">
+            <PlotlyGraph 
+              experimentType={experimentType}
+              token={token}
+              sharedWebSocket={sharedWebSocket}
+              sharedExperimentManager={sharedExperimentManager}
+              chartData={chartData}
+              fullChartData={chartData}
+              neglectedData={neglectedData}
+              isRunning={isRunning}
+              isPaused={isPaused}
+              onStart={handleStart}
+              onPause={handlePause}
+              onStop={handleStop}
+              onReset={handleReset}
+              onNeglectedDataRange={handleNeglectedDataRange}
+              config={config}
+              availableTraces={availableTraces}
+              axis={axisMeta}
+              onModeChange={(m) => setIsAnalysisMode(m === 'analysis')}
+              onAnalysisData={(data) => setAnalysisData(data)}
+              externalMode={isAnalysisMode ? 'analysis' : 'live'}
+            />
+          </div>
+          <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-2 sm:p-3 md:p-4 lg:col-span-4 overflow-y-auto min-h-0" style={isLg && !isTableFullscreen ? { height: (graphCardHeight || 400), maxHeight: (graphCardHeight || 400) } : undefined}>
+            <LiveDataTable 
+              data={tableData}
+              isFullscreen={isTableFullscreen}
+              onToggleFullscreen={() => setIsTableFullscreen(!isTableFullscreen)}
+              onNeglectedDataChange={handleNeglectedDataChange}
+              neglectedData={neglectedData}
+              columns={tableColumns}
+              hideNeglectColumn={true}
+              hideSampleColumn={true}
+              hideCopyButton={true}
+              hideNeglectAllButton={true}
+              hideCsvButton={true}
+              visibleRowCount={isAnalysisMode ? 20 : undefined}
+              containerClassName=""
+            />
+          </div>
+        </div>
+      )}
 
       {/* ===== EXPORT AND SAVE BUTTONS ===== */}
       <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-xl shadow-md border-2 border-purple-200 p-4">
@@ -539,12 +646,30 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
             <FiSave size={16} /> Save to Profile
           </button>
         </div>
+        {saveStatus && (
+          <div className={`mt-3 text-xs font-semibold px-3 py-2 rounded-lg inline-block border ${
+            saveStatus.status === 'loading' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+            saveStatus.status === 'success' ? 'bg-green-50 text-green-700 border-green-200' :
+            'bg-red-50 text-red-700 border-red-200'
+          }`}>
+            {saveStatus.message}
+          </div>
+        )}
         {chartData.length === 0 && (
           <p className="text-center text-xs text-slate-500 mt-2">
             Start the experiment to enable save options
           </p>
         )}
       </div>
+      {notif && (
+        <div className={`fixed top-[calc(var(--header-height)+8px)] right-4 z-50 px-4 py-3 rounded-xl shadow-lg border-2 ${
+          notif.type === 'success' ? 'bg-green-50 border-green-300 text-green-800' :
+          notif.type === 'error' ? 'bg-red-50 border-red-300 text-red-800' :
+          'bg-blue-50 border-blue-300 text-blue-800'
+        }`}>
+          <span className="text-sm font-semibold">{notif.message}</span>
+        </div>
+      )}
     </div>
   );
 };

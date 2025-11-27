@@ -287,34 +287,32 @@ function OSIInterface() {
       addStatusMessage(allDataPoints.length === 0 ? 'No data to save.' : 'Please log in.', 'warning');
       return;
     }
-
+    const headers = ['Time (s)', 'Count']
+    const csvContent = [
+      headers.join(','),
+      ...allDataPoints.map(row => `${row.time.toFixed(3)},${row.count}`)
+    ].join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv' })
+    const filename = `oscillation_count_${new Date().toISOString()}.csv`
+    const form = new FormData()
+    form.append('experiment_type', 'oscillation')
+    form.append('sub_experiment', 'count')
+    form.append('timestamp', new Date().toISOString())
+    form.append('file', blob, filename)
     try {
-      const response = await fetch(`${BACKEND_URL}/api/osi/save_data`, {
+      addStatusMessage('Saving CSV to profile...', 'info')
+      const response = await fetch(`${BACKEND_URL}/api/experiments/upload_csv`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          data: allDataPoints,
-          metadata: {
-            duration: timeLimit,
-            samplingRate: samplingRate,
-            timestamp: new Date().toISOString(),
-            sensorType: 'OSI',
-            finalCount: currentCount,
-            maxCount: maxCount
-          }
-        }),
-      });
-
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: form
+      })
       if (response.ok) {
-        addStatusMessage('Data saved to your profile!', 'success');
+        addStatusMessage('Data saved to your profile!', 'success')
       } else {
-        addStatusMessage('Failed to save data.', 'error');
+        addStatusMessage('Failed to save data.', 'error')
       }
     } catch (err) {
-      addStatusMessage('Error saving: ' + err.message, 'error');
+      addStatusMessage('Error saving: ' + err.message, 'error')
     }
   };
 
@@ -331,7 +329,7 @@ function OSIInterface() {
   }, [currentCount, elapsedTime]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100 p-2 sm:p-4 pt-16 sm:pt-20">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100 p-2 sm:p-4 pt-[var(--header-height)]">
       
       {/* Status Messages Toast */}
       <div className="fixed top-16 sm:top-20 right-2 sm:right-4 z-50 space-y-2 max-w-xs sm:max-w-sm">
