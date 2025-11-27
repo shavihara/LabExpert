@@ -45,9 +45,13 @@ function PrivateRoute({ children, requiredRole }) {
   }
 
   // Check admin role
-  if (requiredRole === 'admin' && user.email !== 'labexpert.us@gmail.com') {
-    console.log('❌ User is not admin, redirecting to /home');
-    return <Navigate to="/home" replace />;
+  if (requiredRole === 'admin') {
+    const role = (user.role || '').toLowerCase();
+    const isAdmin = role === 'admin' || role === 'superadmin';
+    if (!isAdmin) {
+      console.log('❌ User is not admin, redirecting to /home');
+      return <Navigate to="/home" replace />;
+    }
   }
 
   console.log('✅ PrivateRoute: Rendering children');

@@ -5,7 +5,12 @@ import Signup from './components/Signup';
 import ForgotPassword from './components/ForgotPassword';
 import Home from './components/Home';
 import Header from './components/Header';
+import { ToastContainer } from './components/common/Toast';
 import AdminDashboard from './pages/AdminDashboard';
+import AdminLogin from './components/AdminLogin';
+import AdminChangePassword from './components/AdminChangePassword';
+import AdminManage from './pages/AdminManage';
+import AdminPrivateRoute from './components/AdminPrivateRoute';
 import UserDashboard from './pages/UserDashboard';
 import ExperimentInterface from './pages/ExperimentInterface';
 import OSIInterface from './components/OSIInterface';
@@ -19,6 +24,7 @@ function AppContent() {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const location = useLocation();
+  const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
 
   // Define which routes are auth pages
   const isAuthPage = ['/login', '/signup', '/forgot-password'].includes(location.pathname);
@@ -48,6 +54,17 @@ function AppContent() {
     initAuth();
   }, []);
 
+  useEffect(() => {
+    const onCollapse = () => setIsHeaderCollapsed(true);
+    const onExpand = () => setIsHeaderCollapsed(false);
+    window.addEventListener('labex:header:collapse', onCollapse);
+    window.addEventListener('labex:header:expand', onExpand);
+    return () => {
+      window.removeEventListener('labex:header:collapse', onCollapse);
+      window.removeEventListener('labex:header:expand', onExpand);
+    };
+  }, []);
+
   if (loading) {
     return (
       <div style={{
@@ -72,7 +89,7 @@ function AppContent() {
         It uses 'pt-20' (80px) for auth pages and 'pt-[70px]' (70px) for all other pages,
         matching the heights defined in your Header.jsx.
       */}
-      <main className={isAuthPage ? 'pt-20' : 'pt-[70px]'}>
+      <main className={`${isAuthPage ? 'pt-20' : (isHeaderCollapsed ? 'pt-2' : 'pt-[70px]')} transition-all duration-300`}>
         <Routes>
           <Route path="/" element={<Navigate to="/login" />} />
           <Route path="/login" element={<Login setCurrentUser={setCurrentUser} />} />
@@ -115,16 +132,19 @@ function AppContent() {
             }
           />
 
+          <Route path="/admin/login" element={<AdminLogin />} />
+          <Route path="/admin/change-password" element={<AdminChangePassword />} />
           <Route
-            path="/admin"
+            path="/admin/manage"
             element={
-              <PrivateRoute requiredRole="admin">
-                <AdminDashboard />
-              </PrivateRoute>
+              <AdminPrivateRoute>
+                <AdminManage />
+              </AdminPrivateRoute>
             }
           />
         </Routes>
       </main>
+      <ToastContainer />
     </div>
   );
 }

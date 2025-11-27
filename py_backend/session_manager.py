@@ -748,3 +748,47 @@ class SessionManager:
         
         # Return the updated device list
         return await self.get_available_devices()
+
+    async def get_or_discover_device_ip(self, device_id: str, timeout: int = 4) -> Optional[str]:
+        """
+        Resolve a device's IP address from in-memory status or via on-demand UDP discovery.
+        Returns the IP address if found, otherwise None.
+        """
+        # First, try in-memory state
+        device = self.devices.get(device_id)
+        ip = None
+        if device:
+            ip = (device.get("status") or {}).get("ip_address")
+            if ip:
+                return ip
+        
+        # Perform quick on-demand discovery for this device
+        try:
+            # Start UDP discovery service if not running
+            if not udp_discovery_service.is_running:
+                await udp_discovery_service.start()
+            discovered = await udp_discovery_service.discover_devices(timeout=timeout)
+        finally:
+            # Stop after single-shot discovery
+            if udp_discovery_service.is_running:
+                await udp_discovery_service.stop()
+        
+        # Update in-memory state if found and return IP
+        for d in discovered:
+            if d.get("device_id") == device_id:
+                info = self.devices.setdefault(device_id, {
+                    "device_id": device_id,
+                    "status": {},
+                    "sensor_id": None,
+                    "allocated_to": None,
+                    "last_seen": asyncio.get_event_loop().time()
+                })
+                info["status"].update({
+                    "ip_address": d.get("ip_address"),
+                    "firmware_version": d.get("firmware_version", "unknown"),
+                    "sensor_type": d.get("sensor_type", "unknown")
+                })
+                info["last_seen"] = asyncio.get_event_loop().time()
+                return d.get("ip_address")
+        
+        return None

@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 function UserDashboard() {
-  const [activeSection, setActiveSection] = useState('experiments');
+  const [activeSection, setActiveSection] = useState('experiments')
+  const [sliderStyle, setSliderStyle] = useState({});
   const [experiments, setExperiments] = useState([]);
   const [recentExperiments, setRecentExperiments] = useState([]);
   const [userProfile, setUserProfile] = useState({});
@@ -118,6 +119,21 @@ function UserDashboard() {
     }, 1000);
   }, []);
 
+  useEffect(() => {
+    const tabs = [
+      { id: 'experiments', label: '🧪 Experiments' },
+      { id: 'recent', label: '📊 Recent' },
+      { id: 'profile', label: '👤 Profile' },
+      { id: 'sensors', label: '📡 Sensors' },
+      { id: 'reports', label: '📈 Reports' }
+    ]
+    const idx = tabs.findIndex(t => t.id === activeSection)
+    if (idx >= 0) {
+      const width = 100 / tabs.length
+      setSliderStyle({ left: `${idx * width}%`, width: `${width}%` })
+    }
+  }, [activeSection])
+
   const startExperiment = (experiment) => {
     console.log('Starting experiment:', experiment.name);
     navigate('/experiment', { state: { experiment } });
@@ -156,26 +172,31 @@ function UserDashboard() {
 
       {/* Navigation */}
       <nav className="sticky top-[70px] z-50 bg-white border-b border-slate-200 shadow-sm">
-        <div className="max-w-7xl mx-auto flex overflow-x-auto px-4 md:px-8">
-          {[
-            { id: 'experiments', label: '🧪 Experiments' },
-            { id: 'recent', label: '📊 Recent' },
-            { id: 'profile', label: '👤 Profile' },
-            { id: 'sensors', label: '📡 Sensors' },
-            { id: 'reports', label: '📈 Reports' }
-          ].map((item) => (
-            <button
-              key={item.id}
-              className={`px-6 py-4 font-semibold whitespace-nowrap border-b-3 transition-all duration-300 ${
-                activeSection === item.id
-                  ? 'text-purple-600 border-purple-600 bg-purple-50'
-                  : 'text-slate-500 border-transparent hover:text-purple-600 hover:bg-purple-50'
-              }`}
-              onClick={() => setActiveSection(item.id)}
-            >
-              {item.label}
-            </button>
-          ))}
+        <div className="max-w-7xl mx-auto relative px-4 md:px-8">
+          <div className="flex overflow-x-auto">
+            {[
+              { id: 'experiments', label: '🧪 Experiments' },
+              { id: 'recent', label: '📊 Recent' },
+              { id: 'profile', label: '👤 Profile' },
+              { id: 'sensors', label: '📡 Sensors' },
+              { id: 'reports', label: '📈 Reports' }
+            ].map((item) => (
+              <button
+                key={item.id}
+                className={`flex-1 px-6 py-4 font-semibold whitespace-nowrap transition-all duration-300 ${
+                  activeSection === item.id ? 'text-purple-600' : 'text-slate-500 hover:text-purple-600'
+                }`}
+                onClick={() => setActiveSection(item.id)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+          {/* Sliding Pill */}
+          <div
+            className="absolute bottom-0 h-1 bg-gradient-to-r from-purple-600 to-purple-800 rounded-full transition-all duration-300"
+            style={sliderStyle}
+          ></div>
         </div>
       </nav>
 

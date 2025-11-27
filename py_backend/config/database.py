@@ -9,7 +9,8 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 # Function for raw queries (like your prepare)
 def prepare(sql):
     def execute(params=None):
-        with engine.connect() as conn:
+        # Use transactional context to ensure commits on DML
+        with engine.begin() as conn:
             return conn.execute(text(sql), params or {})
     return execute
 
@@ -79,6 +80,23 @@ def init_db():
         );
         """))
 
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS experiment_runs (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            experiment_type TEXT NOT NULL,
+            sub_experiment TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            performed_at DATETIME NOT NULL,
+            filename TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            size INTEGER,
+            file_id TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
+        """))
+
         # Device Allocations table
         conn.execute(text("""
         CREATE TABLE IF NOT EXISTS device_allocations (
@@ -103,8 +121,92 @@ def init_db():
         );
         """))
 
-        # WAL mode for concurrency
-        conn.execute(text("PRAGMA journal_mode = WAL;"))
-        conn.execute(text("PRAGMA synchronous = NORMAL;"))
+        # Admin users table
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS admin_users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            role TEXT DEFAULT 'superadmin',
+            is_active INTEGER DEFAULT 1,
+            must_change_password INTEGER DEFAULT 1,
+            token_version INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME,
+            last_login DATETIME
+        );
+        """))
+
+        # Admin sessions table (for inactivity tracking)
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS admin_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            admin_user_id INTEGER NOT NULL,
+            session_id TEXT NOT NULL UNIQUE,
+            is_active INTEGER DEFAULT 1,
+            last_activity_at DATETIME,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (admin_user_id) REFERENCES admin_users(id)
+        );
+        """))
+
+        # Admin password history table
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS admin_password_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            admin_user_id INTEGER NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (admin_user_id) REFERENCES admin_users(id)
+        );
+        """))
+
+        # Admin login attempts log
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS admin_login_attempts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT,
+            ip TEXT,
+            user_agent TEXT,
+            success INTEGER,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        """))
+
+        # Admin password reset tokens (optional)
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS admin_password_reset_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            admin_user_id INTEGER NOT NULL,
+            token TEXT NOT NULL UNIQUE,
+            expires_at DATETIME NOT NULL,
+            used INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (admin_user_id) REFERENCES admin_users(id)
+        );
+        """))
+
+        # Seed the default admin if not exists
+        conn.execute(text("""
+        INSERT OR IGNORE INTO admin_users (email, password_hash, role, is_active, must_change_password, token_version)
+        VALUES ('labexpert.us@gmail.com', :pwd_hash, 'superadmin', 1, 1, 0);
+        """), {"pwd_hash": _default_admin_hash()})
+
+        # Configure SQLite pragmas outside of transaction
+    _configure_sqlite_pragmas()
+
+def _default_admin_hash():
+    # Lazy import to avoid heavy deps at module import
+    import bcrypt  # type: ignore
+    return bcrypt.hashpw(b"admin123", bcrypt.gensalt()).decode()
+
+def _configure_sqlite_pragmas():
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA synchronous = NORMAL;")
+        conn.close()
+    except Exception:
+        pass
 
 init_db()

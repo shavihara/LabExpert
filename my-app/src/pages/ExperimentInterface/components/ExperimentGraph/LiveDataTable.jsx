@@ -1,13 +1,22 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { FiMaximize2, FiMinimize2, FiDownload, FiCopy, FiEye, FiEyeOff } from 'react-icons/fi';
 
-const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen, onNeglectedDataChange, neglectedData: propNeglectedData, columns }) => {
+const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen, onNeglectedDataChange, neglectedData: propNeglectedData, columns, hideNeglectColumn = false, hideSampleColumn = false, hideCopyButton = false, hideNeglectAllButton = false, hideCsvButton = false, containerClassName = '', visibleRowCount }) => {
   const [sortConfig, setSortConfig] = useState({ key: 'time', direction: 'ascending' });
   const [localNeglectedData, setLocalNeglectedData] = useState(new Set());
+  const tableRef = useRef(null);
+  const theadRef = useRef(null);
+  const [rowHeight, setRowHeight] = useState(0);
+  const [headerHeight, setHeaderHeight] = useState(0);
   
   // Use propNeglectedData if provided, otherwise use local state
   const neglectedData = propNeglectedData !== undefined ? propNeglectedData : localNeglectedData;
   const setNeglectedData = propNeglectedData !== undefined ? onNeglectedDataChange : setLocalNeglectedData;
+
+  const displayColumns = useMemo(() => {
+    const baseCols = columns && columns.length ? columns : Object.keys(data[0] || {}).filter(k => k !== '__originalIndex').map(k => ({ key: k, label: k }));
+    return hideSampleColumn ? baseCols.filter(c => c.key !== 'sample') : baseCols;
+  }, [columns, data, hideSampleColumn]);
 
   const sortedData = useMemo(() => {
     if (!data.length) return [];
@@ -27,6 +36,17 @@ const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen, onNeglectedData
     return sortableData;
   }, [data, sortConfig]);
 
+  useEffect(() => {
+    if (!tableRef.current) return;
+    const headH = theadRef.current ? theadRef.current.getBoundingClientRect().height : 0;
+    setHeaderHeight(headH);
+    const r = tableRef.current.querySelector('tbody tr');
+    if (r) {
+      const h = r.getBoundingClientRect().height;
+      setRowHeight(h);
+    }
+  }, [sortedData, displayColumns, isFullscreen]);
+
   const requestSort = (key) => {
     let direction = 'ascending';
     if (sortConfig.key === key && sortConfig.direction === 'ascending') {
@@ -38,7 +58,7 @@ const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen, onNeglectedData
   const exportToCSV = () => {
     if (!data.length) return;
     
-    const cols = columns && columns.length ? columns : Object.keys(data[0] || {}).filter(k => k !== '__originalIndex').map(k => ({ key: k, label: k }));
+    const cols = displayColumns;
     const headers = `${cols.map(c => c.label).join(',')},Neglected`;
     const csvRows = data.map((row, idx) => {
       const originalIndex = row.__originalIndex ?? idx;
@@ -66,7 +86,7 @@ const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen, onNeglectedData
   const copyToClipboard = async () => {
     if (!data.length) return;
     
-    const cols = columns && columns.length ? columns : Object.keys(data[0] || {}).filter(k => k !== '__originalIndex').map(k => ({ key: k, label: k }));
+    const cols = displayColumns;
     const tsvRows = data.map(row => cols.map(c => row[c.key]).join('\t'));
     const tsvContent = [cols.map(c => c.label).join('\t'), ...tsvRows].join('\n');
     
@@ -120,7 +140,7 @@ const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen, onNeglectedData
   }
 
   return (
-    <div className={`${isFullscreen ? 'fixed inset-0 z-50 bg-white p-4' : ''}`}>
+    <div className={`${isFullscreen ? 'fixed inset-0 z-50 bg-white p-4' : ''} ${containerClassName}`}>
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
@@ -135,55 +155,72 @@ const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen, onNeglectedData
           </p>
         </div>
         
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-1 sm:gap-2">
           {neglectedData.size > 0 && (
             <button
               onClick={clearAllNeglected}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700 transition-all"
+              aria-label="Show All"
+              className="flex items-center gap-1 p-2 sm:px-3 sm:py-1.5 bg-orange-600 text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-orange-700 transition-all"
             >
-              <FiEye size={14} /> Show All
+              <FiEye size={16} />
+              <span className="hidden sm:inline">Show All</span>
             </button>
           )}
+          {!hideNeglectAllButton && (
           <button
             onClick={neglectAll}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-600 text-white rounded-lg text-sm font-medium hover:bg-gray-700 transition-all"
+            aria-label="Neglect All"
+            className="flex items-center gap-1 p-2 sm:px-3 sm:py-1.5 bg-gray-600 text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-gray-700 transition-all"
           >
-            <FiEyeOff size={14} /> Neglect All
+            <FiEyeOff size={16} />
+            <span className="hidden sm:inline">Neglect All</span>
           </button>
+          )}
+          {!hideCsvButton && (
           <button
             onClick={exportToCSV}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-all"
+            aria-label="Export CSV"
+            className="flex items-center gap-1 p-2 sm:px-3 sm:py-1.5 bg-green-600 text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-green-700 transition-all"
           >
-            <FiDownload size={14} /> CSV
+            <FiDownload size={16} />
+            <span className="hidden sm:inline">CSV</span>
           </button>
+          )}
           
+          {!hideCopyButton && (
           <button
             onClick={copyToClipboard}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-all"
+            aria-label="Copy"
+            className="flex items-center gap-1 p-2 sm:px-3 sm:py-1.5 bg-blue-600 text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-blue-700 transition-all"
           >
-            <FiCopy size={14} /> Copy
+            <FiCopy size={16} />
+            <span className="hidden sm:inline">Copy</span>
           </button>
+          )}
           
           <button
             onClick={onToggleFullscreen}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-600 text-white rounded-lg text-sm font-medium hover:bg-slate-700 transition-all"
+            aria-label={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+            className="flex items-center gap-1 p-2 sm:px-3 sm:py-1.5 bg-slate-600 text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-slate-700 transition-all"
           >
-            {isFullscreen ? <FiMinimize2 size={14} /> : <FiMaximize2 size={14} />}
-            {isFullscreen ? ' Exit' : ' Fullscreen'}
+            {isFullscreen ? <FiMinimize2 size={16} /> : <FiMaximize2 size={16} />}
+            <span className="hidden sm:inline">{isFullscreen ? 'Exit' : 'Fullscreen'}</span>
           </button>
         </div>
       </div>
 
       {/* Table */}
       <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-slate-50">
+        <div className="overflow-x-auto overflow-y-auto" style={visibleRowCount && !isFullscreen && rowHeight ? { maxHeight: headerHeight + rowHeight * visibleRowCount } : undefined}>
+          <table ref={tableRef} className="w-full">
+            <thead ref={theadRef} className="bg-slate-50">
               <tr>
-                <th className="px-3 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Neglect
-                </th>
-                {(columns && columns.length ? columns : Object.keys(data[0] || {}).filter(k => k !== '__originalIndex').map(k => ({ key: k, label: k }))).map((col) => (
+                {!hideNeglectColumn && (
+                  <th className="px-3 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    Neglect
+                  </th>
+                )}
+                {displayColumns.map((col) => (
                   <th
                     key={col.key}
                     onClick={() => requestSort(col.key)}
@@ -211,15 +248,17 @@ const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen, onNeglectedData
                     key={originalIndex} 
                     className={`hover:bg-slate-50 transition-colors ${isNeglected ? 'bg-slate-100 opacity-60' : ''}`}
                   >
-                    <td className="px-3 py-3">
-                      <input
-                        type="checkbox"
-                        checked={isNeglected}
-                        onChange={() => toggleNeglectData(originalIndex)}
-                        className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                      />
-                    </td>
-                    {(columns && columns.length ? columns : Object.keys(row || {}).filter(k => k !== '__originalIndex').map(k => ({ key: k, label: k }))).map((col, cellIndex) => {
+                    {!hideNeglectColumn && (
+                      <td className="px-3 py-3">
+                        <input
+                          type="checkbox"
+                          checked={isNeglected}
+                          onChange={() => toggleNeglectData(originalIndex)}
+                          className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                        />
+                      </td>
+                    )}
+                    {displayColumns.map((col, cellIndex) => {
                       const value = row[col.key];
                       const precision = typeof col.precision === 'number' ? col.precision : (col.format === 'int' ? 0 : 4);
                       const formatted = typeof value === 'number' ? value.toFixed(precision) : value;

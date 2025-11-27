@@ -188,7 +188,7 @@ const ExperimentInterface = ({ experimentId = 4 }) => {
       )}
       
       {/* ===== ANIMATION STYLES ===== */}
-      <style jsx>{`
+      <style>{`
         @keyframes fadeIn {
           from {
             opacity: 0;
