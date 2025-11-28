@@ -244,20 +244,24 @@ class UDPDiscoveryService:
     
     async def _cleanup_stale_devices(self):
         """Remove devices that haven't responded within the timeout period"""
-        current_time = datetime.now().timestamp()
-        stale_devices = []
-        
-        for device_id, device_info in self.online_devices.items():
-            last_seen = device_info.get('last_seen', 0)
-            if current_time - last_seen > self.device_timeout:
-                stale_devices.append(device_id)
-        
-        for device_id in stale_devices:
-            del self.online_devices[device_id]
-            logger.info(f"Device {device_id} marked as offline (no response for {self.device_timeout}s)")
-        
-        if stale_devices:
-            logger.info(f"Cleaned up {len(stale_devices)} stale devices")
+        try:
+            current_time = datetime.now().timestamp()
+            stale_devices = []
+            
+            for device_id, device_info in self.online_devices.items():
+                last_seen = device_info.get('last_seen', 0)
+                if current_time - last_seen > self.device_timeout:
+                    stale_devices.append(device_id)
+            
+            for device_id in stale_devices:
+                del self.online_devices[device_id]
+                logger.info(f"Device {device_id} marked as offline (no response for {self.device_timeout}s)")
+            
+            if stale_devices:
+                logger.info(f"Cleaned up {len(stale_devices)} stale devices")
+                
+        except Exception as e:
+            logger.error(f"Error cleaning up stale devices: {e}")
     
     def get_online_devices(self) -> List[Dict]:
         """Get list of currently online devices"""
@@ -273,49 +277,81 @@ class UDPDiscoveryService:
     
     async def discover_devices(self, timeout: int = 3) -> List[Dict]:
         """
-        Perform immediate discovery with timeout
-        Returns list of discovered devices
+        Perform discovery.
+        If service is running, piggyback on the background listener.
+        If service is not running, perform standalone discovery.
         """
-        logger.info(f"Starting manual discovery with timeout {timeout}s")
+        logger.info(f"Starting discovery with timeout {timeout}s")
         
-        # Create a temporary dictionary for this discovery session
-        discovery_results = {}
-        
-        # Broadcast discovery
-        await self.broadcast_discovery()
-        
-        # Listen for responses for the specified timeout
-        start_time = asyncio.get_event_loop().time()
-        
-        while (asyncio.get_event_loop().time() - start_time) < timeout:
-            try:
-                # Check for responses
-                loop = asyncio.get_event_loop()
-                data, addr = await asyncio.wait_for(
-                    loop.sock_recvfrom(self.response_socket, 1024),
-                    timeout=0.1  # Short timeout to check frequently
-                )
-                
-                # Handle the response
-                device_info = self._parse_response_packet(data)
-                if device_info and 'device_id' in device_info:
-                    device_id = device_info['device_id']
-                    device_info.update({
-                        'last_seen': datetime.now().timestamp(),
-                        'ip_address': addr[0],
-                        'port': addr[1]
-                    })
-                    discovery_results[device_id] = device_info
-                    logger.info(f"Manual discovery found device {device_id} at {addr[0]}")
+        if self.is_running:
+            # Service is running, so the background listener is already active.
+            # We just need to trigger a broadcast and wait, then check the online_devices list.
+            
+            # Clear recent flags or just rely on timestamps?
+            # Let's rely on timestamps. We want devices seen *after* we start this scan.
+            start_time = datetime.now().timestamp()
+            
+            # Broadcast discovery
+            await self.broadcast_discovery()
+            
+            # Wait for responses to come in via the background listener
+            await asyncio.sleep(timeout)
+            
+            # Collect devices that have been updated since we started
+            current_devices = []
+            for device_id, device_info in self.online_devices.items():
+                last_seen = device_info.get('last_seen', 0)
+                if last_seen >= start_time:
+                    current_devices.append(device_info)
+            
+            logger.info(f"Discovery (via background service) completed, found {len(current_devices)} devices")
+            return current_devices
+            
+        else:
+            # Service is NOT running, perform standalone manual discovery
+            # Create a temporary dictionary for this discovery session
+            discovery_results = {}
+            
+            # Ensure sockets are initialized
+            if not self.broadcast_socket or not self.response_socket:
+                if not await self.initialize():
+                    return []
+            
+            # Broadcast discovery
+            await self.broadcast_discovery()
+            
+            # Listen for responses for the specified timeout
+            start_loop_time = asyncio.get_event_loop().time()
+            
+            while (asyncio.get_event_loop().time() - start_loop_time) < timeout:
+                try:
+                    # Check for responses
+                    loop = asyncio.get_event_loop()
+                    data, addr = await asyncio.wait_for(
+                        loop.sock_recvfrom(self.response_socket, 1024),
+                        timeout=0.1  # Short timeout to check frequently
+                    )
                     
-            except asyncio.TimeoutError:
-                continue  # No data, continue listening
-            except Exception as e:
-                logger.error(f"Error during manual discovery: {e}")
-                await asyncio.sleep(0.1)
-        
-        logger.info(f"Manual discovery completed, found {len(discovery_results)} devices")
-        return list(discovery_results.values())
+                    # Handle the response
+                    device_info = self._parse_response_packet(data)
+                    if device_info and 'device_id' in device_info:
+                        device_id = device_info['device_id']
+                        device_info.update({
+                            'last_seen': datetime.now().timestamp(),
+                            'ip_address': addr[0],
+                            'port': addr[1]
+                        })
+                        discovery_results[device_id] = device_info
+                        logger.info(f"Manual discovery found device {device_id} at {addr[0]}")
+                        
+                except asyncio.TimeoutError:
+                    continue  # No data, continue listening
+                except Exception as e:
+                    logger.error(f"Error during manual discovery: {e}")
+                    await asyncio.sleep(0.1)
+            
+            logger.info(f"Manual discovery (standalone) completed, found {len(discovery_results)} devices")
+            return list(discovery_results.values())
     
     def _is_same_network_segment(self, remote_ip: str) -> bool:
         """Check if remote IP is in the same network segment as this host"""
@@ -366,28 +402,6 @@ class UDPDiscoveryService:
         except Exception as e:
             logger.warning(f"Error checking network segment for {remote_ip}: {e}")
             return True  # Fallback: accept on error
-
-    async def _cleanup_stale_devices(self):
-        """Remove devices that haven't responded within the timeout period"""
-        current_time = asyncio.get_event_loop().time()
-        stale_devices = []
-        
-        for device_id, device_info in list(self.online_devices.items()):
-            last_seen = device_info.get('last_seen', 0)
-            if current_time - last_seen > self.device_timeout:
-                stale_devices.append(device_id)
-        
-        for device_id in stale_devices:
-            device_info = self.online_devices.pop(device_id, {})
-            logger.info(f"Removed stale device {device_id} (last seen: {device_info.get('last_seen')})")
-            
-            # Also update database to mark device as offline
-            try:
-                from session_manager import SessionManager
-                session_manager = SessionManager.get_instance()
-                await session_manager._update_device_online_status(device_id, 0)
-            except Exception as e:
-                logger.error(f"Failed to update database status for stale device {device_id}: {e}")
 
 # Global instance for easy access
 udp_discovery_service = UDPDiscoveryService()
