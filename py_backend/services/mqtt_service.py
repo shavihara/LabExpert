@@ -457,11 +457,70 @@ class MQTTService:
             logger.error(f"Error forwarding status update to WS for {device_id}: {e}")
 
     async def _update_device_status_in_session(self, device_id: str, status_data: dict):
-        """Update device status in session manager"""
+        """Update device status in session manager and available_sensors table"""
         try:
             # Update device status in session manager
             await self.session_manager.update_device_status(device_id, status_data)
             logger.debug(f"Updated session manager status for device {device_id}")
             
+            # Update available_sensors table based on connection status
+            await self._update_availability_status(device_id, status_data)
+            
         except Exception as e:
             logger.error(f"Error updating session manager status for {device_id}: {e}")
+
+    async def _update_availability_status(self, device_id: str, status_data: dict):
+        """Update available_sensors table based on device allocation status"""
+        try:
+            from sqlalchemy import text
+            from config.database import engine
+            from datetime import datetime
+            
+            # Check if device has an active allocation in device_allocations table
+            now = datetime.now().isoformat()
+            allocation_check_stmt = text("""
+                SELECT COUNT(*) FROM device_allocations 
+                WHERE device_id = :device_id AND expires_at > :now
+            """)
+            
+            with engine.connect() as conn:
+                result = conn.execute(allocation_check_stmt, {
+                    "device_id": device_id,
+                    "now": now
+                })
+                has_active_allocation = result.scalar() > 0
+            
+            # Set availability to 0 if device has active allocation, 1 if not
+            availability = 0 if has_active_allocation else 1
+            
+            # Update the available_sensors table
+            update_stmt = text("""
+                UPDATE available_sensors 
+                SET availability = :availability, last_updated = :now
+                WHERE sensor_id = :device_id
+            """)
+            
+            with engine.begin() as conn:
+                result = conn.execute(update_stmt, {
+                    "availability": availability,
+                    "now": now,
+                    "device_id": device_id
+                })
+                
+                if result.rowcount == 0:
+                    # Device doesn't exist in available_sensors, insert it
+                    insert_stmt = text("""
+                        INSERT INTO available_sensors (sensor_id, availability, last_firmware, last_updated)
+                        VALUES (:device_id, :availability, 'unknown', :now)
+                    """)
+                    conn.execute(insert_stmt, {
+                        "device_id": device_id,
+                        "availability": availability,
+                        "now": now
+                    })
+                    logger.info(f"Inserted new device {device_id} into available_sensors with availability {availability}")
+                else:
+                    logger.debug(f"Updated availability for device {device_id} to {availability} (has_active_allocation: {has_active_allocation})")
+                    
+        except Exception as e:
+            logger.error(f"Error updating availability status for {device_id}: {e}")
