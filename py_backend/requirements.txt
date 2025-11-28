@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+pydantic[email]
+aiohttp
+python-dotenv
+yagmail
+psutil
+sse-starlette
+sqlalchemy
+bcrypt
+paho-mqtt
+numpy
+requests
