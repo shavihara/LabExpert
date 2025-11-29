@@ -1,6 +1,7 @@
 # ws_client.py
 # WebSocket manager for frontend clients
 import asyncio
+import os
 import json
 import logging
 from typing import Dict
@@ -17,6 +18,7 @@ class ClientWebSocketManager:
         self.active_clients: Dict[str, WebSocket] = {}
         self._last_scan_time = {}
         self._scan_cooldown = 5  # seconds between scans
+        self._ble_selected: Dict[str, str] = {}
     
     @classmethod
     def get_instance(cls):
@@ -114,6 +116,15 @@ class ClientWebSocketManager:
             # Actions that don't require allocation
             if action == "scan_devices":
                 await self._handle_scan_devices(user_id)
+            elif action == "ble_scan":
+                await self._handle_ble_scan(user_id)
+            elif action == "ble_select":
+                addr = message.get("address")
+                await self._handle_ble_select(user_id, addr)
+            elif action == "ble_provision":
+                ssid = message.get("ssid")
+                password = message.get("pass") or message.get("password")
+                await self._handle_ble_provision(user_id, ssid, password)
             elif action == "select_device":
                 device_id = message.get("device_id")
                 await self._handle_select_device(user_id, device_id)
@@ -182,6 +193,44 @@ class ClientWebSocketManager:
         except Exception as e:
             logger.error(f"Error during manual device scan for user {user_id}: {e}")
             await self.send_to_user(user_id, {"type": "scan_error", "error": str(e)})
+
+    async def _handle_ble_scan(self, user_id: str):
+        try:
+            from services.ble_service import BLEService
+            secret = (os.getenv("BLE_SECRET") or "DEV_SECRET").encode("utf-8")
+            svc = BLEService(secret)
+            ready = await svc.is_adapter_ready()
+            if not ready:
+                await self.send_to_user(user_id, {"type": "ble_scan_result", "devices": [], "enabled": False, "message": "Bluetooth disabled. Enable Bluetooth in Windows settings."})
+                return
+            devices = await svc.scan(timeout=10.0)
+            await self.send_to_user(user_id, {"type": "ble_scan_result", "devices": devices, "enabled": True})
+        except Exception as e:
+            await self.send_to_user(user_id, {"type": "ble_scan_result", "devices": [], "enabled": False, "message": str(e)})
+
+    async def _handle_ble_select(self, user_id: str, address: str):
+        self._ble_selected[user_id] = address or ""
+        await self.send_to_user(user_id, {"type": "ble_selected", "address": address})
+
+    async def _handle_ble_provision(self, user_id: str, ssid: str, password: str):
+        import os
+        from services.ble_service import BLEService
+        if not ssid or not password:
+            await self.send_to_user(user_id, {"type": "ble_result", "success": False, "message": "missing_credentials"})
+            return
+        address = self._ble_selected.get(user_id)
+        if not address:
+            await self.send_to_user(user_id, {"type": "ble_result", "success": False, "message": "no_device_selected"})
+            return
+        secret = (os.getenv("BLE_SECRET") or "DEV_SECRET").encode("utf-8")
+        svc = BLEService(secret)
+        def cb(status: str):
+            asyncio.run_coroutine_threadsafe(self.send_to_user(user_id, {"type": "ble_status", "status": status}), asyncio.get_event_loop())
+        try:
+            result = await svc.provision(address, ssid, password, status_cb=cb, timeout=30.0)
+            await self.send_to_user(user_id, {"type": "ble_result", **result})
+        except Exception as e:
+            await self.send_to_user(user_id, {"type": "ble_result", "success": False, "message": str(e)})
 
     async def _handle_select_device(self, user_id: str, device_id: str):
         success = await self.session_manager.allocate_device_to_user(device_id, user_id)

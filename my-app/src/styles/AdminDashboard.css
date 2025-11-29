@@ -512,3 +512,25 @@
     font-size: 0.9rem;
   }
 }
+
+/* Dark mode overrides */
+.dark .admin-container { background: #0f172a; }
+.dark .admin-nav { background: #111827; border-bottom-color: #334155; box-shadow: none; }
+.dark .nav-tab { color: #cbd5e1; }
+.dark .nav-tab.active { background: #1f2937; color: #ffffff; }
+.dark .admin-content h2 { color: #e5e7eb; }
+.dark .stat-card,
+.dark .dashboard-card,
+.dark .users-table-container,
+.dark .system-card { background: #111827; border-color: #334155; box-shadow: none; }
+.dark .stat-info h3,
+.dark .dashboard-card h3,
+.dark .system-card h3 { color: #e5e7eb; }
+.dark .stat-info p,
+.dark .user-email,
+.dark .user-date,
+.dark .system-card p { color: #cbd5e1; }
+.dark .recent-item { background: #0b1220; border-color: #334155; }
+.dark .users-table th { background: #1f2937; color: #e5e7eb; border-bottom-color: #334155; }
+.dark .users-table td { color: #e5e7eb; border-bottom-color: #334155; }
+.dark .users-table tr:hover { background: #0b1220; }

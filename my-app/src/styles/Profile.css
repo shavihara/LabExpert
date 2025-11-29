@@ -100,3 +100,16 @@ button:disabled {
   border-radius: 4px;
   margin-bottom: 1rem;
 }
+
+.dark .profile-container { color: #e5e7eb; }
+.dark .profile-section { background: #111827; box-shadow: none; border: 1px solid #334155; }
+.dark .profile-section h3 { color: #e5e7eb; }
+.dark .profile-picture-placeholder { background-color: #1f2937; color: #cbd5e1; }
+.dark .verification-section { background-color: #1f2937; border-color: #334155; }
+.dark .verification-form input { background: #0f172a; color: #e5e7eb; border: 1px solid #334155; }
+.dark .form-group label { color: #cbd5e1; }
+.dark .form-group input { background: #0f172a; color: #e5e7eb; border-color: #334155; }
+.dark button { background-color: #4f46e5; color: #ffffff; }
+.dark button:hover:not(:disabled) { background-color: #4338ca; }
+.dark .error-message { background-color: #3f1d1d; color: #fecaca; }
+.dark .success-message { background-color: #1f3d2b; color: #bbf7d0; }

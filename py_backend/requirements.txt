@@ -1,3 +1,16 @@
+fastapi
+uvicorn
+pydantic[email]
+aiohttp
+python-dotenv
+yagmail
+psutil
+sse-starlette
+sqlalchemy
+bcrypt
+paho-mqtt
+numpy
+requests
 aiohappyeyeballs==2.6.1
 aiohttp==3.13.2
 aiosignal==1.4.0
