@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWebSocket, useDeviceManager, useExperimentManager } from '../../hooks/useWebSocket';
 import { 
-  FiSettings, FiBarChart2, FiX, FiWifi, FiWifiOff, FiLogOut, FiRepeat
+  FiSettings, FiBarChart2, FiX, FiWifi, FiWifiOff, FiLogOut, FiRepeat, FiPlay, FiPause, FiStopCircle, FiRefreshCw
 } from 'react-icons/fi';
 
 // New modular components
@@ -348,12 +348,37 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
           
           {/* Main Content */}
           <ResponsiveCard padding="xs">
-              <div className="flex items-center justify-between mb-1 md:mb-6">
+            <div className="flex items-center justify-between mb-1 md:mb-6">
               <h2 className="text-lg md:text-2xl font-bold text-slate-800 flex items-center gap-2">
                 <FiBarChart2 className="text-purple-600" />
                 Live Data Feed
               </h2>
-              <div></div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => window.dispatchEvent(new CustomEvent('labex:controls:start'))}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-all text-sm"
+                >
+                  <FiPlay className="w-4 h-4" /> Start
+                </button>
+                <button
+                  onClick={() => window.dispatchEvent(new CustomEvent('labex:controls:pause'))}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-yellow-500 text-white rounded-lg font-semibold hover:bg-yellow-600 transition-all text-sm"
+                >
+                  <FiPause className="w-4 h-4" /> Pause
+                </button>
+                <button
+                  onClick={() => window.dispatchEvent(new CustomEvent('labex:controls:stop'))}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-all text-sm"
+                >
+                  <FiStopCircle className="w-4 h-4" /> Stop
+                </button>
+                <button
+                  onClick={() => window.dispatchEvent(new CustomEvent('labex:controls:reset'))}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-gray-600 text-white rounded-lg font-semibold hover:bg-gray-700 transition-all text-sm"
+                >
+                  <FiRefreshCw className="w-4 h-4" /> Reset
+                </button>
+              </div>
               </div>
             
             {/* Optimized Graph Renderer */}
@@ -364,6 +389,7 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
               sharedExperimentManager={sharedExperimentManager}
               config={config}
               subExperiment={selectedSubExperiment}
+              externalControls={true}
             />
           </ResponsiveCard>
           

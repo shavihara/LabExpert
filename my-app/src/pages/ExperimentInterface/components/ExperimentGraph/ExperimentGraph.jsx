@@ -7,7 +7,7 @@ import PlotlyGraph from '../../../../components/PlotlyGraph';
 import { useTheme } from '../../../../context/ThemeContext';
 import LiveDataTable from './LiveDataTable';
 
-const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperimentManager, config = { max_distance_cm: 150 }, subExperiment }) => {
+const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperimentManager, config = { max_distance_cm: 150 }, subExperiment, externalControls = false }) => {
   const BACKEND_URL = `http://${window.location.hostname.replace(':3000', '')}:5000`;
   const { theme } = useTheme();
   const isDark = theme === 'dark';
@@ -85,6 +85,23 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         try { graphRORef.current.disconnect(); } catch {}
         graphRORef.current = null;
       }
+    };
+  }, []);
+
+  useEffect(() => {
+    const onStart = () => handleStart();
+    const onPause = () => handlePause();
+    const onStop = () => handleStop();
+    const onReset = () => handleReset();
+    window.addEventListener('labex:controls:start', onStart);
+    window.addEventListener('labex:controls:pause', onPause);
+    window.addEventListener('labex:controls:stop', onStop);
+    window.addEventListener('labex:controls:reset', onReset);
+    return () => {
+      window.removeEventListener('labex:controls:start', onStart);
+      window.removeEventListener('labex:controls:pause', onPause);
+      window.removeEventListener('labex:controls:stop', onStop);
+      window.removeEventListener('labex:controls:reset', onReset);
     };
   }, []);
 
@@ -530,43 +547,44 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         </div>
       </div>
 
-      {/* ===== CONTROL BUTTONS ===== */}
-      <div className="bg-white rounded-xl shadow-md border border-slate-200 p-3">
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={handleStart}
-            disabled={isRunning}
-            className="flex-1 min-w-[90px] flex items-center justify-center gap-1.5 px-3 py-2.5 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md text-sm"
-          >
-            <FiPlay size={16} /> Start
-          </button>
-          <button
-            onClick={handlePause}
-            disabled={!isRunning}
-            className={`flex-1 min-w-[90px] flex items-center justify-center gap-1.5 px-3 py-2.5 text-white rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md text-sm ${
-              isPaused 
-                ? 'bg-blue-600 hover:bg-blue-700' 
-                : 'bg-yellow-500 hover:bg-yellow-600'
-            }`}
-          >
-            {isPaused ? <><FiPlay size={16} /> Resume</> : <><FiPause size={16} /> Pause</>}
-          </button>
-          <button
-            onClick={handleStop}
-            disabled={!isRunning}
-            className="flex-1 min-w-[90px] flex items-center justify-center gap-1.5 px-3 py-2.5 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md text-sm"
-          >
-            <FiStopCircle size={16} /> Stop
-          </button>
-          <button
-            onClick={handleReset}
-            disabled={isRunning}
-            className="flex-1 min-w-[90px] flex items-center justify-center gap-1.5 px-3 py-2.5 bg-gray-600 text-white rounded-lg font-semibold hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md text-sm"
-          >
-            <FiRefreshCw size={16} /> Reset
-          </button>
+      {!externalControls && (
+        <div className="bg-white rounded-xl shadow-md border border-slate-200 p-3">
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={handleStart}
+              disabled={isRunning}
+              className="flex-1 min-w-[90px] flex items-center justify-center gap-1.5 px-3 py-2.5 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md text-sm"
+            >
+              <FiPlay size={16} /> Start
+            </button>
+            <button
+              onClick={handlePause}
+              disabled={!isRunning}
+              className={`flex-1 min-w-[90px] flex items-center justify-center gap-1.5 px-3 py-2.5 text-white rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md text-sm ${
+                isPaused 
+                  ? 'bg-blue-600 hover:bg-blue-700' 
+                  : 'bg-yellow-500 hover:bg-yellow-600'
+              }`}
+            >
+              {isPaused ? <><FiPlay size={16} /> Resume</> : <><FiPause size={16} /> Pause</>}
+            </button>
+            <button
+              onClick={handleStop}
+              disabled={!isRunning}
+              className="flex-1 min-w-[90px] flex items-center justify-center gap-1.5 px-3 py-2.5 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md text-sm"
+            >
+              <FiStopCircle size={16} /> Stop
+            </button>
+            <button
+              onClick={handleReset}
+              disabled={isRunning}
+              className="flex-1 min-w-[90px] flex items-center justify-center gap-1.5 px-3 py-2.5 bg-gray-600 text-white rounded-lg font-semibold hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md text-sm"
+            >
+              <FiRefreshCw size={16} /> Reset
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {isAnalysisMode ? (
         <>
