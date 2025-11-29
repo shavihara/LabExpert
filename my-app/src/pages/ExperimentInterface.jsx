@@ -96,7 +96,7 @@ const ExperimentInterface = ({ experimentId = 4 }) => {
   };
 
   return (
-    <div className="p-4 md:p-8 bg-gradient-to-br from-slate-50 via-blue-50 to-purple-50 min-h-screen">
+    <div className="p-4 md:p-8 pt-[var(--header-height)] bg-gradient-to-br from-slate-50 via-blue-50 to-purple-50 min-h-screen">
       
       {showConfigModal && (
         <ConfigurationModal 
@@ -123,47 +123,49 @@ const ExperimentInterface = ({ experimentId = 4 }) => {
           
           {/* ===== HEADER ===== */}
           <div className="bg-white rounded-xl md:rounded-2xl shadow-lg border border-slate-200 p-4 md:p-6">
-            <div className="flex flex-col gap-3">
-              <div>
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div className="flex-1">
                 <h1 className="text-2xl md:text-3xl lg:text-4xl font-extrabold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
                   {getExperimentName()}
                 </h1>
-                <p className="text-xs md:text-sm text-slate-600 mt-1 md:mt-2 flex items-center gap-2">
-                  {selectedDevice ? (
-                    <>
-                      <FiWifi className="text-green-500 flex-shrink-0" />
-                      <span className="truncate">Connected: <span className="font-semibold text-slate-800">{selectedDevice.id}</span></span>
-                    </>
-                  ) : (
-                    <>
-                      <FiWifiOff className="text-red-500 flex-shrink-0" />
-                      No device connected
-                    </>
-                  )}
-                </p>
+                
               </div>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  onClick={() => setShowConfigPanel(true)}
-                  className="flex items-center justify-center gap-1.5 px-2 py-2 md:px-4 md:py-2.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-all shadow-md text-xs md:text-sm"
-                >
-                  <FiSettings size={16} /> 
-                  <span className="hidden sm:inline">Config</span>
-                </button>
-                <button
-                  onClick={() => setShowConfigModal(true)}
-                  className="flex items-center justify-center gap-1.5 px-2 py-2 md:px-4 md:py-2.5 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition-all shadow-md text-xs md:text-sm"
-                >
-                  <FiRepeat size={16} /> 
-                  <span className="hidden sm:inline">Change</span>
-                </button>
-                <button
-                  onClick={handleDisconnect}
-                  className="flex items-center justify-center gap-1.5 px-2 py-2 md:px-4 md:py-2.5 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-all shadow-md text-xs md:text-sm"
-                >
-                  <FiLogOut size={16} /> 
-                  <span className="hidden sm:inline">Disconnect</span>
-                </button>
+              <div className="flex flex-col items-end gap-2">
+                <div className="flex items-center gap-2">
+                  <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border ${selectedDevice ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}> 
+                    <span className={`w-2 h-2 rounded-full ${selectedDevice ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                    {selectedDevice ? 'Connected' : 'Disconnected'}
+                  </div>
+                  {selectedDevice && (
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border bg-slate-100 text-slate-700 border-slate-300">
+                      <FiWifi className="text-green-500" />
+                      <span className="truncate">Device: <span className="font-semibold">{selectedDevice.id}</span></span>
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowConfigPanel(true)}
+                    className="inline-flex items-center whitespace-nowrap gap-1.5 px-2 py-2 md:px-4 md:py-2.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-all shadow-md text-xs md:text-sm"
+                  >
+                    <FiSettings size={16} /> 
+                    <span>Configure</span>
+                  </button>
+                  <button
+                    onClick={() => setShowConfigModal(true)}
+                    className="inline-flex items-center whitespace-nowrap gap-1.5 px-2 py-2 md:px-4 md:py-2.5 bg-gray-600 text-white rounded-lg font-semibold hover:bg-gray-700 transition-all shadow-md text-xs md:text-sm"
+                  >
+                    <FiRepeat size={16} /> 
+                    <span>Change Experiment</span>
+                  </button>
+                  <button
+                    onClick={handleDisconnect}
+                    className="inline-flex items-center whitespace-nowrap gap-1.5 px-2 py-2 md:px-4 md:py-2.5 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-all shadow-md text-xs md:text-sm"
+                  >
+                    <FiLogOut size={16} /> 
+                    <span>Disconnect</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>

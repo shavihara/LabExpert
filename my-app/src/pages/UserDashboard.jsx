@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useWebSocket } from '../hooks/useWebSocket';
 import '../styles/UserDashboard.css';
 import pendulumGif from '../assets/images/pendulum.gif';
+import { useTheme } from '../context/ThemeContext';
 
 function UserDashboard() {
   const [activeSection, setActiveSection] = useState('experiments');
@@ -13,6 +14,7 @@ function UserDashboard() {
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [showInstallButton, setShowInstallButton] = useState(false);
   const navigate = useNavigate();
+  const { theme, toggleTheme } = useTheme();
 
   // Get current user
   const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
@@ -413,7 +415,11 @@ function UserDashboard() {
                   <div className="preference-item">
                     <span>Dark Mode</span>
                     <label className="switch">
-                      <input type="checkbox" />
+                      <input
+                        type="checkbox"
+                        checked={theme === 'dark'}
+                        onChange={toggleTheme}
+                      />
                       <span className="slider"></span>
                     </label>
                   </div>

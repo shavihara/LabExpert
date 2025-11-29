@@ -72,6 +72,16 @@
 
 .form-group label {
   color: #374151;
+}
+
+/* Dark mode overrides */
+.dark .login-container { background: linear-gradient(135deg, #0f172a 0%, #111827 100%); }
+.dark .login-card { background: #111827; border-color: #334155; box-shadow: none; }
+.dark .login-title { color: #e5e7eb; }
+.dark .login-subtitle { color: #cbd5e1; }
+.dark .form-group label { color: #cbd5e1; }
+.dark .form-input { background: #0f172a; color: #e5e7eb; border-color: #334155; }
+.dark .forgot-button { background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%); }
   font-weight: 600;
   font-size: 0.9rem;
   margin: 0;

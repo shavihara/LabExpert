@@ -4,10 +4,13 @@ import {
   FiClock, FiLoader
 } from 'react-icons/fi';
 import PlotlyGraph from '../../../../components/PlotlyGraph';
+import { useTheme } from '../../../../context/ThemeContext';
 import LiveDataTable from './LiveDataTable';
 
 const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperimentManager, config = { max_distance_cm: 150 }, subExperiment }) => {
   const BACKEND_URL = `http://${window.location.hostname.replace(':3000', '')}:5000`;
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
   // ===== DATA HANDLING STATE =====
   const [chartData, setChartData] = useState([]);
   const [neglectedData, setNeglectedData] = useState(new Set());
@@ -55,6 +58,15 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   // Keep refs in sync with state
   useEffect(() => { isRunningRef.current = isRunning; }, [isRunning]);
   useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
+  useEffect(() => {
+    const d = Number(config?.duration_s);
+    if (Number.isFinite(d) && d > 0) {
+      setTotalDuration(d);
+      if (!isRunning) {
+        setTimeRemaining(d);
+      }
+    }
+  }, [config?.duration_s, isRunning]);
 
   useEffect(() => {
     const mq = typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)') : null;
@@ -372,6 +384,11 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
 
   // ===== UI STATUS HELPERS =====
   const getStatusColor = () => {
+    if (isDark) {
+      if (isRunning && !isPaused) return 'bg-green-900/20 text-green-300 border-green-600';
+      if (isPaused) return 'bg-yellow-900/20 text-yellow-300 border-yellow-600';
+      return 'bg-slate-800 text-slate-300 border-slate-600';
+    }
     if (isRunning && !isPaused) return 'bg-green-100 text-green-700 border-green-300';
     if (isPaused) return 'bg-yellow-100 text-yellow-700 border-yellow-300';
     return 'bg-slate-100 text-slate-600 border-slate-300';
@@ -495,20 +512,20 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         </div>
 
         {/* Timer */}
-        <div className="rounded-xl border-2 border-blue-200 bg-blue-50 p-3">
-          <div className="text-xs font-semibold text-blue-700 mb-1">Time Remaining</div>
-          <div className="text-2xl font-bold text-blue-900 font-mono flex items-center gap-2">
+        <div className={`rounded-xl border-2 p-3 ${isDark ? 'border-blue-600 bg-slate-800' : 'border-blue-200 bg-blue-50'}`}>
+          <div className={`text-xs font-semibold mb-1 ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Time Remaining</div>
+          <div className={`text-2xl font-bold font-mono flex items-center gap-2 ${isDark ? 'text-blue-200' : 'text-blue-900'}`}>
             <FiClock className="h-5 w-5" />
             {formatTime(timeRemaining)}
           </div>
         </div>
 
         {/* Configuration Info */}
-        <div className="rounded-xl border-2 border-purple-200 bg-purple-50 p-3">
-          <div className="text-xs font-semibold text-purple-700 mb-1">Configuration</div>
-          <div className="text-sm text-purple-900">
-            <div>Duration: {totalDuration || 10}s</div>
-            <div className="text-xs opacity-75">Samples: {chartData.length}</div>
+        <div className={`rounded-xl border-2 p-3 ${isDark ? 'border-purple-600 bg-slate-800' : 'border-purple-200 bg-purple-50'}`}>
+          <div className={`text-xs font-semibold mb-1 ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>Configuration</div>
+          <div className={`text-sm ${isDark ? 'text-purple-200' : 'text-purple-900'}`}>
+            <div>Duration: {(config?.duration_s ?? totalDuration) || 10}s</div>
+            <div className={`text-xs opacity-75 ${isDark ? 'text-purple-300' : ''}`}>Samples: {chartData.length}</div>
           </div>
         </div>
       </div>
@@ -636,7 +653,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
       )}
 
       {/* ===== EXPORT AND SAVE BUTTONS ===== */}
-      <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-xl shadow-md border-2 border-purple-200 p-4">
+      <div className={`${isDark ? 'bg-slate-800 border-slate-600' : 'bg-gradient-to-r from-purple-50 to-blue-50 border-purple-200'} rounded-xl shadow-md border-2 p-4`}>
         <div className="flex flex-wrap gap-2">
           <button
             onClick={handleSaveToProfile}
@@ -648,15 +665,15 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         </div>
         {saveStatus && (
           <div className={`mt-3 text-xs font-semibold px-3 py-2 rounded-lg inline-block border ${
-            saveStatus.status === 'loading' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-            saveStatus.status === 'success' ? 'bg-green-50 text-green-700 border-green-200' :
-            'bg-red-50 text-red-700 border-red-200'
+            saveStatus.status === 'loading' ? (isDark ? 'bg-blue-900/20 text-blue-300 border-blue-600' : 'bg-blue-50 text-blue-700 border-blue-200') :
+            saveStatus.status === 'success' ? (isDark ? 'bg-green-900/20 text-green-300 border-green-600' : 'bg-green-50 text-green-700 border-green-200') :
+            (isDark ? 'bg-red-900/20 text-red-300 border-red-600' : 'bg-red-50 text-red-700 border-red-200')
           }`}>
             {saveStatus.message}
           </div>
         )}
         {chartData.length === 0 && (
-          <p className="text-center text-xs text-slate-500 mt-2">
+          <p className={`text-center text-xs mt-2 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
             Start the experiment to enable save options
           </p>
         )}
