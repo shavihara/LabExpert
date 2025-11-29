@@ -674,27 +674,33 @@ const PlotlyGraph = ({
       <div ref={plotContainerRef} className={`bg-white rounded-xl shadow-lg border border-slate-200 ${
         isFullscreen ? 'fixed inset-0 z-[10000] p-4 md:p-6' : 'p-2 sm:p-3 md:p-4'
       }`}>
-        <div className={`flex items-center justify-between ${isFullscreen ? 'mb-4' : 'mb-2'}`}>
-          <ModeToggle />
-          <div className="flex gap-2">
+        <div className={`${isFullscreen ? 'mb-4' : 'mb-2'} flex items-center justify-between`}>
+          <div className="flex items-center gap-2">
+            <FiBarChart2 className="text-purple-600" />
+            <span className={`font-semibold ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>
+              {mode === 'live' ? 'Real-time Plot' : 'Analysis Plot'}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 flex-nowrap whitespace-nowrap">
             <button
               onClick={exportToCSV}
-              className="px-2 py-1.5 bg-green-50 text-green-700 rounded hover:bg-green-100 transition-all text-xs flex items-center gap-1"
+              className="px-2 py-1 bg-green-50 text-green-700 rounded hover:bg-green-100 transition-all text-xs flex items-center gap-1 shrink-0"
               title="Export to CSV"
             >
               <FiSave size={14} />
               <span className="hidden sm:inline">CSV</span>
             </button>
-
-            {/* Fullscreen Toggle */}
             <button
               onClick={toggleFullscreen}
-              className={`${isDark ? 'px-2 py-1.5 border border-slate-700 bg-slate-800 text-purple-300 hover:bg-slate-700' : 'px-2 py-1.5 bg-purple-50 text-purple-700 hover:bg-purple-100'} rounded transition-all text-xs flex items-center gap-1`}
+              className={`${isDark ? 'px-2 py-1 border border-slate-700 bg-slate-800 text-purple-300 hover:bg-slate-700' : 'px-2 py-1 bg-purple-50 text-purple-700 hover:bg-purple-100'} rounded transition-all text-xs flex items-center gap-1 shrink-0`}
             >
               {isFullscreen ? <FiMinimize size={14} /> : <FiMaximize size={14} />}
               <span className="hidden sm:inline">{isFullscreen ? 'Exit' : 'Full'}</span>
             </button>
           </div>
+        </div>
+        <div className="mb-2">
+          <ModeToggle />
         </div>
 
         {/* Unified trace tabs inside the same container */}
@@ -711,31 +717,7 @@ const PlotlyGraph = ({
             layout={{
               uirevision: 'keep-zoom',
               font: { color: isDark ? '#e5e7eb' : undefined },
-              title: {
-                text: `${mode === 'live' ? 'Real-time Plot' : 'Analysis Plot'}`,
-                font: { size: isFullscreen ? 18 : 14 },
-                x: isMobile ? 0.02 : 0.5,
-                y: isMobile ? 0.92 : 1.06,
-                xanchor: isMobile ? 'left' : 'center'
-              },
-              images: [
-                {
-                  source:
-                    'data:image/svg+xml;utf8,' +
-                    encodeURIComponent(
-                      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 20V4"/><path d="M10 20V10"/><path d="M14 20V14"/><path d="M18 20V8"/></svg>'
-                    ),
-                  xref: 'paper',
-                  yref: 'paper',
-                  x: isMobile ? 0.18 : 0.36,
-                  y: isMobile ? 0.96 : 1.06,
-                  sizex: 0.045,
-                  sizey: 0.045,
-                  xanchor: isMobile ? 'left' : 'center',
-                  yanchor: 'bottom',
-                  layer: 'above'
-                }
-              ],
+              // Title and icon are rendered in the header above the plot for consistent alignment
               xaxis: {
                 title: `${axis?.x?.label || 'Time'}${axis?.x?.unit ? ' ('+axis.x.unit+')' : ''}`,
                 showgrid: true,
@@ -776,7 +758,7 @@ const PlotlyGraph = ({
                 orientation: 'h',
                 font: { size: isFullscreen ? 14 : 12 }
               },
-              margin: isFullscreen ? { l: 50, r: 35, t: 70, b: 60 } : { l: 40, r: 20, t: 60, b: 45 },
+              margin: isFullscreen ? { l: 50, r: 35, t: 40, b: 60 } : { l: 40, r: 20, t: 30, b: 45 },
               hovermode: 'closest',
               plot_bgcolor: isDark ? '#0b1220' : '#f8fafc',
               paper_bgcolor: isDark ? '#111827' : '#ffffff',
