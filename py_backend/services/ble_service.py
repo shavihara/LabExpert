@@ -25,7 +25,7 @@ class BLEService:
         devices = await BleakScanner.discover(timeout=timeout)
         for d in devices:
             name = d.name or ""
-            if name.startswith("ESP32_OTA_"):
+            if name.startswith("LabExpertOTA"):
                 found.append({"name": name, "address": d.address, "rssi": getattr(d, "rssi", None)})
         return found
 
