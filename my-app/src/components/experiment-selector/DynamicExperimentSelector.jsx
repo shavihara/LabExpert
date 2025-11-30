@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTheme } from '../../context/ThemeContext';
 import { 
   FiSettings, 
   FiCheckCircle, 
@@ -36,6 +37,8 @@ const DynamicExperimentSelector = ({
   sharedDeviceManager, 
   sharedExperimentManager 
 }) => {
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
   const userToken = localStorage.getItem('token');
   const [selectedSubExperiment, setSelectedSubExperiment] = useState(null);
   const [flashStatus, setFlashStatus] = useState('Select a sensor to begin');
@@ -150,18 +153,18 @@ const DynamicExperimentSelector = ({
     });
   };
 
-  // Get flash status display
+  // Get flash status display (theme-aware)
   const getFlashStatusDisplay = () => {
     if (flashStatus.includes('✓')) {
-      return { icon: <FiCheckCircle className="text-green-500" />, color: 'text-green-600' };
+      return { icon: <FiCheckCircle className={`${isDark ? 'text-green-300' : 'text-green-500'}`} />, color: isDark ? 'text-green-300' : 'text-green-600' };
     }
     if (flashStatus.includes('✗')) {
-      return { icon: <FiAlertTriangle className="text-red-500" />, color: 'text-red-600' };
+      return { icon: <FiAlertTriangle className={`${isDark ? 'text-red-300' : 'text-red-500'}`} />, color: isDark ? 'text-red-300' : 'text-red-600' };
     }
     if (isFlashing) {
-      return { icon: <FiLoader className="animate-spin text-purple-600" />, color: 'text-purple-600' };
+      return { icon: <FiLoader className={`animate-spin ${isDark ? 'text-purple-300' : 'text-purple-600'}`} />, color: isDark ? 'text-purple-300' : 'text-purple-600' };
     }
-    return { icon: <FiSettings className="text-gray-500" />, color: 'text-gray-600' };
+    return { icon: <FiSettings className={`${isDark ? 'text-slate-400' : 'text-gray-500'}`} />, color: isDark ? 'text-slate-400' : 'text-gray-600' };
   };
 
   // Calculate progress percentage
@@ -222,7 +225,7 @@ const DynamicExperimentSelector = ({
 
         {/* Sub-Experiment Selection */}
         <div>
-          <h4 className="text-lg font-semibold text-gray-800 mb-4">Select Experiment Type</h4>
+          <h4 className={`text-lg font-semibold mb-4 ${isDark ? 'text-slate-200' : 'text-gray-800'}`}>Select Experiment Type</h4>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {subExperiments.map((subExp) => (
               <ResponsiveCard
@@ -231,22 +234,22 @@ const DynamicExperimentSelector = ({
                 hover={true}
                 className={`cursor-pointer transition-all duration-300 ${
                   selectedSubExperiment?.id === subExp.id
-                    ? 'ring-2 ring-blue-500 bg-blue-50'
-                    : 'hover:ring-2 hover:ring-gray-300'
+                    ? (isDark ? 'ring-2 ring-purple-500 bg-slate-800' : 'ring-2 ring-blue-500 bg-blue-50')
+                    : (isDark ? 'hover:ring-2 hover:ring-slate-600' : 'hover:ring-2 hover:ring-gray-300')
                 }`}
               >
                 <div className="text-center">
                   <div className="flex items-center justify-center mb-3">
                     {getExperimentIcon(subExp.firmwareType)}
                   </div>
-                  <h5 className="font-semibold text-gray-800 mb-2">{subExp.name}</h5>
-                  <p className="text-sm text-gray-600 mb-3">{subExp.description}</p>
-                  <div className="text-xs text-blue-600 font-medium">
+                  <h5 className={`font-semibold mb-2 ${isDark ? 'text-slate-200' : 'text-gray-800'}`}>{subExp.name}</h5>
+                  <p className={`text-sm mb-3 ${isDark ? 'text-slate-400' : 'text-gray-600'}`}>{subExp.description}</p>
+                  <div className={`text-xs font-medium ${isDark ? 'text-indigo-300' : 'text-blue-600'}`}>
                     Firmware: {subExp.firmware}
                   </div>
                   {selectedSubExperiment?.id === subExp.id && (
                     <div className="mt-3">
-                      <FiCheckCircle className="w-6 h-6 text-green-500 mx-auto" />
+                      <FiCheckCircle className={`w-6 h-6 mx-auto ${isDark ? 'text-green-300' : 'text-green-500'}`} />
                     </div>
                   )}
                 </div>
@@ -280,7 +283,7 @@ const DynamicExperimentSelector = ({
             </div>
           </div>
           
-          <div className="max-h-60 overflow-y-auto bg-gray-50 rounded-lg border border-gray-200 p-4">
+          <div className={`max-h-60 overflow-y-auto rounded-lg border p-4 ${isDark ? 'bg-slate-800 border-slate-600' : 'bg-gray-50 border-gray-200'}`}>
             {isScanning ? (
               <div className="flex items-center justify-center py-8">
                 <LoadingSpinner />
@@ -322,10 +325,10 @@ const DynamicExperimentSelector = ({
         </div>
 
         {/* Status Display */}
-        <div className="relative bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
-          {/* Progress Bar */}
+        <div className={`relative rounded-lg overflow-hidden border ${isDark ? 'bg-slate-800 border-slate-600' : 'bg-gray-50 border-gray-200'}`}>
+          {/* Progress Bar (theme-aware gradient) */}
           <div 
-            className="absolute inset-0 bg-gradient-to-r from-green-300 to-green-400 transition-all duration-500 ease-out"
+            className={`absolute inset-0 transition-all duration-500 ease-out ${isDark ? 'bg-gradient-to-r from-purple-500 to-indigo-500' : 'bg-gradient-to-r from-green-300 to-green-400'}`}
             style={{ width: `${progressPercentage}%` }}
           />
           <div className="relative z-10 p-4">

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWebSocket, useDeviceManager, useExperimentManager } from '../../hooks/useWebSocket';
 import { 
-  FiSettings, FiBarChart2, FiX, FiWifi, FiWifiOff, FiLogOut, FiRepeat
+  FiSettings, FiBarChart2, FiX, FiWifi, FiWifiOff, FiLogOut, FiRepeat, FiPlay, FiPause, FiStopCircle, FiRefreshCw
 } from 'react-icons/fi';
 
 // New modular components
@@ -293,51 +293,55 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
           {/* Header */}
           <ResponsiveCard className="p-4 md:p-6">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-              <div>
+              <div className="flex-1">
                 <h1 className="text-2xl md:text-3xl lg:text-4xl font-extrabold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
                   {getExperimentName()}
                 </h1>
                 <p className="text-xs md:text-sm text-slate-600 mt-1 md:mt-2">
                   {getExperimentDescription()}
                 </p>
-                <div className="flex items-center gap-2 mt-2">
-                  <StatusIndicator status={isConnected ? 'connected' : 'disconnected'} />
-                  <span className="text-sm text-gray-600">
-                    {selectedDevice ? (
-                      <>Connected: <span className="font-semibold">{selectedDevice.id}</span></>
-                    ) : (
-                      'No device connected'
-                    )}
-                  </span>
-                </div>
-              </div>
-              
-              <div className="flex flex-wrap gap-2">
-                <ResponsiveButton
-                  onClick={() => setShowConfigPanel(true)}
-                  variant="primary"
-                  size="sm"
-                >
-                  <FiSettings className="w-4 h-4 mr-1" />
-                  Configure
-                </ResponsiveButton>
-                <ResponsiveButton
-                  onClick={() => setShowConfigModal(true)}
-                  variant="secondary"
-                  size="sm"
-                >
-                  <FiRepeat className="w-4 h-4 mr-1" />
-                  Change Experiment
-                </ResponsiveButton>
                 
-                <ResponsiveButton
-                  onClick={handleDisconnect}
-                  variant="danger"
-                  size="sm"
-                >
-                  <FiLogOut className="w-4 h-4 mr-1" />
-                  Disconnect
-                </ResponsiveButton>
+              </div>
+              <div className="flex flex-col items-end gap-2">
+                <div className="flex items-center gap-2">
+                  <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border ${selectedDevice ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}> 
+                    <span className={`w-2 h-2 rounded-full ${selectedDevice ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                    {selectedDevice ? 'Connected' : 'Disconnected'}
+                  </div>
+                  {selectedDevice && (
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border bg-slate-100 text-slate-700 border-slate-300">
+                      <span className="text-slate-600">Device:</span>
+                      <span className="font-semibold">{selectedDevice.id}</span>
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <ResponsiveButton
+                    onClick={() => setShowConfigPanel(true)}
+                    variant="primary"
+                    size="sm"
+                  >
+                    <FiSettings className="w-4 h-4 mr-1" />
+                    Configure
+                  </ResponsiveButton>
+                  <ResponsiveButton
+                    onClick={() => setShowConfigModal(true)}
+                    variant="secondary"
+                    size="sm"
+                  >
+                    <FiRepeat className="w-4 h-4 mr-1" />
+                    Change Experiment
+                  </ResponsiveButton>
+                  
+                  <ResponsiveButton
+                    onClick={handleDisconnect}
+                    variant="danger"
+                    size="sm"
+                  >
+                    <FiLogOut className="w-4 h-4 mr-1" />
+                    Disconnect
+                  </ResponsiveButton>
+                </div>
               </div>
             </div>
           </ResponsiveCard>
@@ -350,10 +354,32 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
                 Live Data Feed
               </h2>
               <div className="flex items-center gap-2">
-                <StatusIndicator status={experimentStatus} />
-                <span className="text-sm text-gray-600 capitalize">{experimentStatus}</span>
+                <button
+                  onClick={() => window.dispatchEvent(new CustomEvent('labex:controls:start'))}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-all text-sm"
+                >
+                  <FiPlay className="w-4 h-4" /> Start
+                </button>
+                <button
+                  onClick={() => window.dispatchEvent(new CustomEvent('labex:controls:pause'))}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-yellow-500 text-white rounded-lg font-semibold hover:bg-yellow-600 transition-all text-sm"
+                >
+                  <FiPause className="w-4 h-4" /> Pause
+                </button>
+                <button
+                  onClick={() => window.dispatchEvent(new CustomEvent('labex:controls:stop'))}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-all text-sm"
+                >
+                  <FiStopCircle className="w-4 h-4" /> Stop
+                </button>
+                <button
+                  onClick={() => window.dispatchEvent(new CustomEvent('labex:controls:reset'))}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-gray-600 text-white rounded-lg font-semibold hover:bg-gray-700 transition-all text-sm"
+                >
+                  <FiRefreshCw className="w-4 h-4" /> Reset
+                </button>
               </div>
-            </div>
+              </div>
             
             {/* Optimized Graph Renderer */}
             <ExperimentGraph 
@@ -363,6 +389,7 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
               sharedExperimentManager={sharedExperimentManager}
               config={config}
               subExperiment={selectedSubExperiment}
+              externalControls={true}
             />
           </ResponsiveCard>
           

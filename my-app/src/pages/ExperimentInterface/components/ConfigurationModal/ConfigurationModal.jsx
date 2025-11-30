@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
+import { useTheme } from '../../../../context/ThemeContext';
 import { 
   FiSettings, FiCheckCircle, FiAlertTriangle, FiLoader, 
   FiWifiOff, FiZap, FiX, FiArrowLeft
 } from 'react-icons/fi';
 
 const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sharedDeviceManager, sharedExperimentManager }) => {
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
   const userToken = localStorage.getItem('token');
   const [experimentType, setExperimentType] = useState('');
   const [flashStatus, setFlashStatus] = useState('Select a sensor to begin');
@@ -214,15 +217,15 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
 
   const getFlashStatusDisplay = () => {
     if (flashStatus.includes('✓')) {
-      return { icon: <FiCheckCircle className="text-green-500" />, color: 'text-green-600' };
+      return { icon: <FiCheckCircle className={isDark ? "text-green-400" : "text-green-500"} />, color: isDark ? 'text-green-400' : 'text-green-600' };
     }
     if (flashStatus.includes('✗')) {
-      return { icon: <FiAlertTriangle className="text-red-500" />, color: 'text-red-600' };
+      return { icon: <FiAlertTriangle className={isDark ? "text-red-400" : "text-red-500"} />, color: isDark ? 'text-red-400' : 'text-red-600' };
     }
     if (isFlashing) {
-      return { icon: <FiLoader className="animate-spin text-purple-600" />, color: 'text-purple-600' };
+      return { icon: <FiLoader className={`animate-spin ${isDark ? "text-blue-200" : "text-purple-600"}`} />, color: isDark ? 'text-blue-100' : 'text-purple-600' };
     }
-    return { icon: <FiSettings className="text-gray-500" />, color: 'text-gray-600' };
+    return { icon: <FiSettings className={isDark ? "text-slate-400" : "text-gray-500"} />, color: isDark ? 'text-slate-400' : 'text-gray-600' };
   };
   const flashStatusDisplay = getFlashStatusDisplay();
 
@@ -260,14 +263,14 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
                   onClick={() => handleExperimentTypeSelection(subExp.id)}
                   className={`p-4 sm:p-6 rounded-xl border-2 transition-all duration-300 group ${
                     experimentType === subExp.id
-                      ? 'border-purple-600 bg-purple-50 shadow-lg scale-105'
-                      : 'border-slate-200 hover:border-purple-300 hover:shadow-md'
+                      ? (isDark ? 'border-purple-500 bg-slate-800 shadow-lg scale-105' : 'border-purple-600 bg-purple-50 shadow-lg scale-105')
+                      : (isDark ? 'border-slate-700 hover:border-slate-500' : 'border-slate-200 hover:border-purple-300 hover:shadow-md')
                   }`}
                 >
                   <div className="text-2xl sm:text-3xl mb-1">{subExp.icon}</div>
-                  <div className="font-semibold text-slate-800 text-base sm:text-lg">{subExp.name}</div>
-                  <p className="text-xs sm:text-sm text-slate-500 mt-1">{subExp.description}</p>
-                  <p className="text-xs text-purple-600 mt-1 font-medium">→ {subExp.firmware}</p>
+                  <div className={`font-semibold text-base sm:text-lg ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>{subExp.name}</div>
+                  <p className={`text-xs sm:text-sm mt-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{subExp.description}</p>
+                  <p className={`text-xs mt-1 font-medium ${isDark ? 'text-indigo-300' : 'text-purple-600'}`}>→ {subExp.firmware}</p>
                 </button>
               ))}
             </div>
@@ -297,10 +300,10 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
                     }
                   }
                 }}
-                className="px-3 sm:px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm sm:text-base"
-              >
-                Manual Scan (WS + REST)
-              </button>
+              className="px-3 sm:px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm sm:text-base"
+            >
+                Scan Devices
+            </button>
               <span className="text-xs sm:text-sm text-gray-600">
                 Connected: {isConnected ? 'Yes' : 'No'} | Scanning: {isScanning ? 'Yes' : 'No'} | Devices: {devices.length}
               </span>
@@ -340,10 +343,9 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
           </div>
 
           {/* Detailed Status Display with Progress Background */}
-          <div className="relative bg-slate-50 rounded-lg border border-slate-200 overflow-hidden">
-            {/* Progress Bar Background */}
+          <div className={`relative rounded-lg border overflow-hidden ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
             <div 
-              className="absolute inset-0 bg-gradient-to-r from-green-300 to-green-400 transition-all duration-500 ease-out"
+              className={`absolute inset-0 transition-all duration-500 ease-out ${isDark ? 'bg-gradient-to-r from-blue-400 to-blue-500 border-r border-blue-300 shadow-[0_0_15px_rgba(59,130,246,0.5)]' : 'bg-gradient-to-r from-green-300 to-green-400'}`}
               style={{ width: `${getProgressPercentage()}%` }}
             />
             <div className="relative z-10 p-1 sm:p-2">
@@ -354,13 +356,13 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
                   {flashStatus}
                 </span>
               </div>
-              <span className="text-xs text-slate-500">
+              <span className={`text-xs ${isDark ? 'text-slate-300' : 'text-slate-500'}`}>
                 {getProgressPercentage()}%
               </span>
             </div>
             
             {/* Additional Status Details */}
-            <div className="text-xs text-slate-500">
+            <div className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
               {flashStatus === 'idle' && 'Ready to flash firmware to selected device'}
               {flashStatus === 'flashing' && 'Firmware is being uploaded to the device'}
               {flashStatus.includes('Allocating') && 'Connecting to device and preparing for firmware update'}

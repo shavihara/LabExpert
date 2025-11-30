@@ -19,10 +19,17 @@ export function ThemeProvider({ children }) {
     }
   }, []);
 
-  // Save theme to localStorage whenever it changes
+  // Save theme to localStorage and apply class whenever it changes
   useEffect(() => {
     localStorage.setItem('theme', theme);
-    document.body.className = theme; // Apply class to body for global styling
+    const root = document.documentElement;
+    if (theme === 'dark') {
+      root.classList.add('dark');
+      root.classList.remove('light');
+    } else {
+      root.classList.remove('dark');
+      root.classList.add('light');
+    }
   }, [theme]);
 
   // Toggle function

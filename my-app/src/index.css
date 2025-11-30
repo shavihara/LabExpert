@@ -75,3 +75,80 @@
 .nav-item-modern:hover::after {
   width: 100%;
 }
+
+/* Dark mode global overrides for Tailwind classes */
+.dark .bg-white { background-color: #111827 !important; }
+.dark .bg-slate-50 { background-color: #0b1220 !important; }
+.dark .bg-slate-100 { background-color: #0f172a !important; }
+.dark .border-slate-200 { border-color: #334155 !important; }
+.dark .border-slate-300 { border-color: #475569 !important; }
+.dark .text-slate-800 { color: #e5e7eb !important; }
+.dark .text-slate-700 { color: #e5e7eb !important; }
+.dark .text-slate-600 { color: #cbd5e1 !important; }
+.dark .text-slate-500 { color: #94a3b8 !important; }
+.dark .text-slate-400 { color: #94a3b8 !important; }
+.dark .text-gray-800 { color: #e5e7eb !important; }
+.dark .text-gray-700 { color: #e5e7eb !important; }
+.dark .text-gray-600 { color: #cbd5e1 !important; }
+.dark .text-gray-500 { color: #94a3b8 !important; }
+.dark .border { border-color: #334155 !important; }
+
+/* Hover utilities compiled by Tailwind use escaped colon */
+.dark .hover\:bg-slate-50:hover { background-color: #0b1220 !important; }
+.dark .hover\:bg-slate-100:hover { background-color: #0f172a !important; }
+
+/* Form inputs */
+.dark .form-input,
+.dark .auth-input,
+.dark input[type="text"],
+.dark input[type="email"],
+.dark input[type="password"],
+.dark textarea,
+.dark select {
+  background-color: #0f172a !important;
+  color: #e5e7eb !important;
+  border-color: #334155 !important;
+}
+
+.dark ::placeholder { color: #94a3b8 !important; }
+
+/* Page-level background control */
+html.dark, html.dark body, html.dark .app { background-color: #0f172a !important; }
+/* Preserve text gradients (bg-clip-text) but neutralize large surface gradients
+   Exempt header and modal headers to keep purple animated gradients */
+.dark .bg-gradient-to-br:not(.bg-clip-text) { background-image: none !important; background-color: #0f172a !important; }
+.dark .bg-gradient-to-r:not(.bg-clip-text) { background-image: none !important; background-color: #0f172a !important; }
+
+/* Restore gradients specifically inside the main header */
+.dark header .bg-gradient-to-br:not(.bg-clip-text) { background-image: linear-gradient(to bottom right, var(--tw-gradient-stops)) !important; background-color: transparent !important; }
+.dark header .bg-gradient-to-r:not(.bg-clip-text) { background-image: linear-gradient(to right, var(--tw-gradient-stops)) !important; background-color: transparent !important; }
+
+/* Restore gradients for modal headers */
+.dark .modal-header-gradient { background-image: linear-gradient(to right, var(--tw-gradient-stops)) !important; background-color: transparent !important; }
+.dark .from-slate-50 { --tw-gradient-from: #0f172a !important; }
+.dark .via-blue-50 { --tw-gradient-stops: var(--tw-gradient-from), #0f172a, var(--tw-gradient-to) !important; }
+.dark .to-purple-50 { --tw-gradient-to: #0f172a !important; }
+.dark .from-purple-50 { --tw-gradient-from: #0f172a !important; }
+.dark .to-blue-50 { --tw-gradient-to: #0f172a !important; }
+
+/* Status badges and notifications */
+.dark .bg-blue-50 { background-color: #0b1220 !important; }
+.dark .bg-green-50 { background-color: #0b1220 !important; }
+.dark .bg-red-50 { background-color: #0b1220 !important; }
+.dark .text-blue-700 { color: #93c5fd !important; }
+.dark .text-green-700 { color: #86efac !important; }
+.dark .text-red-700 { color: #fca5a5 !important; }
+.dark .text-purple-700 { color: #c4b5fd !important; }
+.dark .text-yellow-700 { color: #fde68a !important; }
+.dark .text-orange-700 { color: #fdba74 !important; }
+.dark .text-cyan-700 { color: #67e8f9 !important; }
+.dark .border-purple-200 { border-color: #334155 !important; }
+.dark .border-blue-200 { border-color: #334155 !important; }
+.dark .border-green-200 { border-color: #334155 !important; }
+.dark .border-red-200 { border-color: #334155 !important; }
+
+/* Shimmer animation reused by headers */
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}

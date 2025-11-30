@@ -32,6 +32,8 @@ const PlotlyGraph = ({
   onAnalysisData,
   externalMode
 }) => {
+  const { theme } = useTheme?.() || { theme: 'light' };
+  const isDark = theme === 'dark';
   const [plotlyLib, setPlotlyLib] = useState(null);
   useEffect(() => {
     let mounted = true;
@@ -70,6 +72,7 @@ const PlotlyGraph = ({
     scrollZoom: true,
     showTips: true
   });
+  const [dragMode, setDragMode] = useState('pan');
 
   const plotRef = useRef(null);
   const analysisDataRef = useRef([]);
@@ -92,6 +95,10 @@ const PlotlyGraph = ({
       setMode(externalMode);
     }
   }, [externalMode]);
+
+  useEffect(() => {
+    setDragMode(mode === 'analysis' ? 'select' : 'pan');
+  }, [mode]);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 640);
@@ -318,7 +325,17 @@ const PlotlyGraph = ({
   };
 
   const handleNeglectRangeClick = () => {
-    setIsNeglectMode(prev => !prev);
+    setIsNeglectMode(prev => {
+      const next = !prev;
+      if (next) {
+        setMode('analysis');
+        setActiveTool(null);
+        setSelectedRegion(null);
+        setMeasurements({});
+        setDragMode('select');
+      }
+      return next;
+    });
   };
 
   const handleSelection = (event) => {
@@ -443,9 +460,9 @@ const PlotlyGraph = ({
 
   // Toolbar components
   const ModeToggle = () => (
-    <div className="relative inline-flex w-[240px] max-w-full items-center rounded-full bg-slate-100 p-[2px] border border-slate-200 shadow-sm">
+    <div className={`relative inline-flex w-[240px] max-w-full items-center rounded-full p-[2px] border shadow-sm ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-100 border-slate-200'}`}>
       <span
-        className={`absolute inset-y-[2px] left-[2px] w-1/2 rounded-full bg-white shadow transition-transform duration-300 ease-out ${
+        className={`absolute inset-y-[2px] left-[2px] w-1/2 rounded-full shadow transition-transform duration-300 ease-out ${isDark ? 'bg-slate-700' : 'bg-white'} ${
           mode === 'analysis' ? 'translate-x-full' : 'translate-x-0'
         }`}
       />
@@ -453,7 +470,7 @@ const PlotlyGraph = ({
         onClick={() => { setMode('live'); if (onModeChange) onModeChange('live'); }}
         aria-pressed={mode === 'live'}
         className={`relative z-10 flex-1 py-2 text-xs font-semibold text-center cursor-pointer select-none transition-colors ${
-          mode === 'live' ? 'text-purple-700' : 'text-slate-600 hover:text-slate-800'
+          mode === 'live' ? (isDark ? 'text-purple-300' : 'text-purple-700') : (isDark ? 'text-slate-300 hover:text-slate-200' : 'text-slate-600 hover:text-slate-800')
         }`}
       >
         Live Mode
@@ -462,7 +479,7 @@ const PlotlyGraph = ({
         onClick={() => { setMode('analysis'); if (onModeChange) onModeChange('analysis'); }}
         aria-pressed={mode === 'analysis'}
         className={`relative z-10 flex-1 py-2 text-xs font-semibold text-center cursor-pointer select-none transition-colors ${
-          mode === 'analysis' ? 'text-purple-700' : 'text-slate-600 hover:text-slate-800'
+          mode === 'analysis' ? (isDark ? 'text-purple-300' : 'text-purple-700') : (isDark ? 'text-slate-300 hover:text-slate-200' : 'text-slate-600 hover:text-slate-800')
         }`}
       >
         Analysis Mode
@@ -473,45 +490,25 @@ const PlotlyGraph = ({
   const AnalysisTools = () => {
     const handleToolClick = (tool) => {
       setActiveTool(tool);
-      
-      // Update plot configuration based on selected tool
-      switch (tool) {
-        case 'region':
-          setPlotConfig(prev => ({
-            ...prev,
-            dragmode: 'select',
-            modeBarButtonsToRemove: ['lasso2d']
-          }));
-          break;
-        case 'slope':
-          setPlotConfig(prev => ({
-            ...prev,
-            dragmode: 'select',
-            modeBarButtonsToRemove: ['lasso2d']
-          }));
-          break;
-        default:
-          setPlotConfig(prev => ({
-            ...prev,
-            dragmode: 'select',
-            modeBarButtonsToRemove: ['lasso2d']
-          }));
-      }
+      setIsNeglectMode(false);
+      setSelectedRegion(null);
+      setMeasurements({});
+      setDragMode('select');
     };
     
     return (
-      <div className="flex flex-wrap gap-2 p-2 bg-blue-50 rounded-lg border border-blue-200">
-        <div className="hidden sm:flex items-center gap-1 text-xs font-semibold text-blue-700">
+      <div className={`flex flex-wrap gap-2 p-2 rounded-lg border ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-blue-50 border-blue-200'}`}>
+        <div className={`hidden sm:flex items-center gap-1 text-xs font-semibold ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>
           <FiBarChart2 size={14} />
           Measurement Tools:
         </div>
         
         <button
           onClick={() => handleToolClick('region')}
-          className={`px-2 py-1 border rounded text-xs flex items-center gap-1 hover:bg-blue-50 ${
+          className={`px-2 py-1 border rounded text-xs flex items-center gap-1 ${isDark ? 'hover:bg-slate-700' : 'hover:bg-blue-50'} ${
             activeTool === 'region'
-              ? 'bg-blue-100 border-blue-500 text-blue-700'
-              : 'bg-white border-blue-300'
+              ? (isDark ? 'bg-slate-700 border-blue-500 text-blue-300' : 'bg-blue-100 border-blue-500 text-blue-700')
+              : (isDark ? 'bg-slate-800 border-blue-300 text-slate-200' : 'bg-white border-blue-300')
           }`}
           title="Select region to measure differences"
         >
@@ -521,10 +518,10 @@ const PlotlyGraph = ({
         
         <button
           onClick={() => handleToolClick('slope')}
-          className={`px-2 py-1 border rounded text-xs flex items-center gap-1 hover:bg-blue-50 ${
+          className={`px-2 py-1 border rounded text-xs flex items-center gap-1 ${isDark ? 'hover:bg-slate-700' : 'hover:bg-blue-50'} ${
             activeTool === 'slope'
-              ? 'bg-blue-100 border-blue-500 text-blue-700'
-              : 'bg-white border-blue-300'
+              ? (isDark ? 'bg-slate-700 border-blue-500 text-blue-300' : 'bg-blue-100 border-blue-500 text-blue-700')
+              : (isDark ? 'bg-slate-800 border-blue-300 text-slate-200' : 'bg-white border-blue-300')
           }`}
           title="Calculate slope of selected region"
         >
@@ -535,17 +532,19 @@ const PlotlyGraph = ({
         
         <div className="flex items-center gap-1 ml-auto">
           {neglectedData && neglectedData.size > 0 && (
-            <span className="text-xs text-orange-600 font-medium px-2 py-1 bg-orange-50 rounded border border-orange-200">
+            <span className={`text-xs font-medium px-2 py-1 rounded border ${
+              isDark ? 'bg-orange-900/20 text-orange-300 border-orange-600' : 'bg-orange-50 text-orange-700 border-orange-200'
+            }`}>
               {neglectedData.size} neglected
             </span>
           )}
           
           <button
             onClick={handleNeglectRangeClick}
-            className={`px-2 py-1 bg-white border rounded text-xs flex items-center gap-1 hover:bg-blue-50 ${
+            className={`px-2 py-1 border rounded text-xs flex items-center gap-1 ${isDark ? 'bg-slate-800 hover:bg-slate-700' : 'bg-white hover:bg-blue-50'} ${
               isNeglectMode 
-                ? 'border-orange-500 bg-orange-50 text-orange-700' 
-                : 'border-blue-300'
+                ? (isDark ? 'border-orange-500 bg-orange-50 text-orange-300' : 'border-orange-500 bg-orange-50 text-orange-700') 
+                : (isDark ? 'border-blue-300 text-slate-200' : 'border-blue-300')
             }`}
             title="Select range to neglect data points (stay active for multiple selections)"
           >
@@ -593,13 +592,15 @@ const PlotlyGraph = ({
 
     const TraceButton = ({ trace, label }) => {
       const t = tone(trace);
+      const textClass = isDark ? t.text.replace('800','200').replace('700','300') : t.text;
+      const ringClass = isDark ? t.ring.replace('200','400') : t.ring;
       return (
         <button
           onClick={() => setVisibleTraces(prev => ({ ...prev, [trace]: !prev[trace] }))}
           className={`relative flex-1 min-w-[90px] px-3 py-1.5 text-xs font-medium focus:outline-none border transition-all duration-200 ${
             visibleTraces[trace]
-              ? `bg-gradient-to-b from-white to-slate-50 border-slate-300 shadow-sm ring-1 ${t.ring} ${t.text}`
-              : 'bg-transparent text-slate-600 border-transparent hover:bg-slate-50'
+              ? `${isDark ? 'bg-slate-800 border-slate-700' : 'bg-gradient-to-b from-white to-slate-50 border-slate-300'} shadow-sm ring-1 ${ringClass} ${textClass}`
+              : `${isDark ? 'bg-transparent text-slate-300 border-transparent hover:bg-slate-700' : 'bg-transparent text-slate-600 border-transparent hover:bg-slate-50'}`
           }`}
           aria-pressed={visibleTraces[trace]}
         >
@@ -615,7 +616,7 @@ const PlotlyGraph = ({
     }, [availableTraces, mode, mapKey]);
 
     return (
-      <div className="flex flex-wrap w-full rounded-md border border-slate-200 bg-white overflow-hidden">
+      <div className={`flex flex-wrap w-full rounded-md overflow-hidden border ${isDark ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-white'}`}>
         {allTraces.map(trace => (
           <TraceButton key={trace} trace={trace} label={getTraceLabel(trace)} />
         ))}
@@ -629,12 +630,12 @@ const PlotlyGraph = ({
     const isSlopeTool = measurements.toolType === 'slope';
     
     return (
-      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-        <h4 className="font-semibold text-yellow-800 text-sm mb-2 flex items-center gap-2">
+      <div className={`rounded-lg p-3 border ${isDark ? 'bg-yellow-900/20 border-yellow-700' : 'bg-yellow-50 border-yellow-200'}`}>
+        <h4 className={`font-semibold text-sm mb-2 flex items-center gap-2 ${isDark ? 'text-yellow-300' : 'text-yellow-800'}`}>
           <FiDollarSign size={14} />
           {isSlopeTool ? 'Slope Measurements' : 'Region Measurements'}
         </h4>
-        <div className="grid grid-cols-2 gap-2 text-xs">
+        <div className={`grid grid-cols-2 gap-2 text-xs ${isDark ? 'text-slate-200' : ''}`}> 
           <div>ΔTime: <span className="font-semibold">{measurements.deltaTime?.toFixed(3)}s</span></div>
           <div>ΔDistance: <span className="font-semibold">{measurements.deltaDistance?.toFixed(3)}cm</span></div>
           <div>ΔVelocity: <span className="font-semibold">{measurements.deltaVelocity?.toFixed(3)}cm/s</span></div>
@@ -688,7 +689,7 @@ const PlotlyGraph = ({
             {/* Fullscreen Toggle */}
             <button
               onClick={toggleFullscreen}
-              className="px-2 py-1.5 bg-purple-50 text-purple-700 rounded hover:bg-purple-100 transition-all text-xs flex items-center gap-1"
+              className={`${isDark ? 'px-2 py-1.5 border border-slate-700 bg-slate-800 text-purple-300 hover:bg-slate-700' : 'px-2 py-1.5 bg-purple-50 text-purple-700 hover:bg-purple-100'} rounded transition-all text-xs flex items-center gap-1`}
             >
               {isFullscreen ? <FiMinimize size={14} /> : <FiMaximize size={14} />}
               <span className="hidden sm:inline">{isFullscreen ? 'Exit' : 'Full'}</span>
@@ -709,11 +710,12 @@ const PlotlyGraph = ({
             data={preparePlotData()}
             layout={{
               uirevision: 'keep-zoom',
+              font: { color: isDark ? '#e5e7eb' : undefined },
               title: {
                 text: `${mode === 'live' ? 'Real-time Plot' : 'Analysis Plot'}`,
                 font: { size: isFullscreen ? 18 : 14 },
                 x: isMobile ? 0.02 : 0.5,
-                y: isMobile ? 0.932:1.085,
+                y: isMobile ? 0.92 : 1.06,
                 xanchor: isMobile ? 'left' : 'center'
               },
               images: [
@@ -725,10 +727,10 @@ const PlotlyGraph = ({
                     ),
                   xref: 'paper',
                   yref: 'paper',
-                  x: isMobile ? 0.252 : 0.41,
-                  y: isMobile ? 1.05:1.085,
-                  sizex: 0.06,
-                  sizey: 0.06,
+                  x: isMobile ? 0.18 : 0.36,
+                  y: isMobile ? 0.96 : 1.06,
+                  sizex: 0.045,
+                  sizey: 0.045,
                   xanchor: isMobile ? 'left' : 'center',
                   yanchor: 'bottom',
                   layer: 'above'
@@ -737,7 +739,7 @@ const PlotlyGraph = ({
               xaxis: {
                 title: `${axis?.x?.label || 'Time'}${axis?.x?.unit ? ' ('+axis.x.unit+')' : ''}`,
                 showgrid: true,
-                gridcolor: '#e2e8f0',
+                gridcolor: isDark ? '#334155' : '#e2e8f0',
                 zeroline: false,
                 showticklabels: true,
                 tickfont: { size: isFullscreen ? 14 : 12 },
@@ -756,9 +758,9 @@ const PlotlyGraph = ({
                   return meta ? `${meta.label}${meta.unit ? ' ('+meta.unit+')' : ''}` : 'Value';
                 })(),
                 showgrid: true,
-                gridcolor: '#e2e8f0',
+                gridcolor: isDark ? '#334155' : '#e2e8f0',
                 zeroline: true,
-                zerolinecolor: '#94a3b8',
+                zerolinecolor: isDark ? '#475569' : '#94a3b8',
                 zerolinewidth: 1,
                 range: axisRangeRef.current.y || getYAxisRange(),
                 autorange: axisRangeRef.current.y ? false : true,
@@ -774,12 +776,12 @@ const PlotlyGraph = ({
                 orientation: 'h',
                 font: { size: isFullscreen ? 14 : 12 }
               },
-              margin: isFullscreen ? { l: 50, r: 35, t: 70, b: 60 } : { l: 40, r: 20, t: 55, b: 45 },
+              margin: isFullscreen ? { l: 50, r: 35, t: 70, b: 60 } : { l: 40, r: 20, t: 60, b: 45 },
               hovermode: 'closest',
-              plot_bgcolor: '#f8fafc',
-              paper_bgcolor: '#ffffff',
+              plot_bgcolor: isDark ? '#0b1220' : '#f8fafc',
+              paper_bgcolor: isDark ? '#111827' : '#ffffff',
               autosize: true,
-              dragmode: mode === 'analysis' ? 'select' : 'pan',
+              dragmode: dragMode,
               ...(mode === 'analysis' && {
                 selectdirection: 'h'
               })
@@ -800,6 +802,15 @@ const PlotlyGraph = ({
               const yr1 = ed['yaxis.range[1]'];
               if (typeof yr0 === 'number' && typeof yr1 === 'number') {
                 axisRangeRef.current.y = [yr0, yr1];
+              }
+              if (typeof ed.dragmode === 'string') {
+                setDragMode(ed.dragmode);
+                if (ed.dragmode !== 'select') {
+                  setActiveTool(null);
+                  setIsNeglectMode(false);
+                  setSelectedRegion(null);
+                  setMeasurements({});
+                }
               }
             }}
             useResizeHandler={true}
@@ -826,3 +837,4 @@ const PlotlyGraph = ({
 };
 
 export default PlotlyGraph;
+import { useTheme } from '../context/ThemeContext';

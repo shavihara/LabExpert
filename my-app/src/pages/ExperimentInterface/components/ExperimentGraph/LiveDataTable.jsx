@@ -140,7 +140,7 @@ const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen, onNeglectedData
   }
 
   return (
-    <div className={`${isFullscreen ? 'fixed inset-0 z-50 bg-white p-4' : ''} ${containerClassName}`}>
+    <div className={`${isFullscreen ? 'fixed inset-0 z-50 bg-white p-4 overflow-auto' : ''} ${containerClassName}`}>
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
@@ -211,7 +211,11 @@ const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen, onNeglectedData
 
       {/* Table */}
       <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto overflow-y-auto" style={visibleRowCount && !isFullscreen && rowHeight ? { maxHeight: headerHeight + rowHeight * visibleRowCount } : undefined}>
+        <div className="overflow-x-auto overflow-y-auto" style={
+          isFullscreen
+            ? { maxHeight: 'calc(100vh - 200px)' }
+            : (visibleRowCount && rowHeight ? { maxHeight: headerHeight + rowHeight * visibleRowCount } : undefined)
+        }>
           <table ref={tableRef} className="w-full">
             <thead ref={theadRef} className="bg-slate-50">
               <tr>

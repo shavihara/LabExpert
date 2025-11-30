@@ -21,7 +21,7 @@ export const responsive = {
   cardHover: "bg-white rounded-xl shadow-lg border border-slate-200 hover:shadow-xl transition-shadow duration-300",
   
   // Button styles
-  button: "px-4 py-2 rounded-lg font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2",
+  button: "inline-flex items-center whitespace-nowrap px-4 py-2 rounded-lg font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2",
   buttonPrimary: "px-4 py-2 rounded-lg font-medium transition-all duration-200 bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2",
   buttonSecondary: "px-4 py-2 rounded-lg font-medium transition-all duration-200 bg-gray-600 text-white hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2",
   buttonSuccess: "px-4 py-2 rounded-lg font-medium transition-all duration-200 bg-green-600 text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2",
@@ -370,14 +370,17 @@ export const ResponsiveModal = ({ isOpen, onClose, title, children, size = 'md' 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[1000] p-4">
       <div className={`bg-white rounded-xl shadow-2xl w-full ${sizeClasses} max-h-[90vh] overflow-hidden`}>
-        <div className="flex items-center justify-between p-6 border-b border-gray-200">
-          <h2 className="text-xl font-bold text-gray-800">{title}</h2>
+        <div className="relative flex items-center justify-between p-6 border-b border-black/10 bg-gradient-to-r from-purple-600 via-purple-700 to-purple-800 modal-header-gradient">
+          <h2 className="text-xl font-bold text-white">{title}</h2>
           <button
             onClick={() => onClose && onClose()}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
+            className="text-white/80 hover:text-white transition-colors"
           >
             <FiX size={24} />
           </button>
+          <span className="absolute inset-0 pointer-events-none">
+            <span className="absolute top-0 -left-full w-full h-full bg-gradient-to-r from-transparent via-white/25 to-transparent animate-[shimmer_8s_ease-in-out_infinite]"></span>
+          </span>
         </div>
         <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
           {children}

@@ -9,6 +9,7 @@ function Header() {
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false)
   const location = useLocation()
   const isAuthPage = ['/login', '/signup', '/forgot-password'].includes(location.pathname)
+  const isExperimentPage = location.pathname.startsWith('/experiment')
 
   const lastScrollYRef = useRef(0)
   useEffect(() => {
@@ -50,6 +51,14 @@ function Header() {
       window.removeEventListener('labex:header:expand', expand)
     }
   }, [])
+
+  useEffect(() => {
+    const root = document.documentElement
+    const hh = isAuthPage ? '80px' : '70px'
+    try {
+      root.style.setProperty('--header-offset-top', isHeaderCollapsed ? '12px' : hh)
+    } catch {}
+  }, [isHeaderCollapsed, isAuthPage])
 
   const toggleMenu = () => {
     setIsMenuOpen(!isMenuOpen)
@@ -152,7 +161,7 @@ function Header() {
           </div>
         </Link>
 
-        {!isAuthPage && (
+        {!isAuthPage && !isExperimentPage && (
           <nav className="hidden lg:flex flex-1 justify-center">
             <ul className="flex items-center gap-4 m-0 p-0 list-none">
               {[
@@ -216,7 +225,7 @@ function Header() {
         )}
 
         {/* Modern Mobile Menu Button - Hide on auth pages */}
-        {!isAuthPage && (
+        {!isAuthPage && !isExperimentPage && (
           <button
             className="lg:hidden relative w-8 h-8 bg-white/10 backdrop-blur-sm rounded-lg border border-white/20 cursor-pointer transition-all duration-300 hover:bg-white/20 hover:scale-110 z-10"
             onClick={toggleMenu}
@@ -235,7 +244,7 @@ function Header() {
         )}
       </div>
 
-      {!isAuthPage && !isHeaderCollapsed && (
+      {!isAuthPage && !isExperimentPage && !isHeaderCollapsed && (
         <button
           onClick={() => setIsHeaderCollapsed(true)}
           className="absolute right-0 -bottom-5 bg-white/0 backdrop-blur-md text-white rounded-full border-1 border-white/30 p-2 hover:bg-white/50 transition-all duration-300 shadow-lg"
@@ -248,7 +257,7 @@ function Header() {
       )}
 
       {/* Modern Mobile Navigation - Hide on auth pages */}
-      {!isAuthPage && (
+      {!isAuthPage && !isExperimentPage && (
         <>
           <nav className={`lg:hidden fixed top-[var(--header-height)] left-0 w-full h-[calc(100vh-var(--header-height))] bg-white/98 backdrop-blur-xl transition-all duration-500 z-[1100] overflow-y-auto ${
             isMenuOpen ? 'translate-x-0 opacity-100' : '-translate-x-full opacity-0'

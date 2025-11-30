@@ -48,10 +48,10 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden animate-fade-in">
         
-        <div className="bg-gradient-to-r from-blue-600 to-blue-800 p-6 flex justify-between items-center">
+        <div className="bg-gradient-to-r from-purple-600 via-purple-700 to-purple-800 p-6 flex justify-between items-center modal-header-gradient">
           <div>
             <h2 className="text-2xl font-bold text-white">Configuration</h2>
-            <p className="text-blue-100 text-sm mt-1">Adjust experiment parameters</p>
+            <p className="text-white/80 text-sm mt-1">Adjust experiment parameters</p>
           </div>
           <button
             onClick={onClose}

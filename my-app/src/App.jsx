@@ -90,7 +90,7 @@ function AppContent() {
         It uses 'pt-20' (80px) for auth pages and 'pt-[70px]' (70px) for all other pages,
         matching the heights defined in your Header.jsx.
       */}
-      <main className={`${isAuthPage ? 'pt-20' : (isHeaderCollapsed ? 'pt-2' : 'pt-[70px]')} transition-all duration-300`}>
+      <main className={`${isAuthPage ? 'pt-[var(--header-height)]' : 'pt-[var(--header-height)]'} transition-all duration-300`}>
         <Routes>
           <Route path="/" element={<Navigate to="/login" />} />
           <Route path="/login" element={<Login setCurrentUser={setCurrentUser} />} />
