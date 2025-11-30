@@ -66,7 +66,7 @@ export const experimentRegistry = {
       
       '1.2': {
         id: '1.2',
-        name: 'Inclined Plane',
+        name: 'Modern Galileo Experiment',
         icon: '📐',
         description: 'Study motion on an inclined surface - analyze acceleration vs angle',
         firmware: 'INC.bin',

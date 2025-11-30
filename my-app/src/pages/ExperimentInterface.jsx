@@ -67,6 +67,12 @@ const ExperimentInterface = ({ experimentId = 4 }) => {
     return () => window.removeEventListener('labex:tiles:update', handler);
   }, []);
 
+  useEffect(() => {
+    const h = (e) => setExperimentType(e.detail);
+    window.addEventListener('labex:experiment-type:changed', h);
+    return () => window.removeEventListener('labex:experiment-type:changed', h);
+  }, []);
+
   const formatTime = (seconds) => {
     const sec = Number(seconds);
     if (!Number.isFinite(sec)) return '0:00.0';
@@ -110,8 +116,8 @@ const ExperimentInterface = ({ experimentId = 4 }) => {
   }, [experimentType]);
 
   const getExperimentName = () => {
-    if (experimentType === 'tof') return 'Displacement Analysis';
-    if (experimentType === 'oscillation') return 'Inclined Plane';
+    if (experimentType === 'tof' || experimentType === 'distance' || experimentType === 'displacement') return 'Free Fall Experiment';
+    if (experimentType === 'inclined_plane') return 'Modern Galileo Experiment';
     return 'Experiment';
   };
 

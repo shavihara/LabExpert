@@ -254,7 +254,7 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
   
   // Get experiment name from configuration
   const getExperimentName = () => {
-    return experimentConfig?.name || 'Experiment';
+    return selectedSubExperiment?.name || experimentConfig?.name || 'Experiment';
   };
   
   // Get experiment description

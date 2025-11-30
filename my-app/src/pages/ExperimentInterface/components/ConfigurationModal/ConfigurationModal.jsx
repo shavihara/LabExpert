@@ -30,7 +30,7 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
         },
         {
           id: 'inclined_plane', 
-          name: 'Inclined Plane',
+          name: 'Modern Galileo Experiment',
           description: 'Analyze motion on an inclined plane.',
           icon: '📐',
           firmware: 'INC.bin',
@@ -151,6 +151,8 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
 
   const handleExperimentTypeSelection = (type) => {
     setExperimentType(type);
+    try { localStorage.setItem('experimentType', type); } catch {}
+    try { window.dispatchEvent(new CustomEvent('labex:experiment-type:changed', { detail: type })); } catch {}
     
     // Find the selected sub-experiment configuration
     const selectedSubExp = currentConfig.subExperiments.find(sub => sub.id === type);

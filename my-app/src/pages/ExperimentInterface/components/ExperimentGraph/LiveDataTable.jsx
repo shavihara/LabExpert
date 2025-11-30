@@ -127,14 +127,18 @@ const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen, onNeglectedData
 
   if (!data.length) {
     return (
-      <div className="bg-slate-50 rounded-xl p-8 text-center">
-        <div className="text-slate-400 mb-2">
-          <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
+      <div className={`${isFullscreen ? 'fixed inset-0 z-50 bg-white p-4 overflow-auto' : ''} ${containerClassName} h-full`}>
+        <div className="flex items-center justify-center h-full min-h-[240px] p-6">
+          <div className="text-center">
+            <div className="text-slate-400 mb-2">
+              <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-semibold text-slate-600 mb-1">No Data Yet</h3>
+            <p className="text-slate-500 text-sm">Start the experiment to see live data here</p>
+          </div>
         </div>
-        <h3 className="text-lg font-semibold text-slate-600 mb-1">No Data Yet</h3>
-        <p className="text-slate-500 text-sm">Start the experiment to see live data here</p>
       </div>
     );
   }
