@@ -1,8 +1,8 @@
 import React from 'react';
-import UserDashboard from '../pages/UserDashboard';
+import { Navigate } from 'react-router-dom';
 
 function Home() {
-  return <UserDashboard />;
+  return <Navigate to="/dashboard" replace />;
 }
 
 export default Home;

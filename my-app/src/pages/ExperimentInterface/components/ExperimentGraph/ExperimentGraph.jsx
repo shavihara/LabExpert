@@ -22,6 +22,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   const [saveStatus, setSaveStatus] = useState(null);
   const [isAnalysisMode, setIsAnalysisMode] = useState(false);
   const [analysisData, setAnalysisData] = useState([]);
+  const [positionStats, setPositionStats] = useState(null);
   const [graphCardHeight, setGraphCardHeight] = useState(null);
   const graphRORef = useRef(null);
   const graphCardElRef = useRef(null);
@@ -104,6 +105,20 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
       window.removeEventListener('labex:controls:reset', onReset);
     };
   }, []);
+
+  useEffect(() => {
+    try {
+      const detail = {
+        status: getStatusText(),
+        isRunning,
+        isPaused,
+        timeRemaining,
+        config,
+        samples: chartData.length
+      };
+      window.dispatchEvent(new CustomEvent('labex:tiles:update', { detail }));
+    } catch {}
+  }, [isRunning, isPaused, timeRemaining, config, chartData]);
 
   // ===== DIRECT DATA STREAMING HANDLER =====
   const handleDataMessage = useCallback((message) => {
@@ -235,6 +250,17 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     
     return () => {
       removeHandler();
+    };
+  }, [addMessageHandler]);
+
+  useEffect(() => {
+    const handleStats = (message) => {
+      const stats = message?.position_stats || message?.data?.position_stats;
+      if (stats) setPositionStats(stats);
+    };
+    const removeStats = addMessageHandler(handleStats);
+    return () => {
+      removeStats();
     };
   }, [addMessageHandler]);
 
@@ -510,44 +536,11 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
 
   return (
     <div className="space-y-4">
-      {/* ===== STATUS BAR AND CONTROLS ===== */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-        {/* Status Indicator */}
-        <div className={`rounded-xl border-2 p-3 ${getStatusColor()} transition-all`}>
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-xs font-semibold opacity-75 mb-1">Status</div>
-              <div className="text-lg font-bold flex items-center gap-2">
-                {isRunning && !isPaused && <span className="animate-pulse">●</span>}
-                {getStatusText()}
-              </div>
-            </div>
-            {isRunning && (
-              <FiLoader className={`h-6 w-6 ${!isPaused && 'animate-spin'}`} />
-            )}
-          </div>
-        </div>
 
-        {/* Timer */}
-        <div className={`rounded-xl border-2 p-3 ${isDark ? 'border-blue-600 bg-slate-800' : 'border-blue-200 bg-blue-50'}`}>
-          <div className={`text-xs font-semibold mb-1 ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Time Remaining</div>
-          <div className={`text-2xl font-bold font-mono flex items-center gap-2 ${isDark ? 'text-blue-200' : 'text-blue-900'}`}>
-            <FiClock className="h-5 w-5" />
-            {formatTime(timeRemaining)}
-          </div>
-        </div>
+      {/* ===== STATUS/TIMER/CONFIG TILES ABOVE CONTROLS (right aligned) ===== */}
+      
 
-        {/* Configuration Info */}
-        <div className={`rounded-xl border-2 p-3 ${isDark ? 'border-purple-600 bg-slate-800' : 'border-purple-200 bg-purple-50'}`}>
-          <div className={`text-xs font-semibold mb-1 ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>Configuration</div>
-          <div className={`text-sm ${isDark ? 'text-purple-200' : 'text-purple-900'}`}>
-            <div>Duration: {(config?.duration_s ?? totalDuration) || 10}s</div>
-            <div className={`text-xs opacity-75 ${isDark ? 'text-purple-300' : ''}`}>Samples: {chartData.length}</div>
-          </div>
-        </div>
-      </div>
-
-      {!externalControls && (
+      {!externalControls && !isAnalysisMode && (
         <div className="bg-white rounded-xl shadow-md border border-slate-200 p-3">
           <div className="flex flex-wrap gap-2">
             <button
@@ -586,9 +579,29 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         </div>
       )}
 
+      
+
       {isAnalysisMode ? (
         <>
-          <div className="bg-gradient-to-br from-white to-slate-50 rounded-2xl shadow-xl border-2 border-slate-200 p-2 sm:p-3 md:p-4">
+          <div className="bg-gradient-to-br from-white to-slate-50 dark:from-slate-900 dark:to-slate-900 rounded-2xl shadow-xl border-2 border-slate-200 dark:border-slate-700 p-2 sm:p-3 md:p-4">
+            {positionStats && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 mb-3">
+                {[
+                  {label: 'Mean', value: Number(positionStats.mean).toFixed(2)},
+                  {label: 'Std Dev', value: Number(positionStats.std).toFixed(2)},
+                  {label: 'Min', value: Number(positionStats.min).toFixed(2)},
+                  {label: 'Max', value: Number(positionStats.max).toFixed(2)},
+                ].map((tile, idx) => (
+                  <div key={idx} className={`rounded-xl px-3 py-2 text-center border transition-colors 
+                    ${isDark ? 'bg-slate-800/60 border-slate-700' : 'bg-white border-slate-200'}`}>
+                    <div className={`text-[11px] font-semibold tracking-wide uppercase mb-1 
+                      ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>{tile.label}</div>
+                    <div className={`text-base sm:text-lg font-mono font-semibold 
+                      ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>{tile.value}</div>
+                  </div>
+                ))}
+              </div>
+            )}
             <PlotlyGraph 
               experimentType={experimentType}
               token={token}

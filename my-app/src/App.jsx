@@ -20,6 +20,7 @@ import { getCurrentUser, bootstrapDevAuth } from './utils/api';
 import { ThemeProvider } from './context/ThemeContext';
 import './App.css';
 import SensorProvisioning from './pages/SensorProvisioning';
+import About from './pages/About';
 
 function AppContent() {
   const [currentUser, setCurrentUser] = useState(null);
@@ -82,6 +83,8 @@ function AppContent() {
     );
   }
 
+  const isDashboard = location.pathname === '/dashboard';
+
   return (
     <div className="app">
       <Header />
@@ -96,6 +99,7 @@ function AppContent() {
           <Route path="/login" element={<Login setCurrentUser={setCurrentUser} />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/about" element={<About />} />
           <Route
             path="/home"
             element={
