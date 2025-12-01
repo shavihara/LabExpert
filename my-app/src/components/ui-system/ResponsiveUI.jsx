@@ -192,6 +192,7 @@ export const ResponsiveCard = ({
                    responsive.card;
   
   const paddingClass = {
+    'none': 'p-0',
     'xs': responsive.spacing.xs,
     'sm': responsive.spacing.sm,
     'md': responsive.spacing.md,

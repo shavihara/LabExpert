@@ -41,6 +41,8 @@ const DynamicExperimentSelector = ({
   const isDark = theme === 'dark';
   const userToken = localStorage.getItem('token');
   const [selectedSubExperiment, setSelectedSubExperiment] = useState(null);
+  const [selectedSensorOption, setSelectedSensorOption] = useState(null);
+  const [step, setStep] = useState(1);
   const [flashStatus, setFlashStatus] = useState('Select a sensor to begin');
   const [isFlashing, setIsFlashing] = useState(false);
   const [pendingFirmware, setPendingFirmware] = useState(null);
@@ -89,8 +91,23 @@ const DynamicExperimentSelector = ({
   // Handle experiment selection
   const handleSubExperimentSelect = (subExperiment) => {
     setSelectedSubExperiment(subExperiment);
-    setPendingFirmware(subExperiment.firmwareType);
-    setFlashStatus(`${subExperiment.firmware} prepared. Select a sensor to flash firmware.`);
+    
+    if (subExperiment.sensorOptions && subExperiment.sensorOptions.length > 0) {
+      const defaultOption = subExperiment.sensorOptions[0];
+      setSelectedSensorOption(defaultOption);
+      setPendingFirmware(defaultOption.firmware);
+      setFlashStatus(`${defaultOption.firmware} selected. Select a sensor to flash firmware.`);
+    } else {
+      setSelectedSensorOption(null);
+      setPendingFirmware(subExperiment.firmwareType);
+      setFlashStatus(`${subExperiment.firmware} prepared. Select a sensor to flash firmware.`);
+    }
+  };
+
+  const handleSensorOptionSelect = (option) => {
+    setSelectedSensorOption(option);
+    setPendingFirmware(option.firmware);
+    setFlashStatus(`${option.firmware} selected. Select a sensor to flash firmware.`);
   };
 
   // Handle device flashing
@@ -223,106 +240,208 @@ const DynamicExperimentSelector = ({
           </div>
         </div>
 
-        {/* Sub-Experiment Selection */}
-        <div>
-          <h4 className={`text-lg font-semibold mb-4 ${isDark ? 'text-slate-200' : 'text-gray-800'}`}>Select Experiment Type</h4>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {subExperiments.map((subExp) => (
-              <ResponsiveCard
-                key={subExp.id}
-                onClick={() => handleSubExperimentSelect(subExp)}
-                hover={true}
-                className={`cursor-pointer transition-all duration-300 ${
-                  selectedSubExperiment?.id === subExp.id
-                    ? (isDark ? 'ring-2 ring-purple-500 bg-slate-800' : 'ring-2 ring-blue-500 bg-blue-50')
-                    : (isDark ? 'hover:ring-2 hover:ring-slate-600' : 'hover:ring-2 hover:ring-gray-300')
-                }`}
-              >
-                <div className="text-center">
-                  <div className="flex items-center justify-center mb-3">
-                    {getExperimentIcon(subExp.firmwareType)}
-                  </div>
-                  <h5 className={`font-semibold mb-2 ${isDark ? 'text-slate-200' : 'text-gray-800'}`}>{subExp.name}</h5>
-                  <p className={`text-sm mb-3 ${isDark ? 'text-slate-400' : 'text-gray-600'}`}>{subExp.description}</p>
-                  <div className={`text-xs font-medium ${isDark ? 'text-indigo-300' : 'text-blue-600'}`}>
-                    Firmware: {subExp.firmware}
-                  </div>
-                  {selectedSubExperiment?.id === subExp.id && (
-                    <div className="mt-3">
-                      <FiCheckCircle className={`w-6 h-6 mx-auto ${isDark ? 'text-green-300' : 'text-green-500'}`} />
-                    </div>
-                  )}
-                </div>
-              </ResponsiveCard>
-            ))}
-          </div>
-        </div>
-
-        {/* Sensor Selection */}
-        <div>
-          <h4 className="text-lg font-semibold text-gray-800 mb-4">Select Sensor</h4>
-          
-          <div className="mb-4 flex items-center gap-4">
-            <ResponsiveButton
-              variant="primary"
-              onClick={async () => {
-                const wsSuccess = sharedWebSocket.sendMessage({ action: 'scan_devices' });
-                if (!wsSuccess || !isConnected) {
-                  console.log('WebSocket scan failed or not connected, no REST API fallback available');
-                }
-              }}
-              icon={<FiRadio />}
-            >
-              Scan Devices
-            </ResponsiveButton>
-            
-            <div className="text-sm text-gray-600">
-              Connected: {isConnected ? 'Yes' : 'No'} | 
-              Scanning: {isScanning ? 'Yes' : 'No'} | 
-              Devices: {devices.length}
+        {/* Wizard: Step 1 - Select Experiment Type */}
+        {step === 1 && (
+          <div className="wizard-step-enter">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className={`text-lg font-semibold ${isDark ? 'text-slate-200' : 'text-gray-800'}`}>Select Experiment Type</h4>
+              <span className="text-sm text-gray-500">Step 1 of 2</span>
             </div>
-          </div>
-          
-          <div className={`max-h-60 overflow-y-auto rounded-lg border p-4 ${isDark ? 'bg-slate-800 border-slate-600' : 'bg-gray-50 border-gray-200'}`}>
-            {isScanning ? (
-              <div className="flex items-center justify-center py-8">
-                <LoadingSpinner />
-                <span className="ml-3 text-gray-600">Scanning for devices...</span>
-              </div>
-            ) : compatibleDevices.length === 0 ? (
-              <div className="text-center py-8">
-                <FiWifiOff className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <h5 className="text-lg font-medium text-gray-800 mb-2">No Compatible Devices Found</h5>
-                <p className="text-gray-600 mb-4">
-                  {selectedSubExperiment 
-                    ? `No devices found for ${selectedSubExperiment.name}. Ensure devices are online.`
-                    : "Select an experiment type first to see compatible devices."
-                  }
-                </p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {compatibleDevices.map(device => (
-                  <ResponsiveCard
-                    key={device.id}
-                    onClick={() => handleFlash(device)}
-                    disabled={isFlashing || !selectedSubExperiment}
-                    hover={true}
-                    className="cursor-pointer hover:border-blue-500 transition-colors"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="font-bold text-gray-800">{device.id}</div>
-                        <div className="text-sm text-gray-500">{device.ip_address || 'Unknown IP'}</div>
-                      </div>
-                      <FiZap className="w-5 h-5 text-gray-400" />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {subExperiments.map((subExp) => (
+                <ResponsiveCard
+                  key={subExp.id}
+                  onClick={() => handleSubExperimentSelect(subExp)}
+                  hover={true}
+                  className={`cursor-pointer transition-all duration-300 ${
+                    selectedSubExperiment?.id === subExp.id
+                      ? (isDark ? 'ring-2 ring-purple-500 bg-slate-800' : 'ring-2 ring-blue-500 bg-blue-50')
+                      : (isDark ? 'hover:ring-2 hover:ring-slate-600' : 'hover:ring-2 hover:ring-gray-300')
+                  }`}
+                >
+                  <div className="text-center">
+                    <div className="flex items-center justify-center mb-3">
+                      {getExperimentIcon(subExp.firmwareType)}
                     </div>
-                  </ResponsiveCard>
-                ))}
+                    <h5 className={`font-semibold mb-2 ${isDark ? 'text-slate-200' : 'text-gray-800'}`}>{subExp.name}</h5>
+                    <p className={`text-sm mb-3 ${isDark ? 'text-slate-400' : 'text-gray-600'}`}>{subExp.description}</p>
+                    <div className={`text-xs font-medium ${isDark ? 'text-indigo-300' : 'text-blue-600'}`}>
+                      Firmware: {subExp.firmware}
+                    </div>
+                    {selectedSubExperiment?.id === subExp.id && (
+                      <div className="mt-3">
+                        <FiCheckCircle className={`w-6 h-6 mx-auto ${isDark ? 'text-green-300' : 'text-green-500'}`} />
+                      </div>
+                    )}
+                  </div>
+                </ResponsiveCard>
+              ))}
+            </div>
+
+            {/* Sensor Options Selection (if available) */}
+            {selectedSubExperiment?.sensorOptions && (
+              <div className="mt-6 animate-fade-in">
+                 <div className="flex items-center justify-between mb-2">
+                  <h4 className={`text-md font-semibold ${isDark ? 'text-slate-200' : 'text-gray-800'}`}>Select Sensor Type</h4>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {selectedSubExperiment.sensorOptions.map((option) => (
+                    <div
+                      key={option.type}
+                      onClick={() => handleSensorOptionSelect(option)}
+                      className={`flex items-center p-3 rounded-lg border cursor-pointer transition-all ${
+                        selectedSensorOption?.type === option.type
+                          ? (isDark ? 'bg-indigo-900/30 border-indigo-500 ring-1 ring-indigo-500' : 'bg-blue-50 border-blue-500 ring-1 ring-blue-500')
+                          : (isDark ? 'bg-slate-800 border-slate-700 hover:border-indigo-500' : 'bg-white border-gray-200 hover:border-blue-500')
+                      }`}
+                    >
+                      <div className={`flex items-center justify-center w-10 h-10 rounded-full mr-3 ${
+                        selectedSensorOption?.type === option.type
+                          ? (isDark ? 'bg-indigo-500 text-white' : 'bg-blue-500 text-white')
+                          : (isDark ? 'bg-slate-700 text-slate-400' : 'bg-gray-100 text-gray-500')
+                      }`}>
+                        <FiCpu className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className={`font-medium ${isDark ? 'text-slate-200' : 'text-gray-800'}`}>{option.label}</div>
+                        <div className={`text-xs ${isDark ? 'text-slate-400' : 'text-gray-500'}`}>{option.firmware}</div>
+                      </div>
+                      {selectedSensorOption?.type === option.type && (
+                         <FiCheckCircle className={`ml-auto w-5 h-5 ${isDark ? 'text-indigo-400' : 'text-blue-500'}`} />
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
+
+            <div className="flex justify-end mt-4">
+              <ResponsiveButton
+                variant="primary"
+                disabled={!selectedSubExperiment}
+                onClick={() => {
+                  setStep(2);
+                  scanDevices();
+                }}
+              >
+                Next
+              </ResponsiveButton>
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* Wizard: Step 2 - Select Sensor & Flash */}
+        {step === 2 && (
+          <div className="wizard-step-enter">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-lg font-semibold text-gray-800">Select Sensor</h4>
+              <span className="text-sm text-gray-500">Step 2 of 2</span>
+            </div>
+            <div className="mb-4 flex items-center gap-4">
+              <ResponsiveButton
+                variant="secondary"
+                onClick={() => setStep(1)}
+                icon={<FiArrowLeft />}
+              >
+                Back
+              </ResponsiveButton>
+              <ResponsiveButton
+                variant="primary"
+                onClick={async () => {
+                  const wsSuccess = sharedWebSocket.sendMessage({ action: 'scan_devices' });
+                  if (!wsSuccess || !isConnected) {
+                    console.log('WebSocket scan failed or not connected, no REST API fallback available');
+                  }
+                }}
+                icon={<FiRadio />}
+              >
+                Scan Devices
+              </ResponsiveButton>
+              <div className="text-sm text-gray-600">
+                Connected: {isConnected ? 'Yes' : 'No'} | 
+                Scanning: {isScanning ? 'Yes' : 'No'} | 
+                Devices: {devices.length}
+              </div>
+            </div>
+            <div className={`max-h-60 overflow-y-auto rounded-lg border p-4 ${isDark ? 'bg-slate-800 border-slate-600' : 'bg-gray-50 border-gray-200'}`}>
+              {isScanning ? (
+                <div className="flex items-center justify-center py-8">
+                  <LoadingSpinner />
+                  <span className="ml-3 text-gray-600">Scanning for devices...</span>
+                </div>
+              ) : compatibleDevices.length === 0 ? (
+                <div className="text-center py-8">
+                  <FiWifiOff className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <h5 className="text-lg font-medium text-gray-800 mb-2">No Compatible Devices Found</h5>
+                  <p className="text-gray-600 mb-4">
+                    {selectedSubExperiment 
+                      ? `No devices found for ${selectedSubExperiment.name}. Ensure devices are online.`
+                      : "Select an experiment type first to see compatible devices."}
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {compatibleDevices
+                    .slice()
+                    .sort((a, b) => {
+                        const getRank = (d) => {
+                            // Rank 0: Online (online_status == 1)
+                            if (d.online_status === 1) return 0;
+                            // Rank 1: In Use (online_status == 0 && availability == 0)
+                            if (d.online_status === 0 && d.availability === 0) return 1;
+                            // Rank 2: Offline (online_status == 0 && availability == 1)
+                            return 2;
+                        };
+                        return getRank(a) - getRank(b);
+                    })
+                    .map(device => {
+                    const getStatus = (d) => {
+                      const online = d.online_status === 1;
+                      const available = d.availability === 1;
+                      
+                      if (online) return { label: 'Online', color: 'text-green-600', bg: 'bg-green-100', border: 'border-green-200', dot: 'bg-green-500' };
+                      if (!online && !available) return { label: 'In Use', color: 'text-yellow-600', bg: 'bg-yellow-100', border: 'border-yellow-200', dot: 'bg-yellow-500' };
+                      return { label: 'Offline', color: 'text-red-600', bg: 'bg-red-100', border: 'border-red-200', dot: 'bg-red-500' };
+                    };
+                    const status = getStatus(device);
+                    const isDisabled = status.label === 'Offline' || status.label === 'In Use';
+                    
+                    return (
+                    <ResponsiveCard
+                      key={device.id}
+                      onClick={() => !isDisabled && handleFlash(device)}
+                      disabled={isFlashing || !selectedSubExperiment || isDisabled}
+                      hover={!isDisabled}
+                      padding="none"
+                      className={`transition-colors overflow-hidden ${isDisabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:border-blue-500'}`}
+                    >
+                    {device.sensor_type && (
+                      <div className={`w-full px-3 py-1 rounded-t-xl text-xs font-semibold border-b ${isDark ? 'bg-indigo-900/50 text-indigo-200 border-indigo-700' : 'bg-blue-100 text-blue-700 border-blue-200'}`}>
+                        Sensor: {device.sensor_type}
+                      </div>
+                    )}
+                    <div className="p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <div className="font-bold text-gray-800">{device.id}</div>
+                            <div className={`flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${status.bg} ${status.color} ${status.border}`}>
+                              <div className={`w-1.5 h-1.5 rounded-full mr-1 ${status.dot}`}></div>
+                              {status.label}
+                            </div>
+                          </div>
+                          <div className="text-sm text-gray-500">{device.ip_address || 'Unknown IP'}</div>
+                        </div>
+                        <FiZap className="w-5 h-5 text-gray-400" />
+                      </div>
+                    </div>
+                    </ResponsiveCard>
+                  )})}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Status Display */}
         <div className={`relative rounded-lg overflow-hidden border ${isDark ? 'bg-slate-800 border-slate-600' : 'bg-gray-50 border-gray-200'}`}>

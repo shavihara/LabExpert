@@ -117,7 +117,12 @@ class OTAManager:
                 return {"status": "error", "message": f"No firmware configured for {experiment_type}"}
             firmware_path = os.path.join(self.bin_dir, firmware_file)
         if not os.path.isfile(firmware_path):
-            return {"status": "error", "message": f"Firmware not found: {firmware_path}"}
+            if experiment_type == "inclined_plane":
+                alt_path = os.path.join(self.bin_dir, "INC.bin")
+                if os.path.isfile(alt_path):
+                    firmware_path = alt_path
+                else:
+                    return {"status": "error", "message": f"Firmware not found: {firmware_path}"}
         
         firmware_name = os.path.basename(firmware_path)  # Use filename as last_firmware
         

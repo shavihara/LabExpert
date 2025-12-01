@@ -241,7 +241,7 @@ function UserDashboard() {
   );
 
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
+    <div className="flex h-[calc(100vh-var(--header-height))] bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
       {/* Mobile Sidebar Overlay */}
       {isSidebarOpen && (
         <div 
