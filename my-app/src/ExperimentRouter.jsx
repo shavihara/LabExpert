@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import ExperimentInterface from './pages/ExperimentInterface';
+import ExperimentInterface from './pages/ExperimentInterface/ExperimentInterface';
 import NewExperimentInterface from './pages/ExperimentInterface/ExperimentInterface.jsx';
 import OSIInterface from './components/OSIInterface';
 

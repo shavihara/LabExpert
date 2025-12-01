@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, memo } from 'react';
+import { useTheme } from '../../context/ThemeContext';
 import { useNavigate } from 'react-router-dom';
 import { useWebSocket, useDeviceManager, useExperimentManager } from '../../hooks/useWebSocket';
 import { 
@@ -20,6 +21,8 @@ import ConfigPanel from './components/ConfigPanel/ConfigPanel';
 const ExperimentInterface = ({ experimentId = '1.1' }) => {
   console.log('ExperimentInterface rendered with experimentId:', experimentId);
   const navigate = useNavigate();
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
   const [showConfigModal, setShowConfigModal] = useState(true);
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [experimentConfig, setExperimentConfig] = useState(null);
@@ -30,6 +33,7 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
   const [showConfigPanel, setShowConfigPanel] = useState(false);
   const [config, setConfig] = useState({ frequency_hz: 20, max_distance_cm: 150, duration_s: 10 });
   const [experimentType, setExperimentType] = useState(localStorage.getItem('experimentType') || 'displacement');
+  const [tileState, setTileState] = useState({ status: 'Stopped', timeRemaining: 0, samples: 0, config });
   
   // Store integration
   const {
@@ -96,6 +100,22 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('labex:header:collapse'))
   }, [])
+
+  useEffect(() => {
+    const handler = (e) => setTileState(e.detail || {});
+    window.addEventListener('labex:tiles:update', handler);
+    return () => window.removeEventListener('labex:tiles:update', handler);
+  }, []);
+
+  const formatTime = (seconds) => {
+    const sec = Number(seconds);
+    if (!Number.isFinite(sec)) return '0:00.0';
+    const s = Math.max(0, sec);
+    const m = Math.floor(s / 60);
+    const r = Math.floor(s % 60);
+    const t = Math.floor((s % 1) * 10);
+    return `${m}:${String(r).padStart(2, '0')}.${t}`;
+  };
   
   // Handle WebSocket connection status
   useEffect(() => {
@@ -234,7 +254,7 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
   
   // Get experiment name from configuration
   const getExperimentName = () => {
-    return experimentConfig?.name || 'Experiment';
+    return selectedSubExperiment?.name || experimentConfig?.name || 'Experiment';
   };
   
   // Get experiment description
@@ -294,28 +314,27 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
           <ResponsiveCard className="p-4 md:p-6">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
               <div className="flex-1">
+                <div className="hidden sm:flex items-center gap-2 mb-2">
+                  <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs ${selectedDevice ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                    <span className={`w-2 h-2 rounded-full ${selectedDevice ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                    {selectedDevice ? 'Connected' : 'Disconnected'}
+                  </div>
+                  {selectedDevice && (
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border bg-slate-100 text-slate-700 border-slate-300 text-xs">
+                      <span className="text-slate-600">Device:</span>
+                      <span className="font-semibold">{selectedDevice.id}</span>
+                    </div>
+                  )}
+                </div>
                 <h1 className="text-2xl md:text-3xl lg:text-4xl font-extrabold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
                   {getExperimentName()}
                 </h1>
                 <p className="text-xs md:text-sm text-slate-600 mt-1 md:mt-2">
                   {getExperimentDescription()}
                 </p>
-                
               </div>
               <div className="flex flex-col items-end gap-2">
-                <div className="flex items-center gap-2">
-                  <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border ${selectedDevice ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}> 
-                    <span className={`w-2 h-2 rounded-full ${selectedDevice ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                    {selectedDevice ? 'Connected' : 'Disconnected'}
-                  </div>
-                  {selectedDevice && (
-                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border bg-slate-100 text-slate-700 border-slate-300">
-                      <span className="text-slate-600">Device:</span>
-                      <span className="font-semibold">{selectedDevice.id}</span>
-                    </div>
-                  )}
-                </div>
-                <div className="flex gap-2">
+                <div className="hidden sm:flex items-center justify-end gap-2 w-full">
                   <ResponsiveButton
                     onClick={() => setShowConfigPanel(true)}
                     variant="primary"
@@ -332,7 +351,6 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
                     <FiRepeat className="w-4 h-4 mr-1" />
                     Change Experiment
                   </ResponsiveButton>
-                  
                   <ResponsiveButton
                     onClick={handleDisconnect}
                     variant="danger"
@@ -342,44 +360,85 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
                     Disconnect
                   </ResponsiveButton>
                 </div>
+                {/* Mobile compact status + controls */}
+                <div className="flex sm:hidden items-center justify-between gap-2 w-full">
+                  <div className="inline-flex items-center gap-2 px-2 py-1 rounded-full border bg-slate-100 text-slate-700 border-slate-300">
+                    <span className={`w-2 h-2 rounded-full ${selectedDevice ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                    <FiWifi className={`${selectedDevice ? 'text-green-600' : 'text-red-600'} w-4 h-4`} />
+                    {selectedDevice && <span className="text-xs font-semibold">{String(selectedDevice.id).slice(0,5)}</span>}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setShowConfigPanel(true)}
+                      className="p-2 rounded-lg bg-blue-600 text-white shadow-md"
+                      aria-label="Configure"
+                    >
+                      <FiSettings className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setShowConfigModal(true)}
+                      className="p-2 rounded-lg bg-gray-600 text-white shadow-md"
+                      aria-label="Change Experiment"
+                    >
+                      <FiRepeat className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={handleDisconnect}
+                      className="p-2 rounded-lg bg-red-600 text-white shadow-md"
+                      aria-label="Disconnect"
+                    >
+                      <FiLogOut className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </ResponsiveCard>
           
           {/* Main Content */}
           <ResponsiveCard padding="xs">
-            <div className="flex items-center justify-between mb-1 md:mb-6">
-              <h2 className="text-lg md:text-2xl font-bold text-slate-800 flex items-center gap-2">
-                <FiBarChart2 className="text-purple-600" />
-                Live Data Feed
-              </h2>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => window.dispatchEvent(new CustomEvent('labex:controls:start'))}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-all text-sm"
-                >
-                  <FiPlay className="w-4 h-4" /> Start
-                </button>
-                <button
-                  onClick={() => window.dispatchEvent(new CustomEvent('labex:controls:pause'))}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-yellow-500 text-white rounded-lg font-semibold hover:bg-yellow-600 transition-all text-sm"
-                >
-                  <FiPause className="w-4 h-4" /> Pause
-                </button>
-                <button
-                  onClick={() => window.dispatchEvent(new CustomEvent('labex:controls:stop'))}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-all text-sm"
-                >
-                  <FiStopCircle className="w-4 h-4" /> Stop
-                </button>
-                <button
-                  onClick={() => window.dispatchEvent(new CustomEvent('labex:controls:reset'))}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-gray-600 text-white rounded-lg font-semibold hover:bg-gray-700 transition-all text-sm"
-                >
-                  <FiRefreshCw className="w-4 h-4" /> Reset
-                </button>
+            <div className="mb-1 md:mb-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg md:text-2xl font-bold text-slate-800 flex items-center gap-2">
+                  <FiBarChart2 className="text-purple-600" />
+                  Live Data Feed
+                </h2>
+                <div className="hidden sm:grid grid-cols-3 gap-3 w-full pl-4">
+                  <div className={`rounded-xl border-2 p-3 ${isDark ? 'border-slate-700 bg-slate-800' : 'border-slate-300 bg-slate-100'}`}>
+                    <div className={`text-xs font-semibold mb-1 ${isDark ? 'text-slate-300 opacity-80' : 'text-slate-600 opacity-75'}`}>Status</div>
+                    <div className={`text-lg font-bold ${isDark ? 'text-slate-100' : ''}`}>{tileState.status || 'Stopped'}</div>
+                  </div>
+                  <div className={`rounded-xl border-2 p-3 ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-300 bg-blue-50'}`}>
+                    <div className={`text-xs font-semibold mb-1 ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Time Remaining</div>
+                    <div className={`text-2xl font-bold font-mono ${isDark ? 'text-blue-200' : 'text-blue-900'} flex items-center gap-2`}>{formatTime(tileState.timeRemaining || 0)}</div>
+                  </div>
+                  <div className={`rounded-xl border-2 p-3 ${isDark ? 'border-purple-700 bg-purple-900/20' : 'border-purple-300 bg-purple-50'}`}>
+                    <div className={`text-xs font-semibold mb-1 ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>Configuration</div>
+                    <div className={`text-sm ${isDark ? 'text-purple-200' : 'text-purple-900'}`}>
+                      <div>Duration: {(tileState?.config?.duration_s) || 10}s</div>
+                      <div className={`text-xs ${isDark ? 'opacity-80' : 'opacity-75'}`}>Samples: {tileState.samples || 0}</div>
+                    </div>
+                  </div>
+                </div>
               </div>
+              <div className="mt-2 grid grid-cols-2 gap-2 sm:hidden">
+                <div className={`rounded-lg border p-2 ${isDark ? 'border-slate-700 bg-slate-800' : 'border-slate-300 bg-slate-100'}`}>
+                  <div className={`text-[11px] font-semibold mb-1 ${isDark ? 'text-slate-300 opacity-80' : 'opacity-75'}`}>Status</div>
+                  <div className={`text-base font-bold ${isDark ? 'text-slate-100' : ''}`}>{tileState.status || 'Stopped'}</div>
+                </div>
+                <div className={`rounded-lg border p-2 ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-300 bg-blue-50'}`}>
+                  <div className={`text-[11px] font-semibold mb-1 ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Time Remaining</div>
+                  <div className={`text-lg font-bold font-mono ${isDark ? 'text-blue-200' : 'text-blue-900'}`}>{formatTime(tileState.timeRemaining || 0)}</div>
+                </div>
+                <div className={`rounded-lg border p-2 ${isDark ? 'border-purple-700 bg-purple-900/20' : 'border-purple-300 bg-purple-50'} col-span-2`}>
+                  <div className={`text-[11px] font-semibold mb-1 ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>Configuration</div>
+                  <div className={`text-xs ${isDark ? 'text-purple-200' : 'text-purple-900'} flex justify-between`}>
+                    <span>Duration: {(tileState?.config?.duration_s) || 10}s</span>
+                    <span>Samples: {tileState.samples || 0}</span>
+                  </div>
+                </div>
               </div>
+            </div>
             
             {/* Optimized Graph Renderer */}
             <ExperimentGraph 
@@ -389,7 +448,7 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
               sharedExperimentManager={sharedExperimentManager}
               config={config}
               subExperiment={selectedSubExperiment}
-              externalControls={true}
+              externalControls={false}
             />
           </ResponsiveCard>
           

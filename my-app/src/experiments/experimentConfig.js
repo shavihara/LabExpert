@@ -13,7 +13,7 @@ export const experimentRegistry = {
     icon: '📏',
     description: 'Motion analysis and displacement experiments',
     color: '#3B82F6', // Blue theme
-    
+
     // Sub-experiments (Level 2)
     subExperiments: {
       '1.1': {
@@ -23,16 +23,16 @@ export const experimentRegistry = {
         description: 'Analyze motion under gravity - measure distance, velocity, and acceleration',
         firmware: 'TOF.bin',
         firmwareType: 'displacement',
-        
+
         // Data configuration
         dataFields: ['time', 'distance', 'velocity', 'acceleration'],
-        units: { 
-          time: 's', 
-          distance: 'cm', 
-          velocity: 'cm/s', 
-          acceleration: 'cm/s²' 
+        units: {
+          time: 's',
+          distance: 'cm',
+          velocity: 'cm/s',
+          acceleration: 'cm/s²'
         },
-        
+
         // Graph configuration
         graphConfig: {
           xAxis: 'time',
@@ -40,7 +40,7 @@ export const experimentRegistry = {
           colors: ['#3B82F6', '#10B981', '#F59E0B'],
           yAxisLabels: ['Distance (cm)', 'Velocity (cm/s)', 'Acceleration (cm/s²)']
         },
-        
+
         // Table configuration
         tableConfig: {
           columns: [
@@ -50,10 +50,10 @@ export const experimentRegistry = {
             { key: 'acceleration', label: 'Acceleration (cm/s²)', format: 'float', precision: 2 }
           ]
         },
-        
+
         // Sensor requirements
         requiredSensors: ['tof', 'accelerometer'],
-        
+
         // Default configuration
         defaultConfig: {
           frequency_hz: 20,
@@ -63,31 +63,31 @@ export const experimentRegistry = {
           mass: 0 // kg
         }
       },
-      
+
       '1.2': {
         id: '1.2',
-        name: 'Inclined Plane',
+        name: 'Modern Galileo Experiment',
         icon: '📐',
         description: 'Study motion on an inclined surface - analyze acceleration vs angle',
         firmware: 'INC.bin',
         firmwareType: 'inclined_plane',
-        
+
         dataFields: ['time', 'distance', 'velocity', 'acceleration', 'angle'],
-        units: { 
-          time: 's', 
-          distance: 'cm', 
-          velocity: 'cm/s', 
-          acceleration: 'cm/s²', 
-          angle: '°' 
+        units: {
+          time: 's',
+          distance: 'cm',
+          velocity: 'cm/s',
+          acceleration: 'cm/s²',
+          angle: '°'
         },
-        
+
         graphConfig: {
           xAxis: 'time',
           yAxes: ['distance', 'velocity', 'acceleration'],
           colors: ['#8B5CF6', '#06B6D4', '#EC4899'],
           yAxisLabels: ['Distance (cm)', 'Velocity (cm/s)', 'Acceleration (cm/s²)']
         },
-        
+
         tableConfig: {
           columns: [
             { key: 'time', label: 'Time (s)', format: 'float', precision: 2 },
@@ -97,9 +97,9 @@ export const experimentRegistry = {
             { key: 'angle', label: 'Angle (°)', format: 'float', precision: 1 }
           ]
         },
-        
+
         requiredSensors: ['tof', 'gyroscope'],
-        
+
         defaultConfig: {
           frequency_hz: 15,
           max_distance_cm: 100,
@@ -110,7 +110,7 @@ export const experimentRegistry = {
       }
     }
   },
-  
+
   '2': {
     id: '2',
     name: 'Oscillation Counter',
@@ -118,7 +118,7 @@ export const experimentRegistry = {
     icon: '🔄',
     description: 'Periodic motion and oscillation analysis',
     color: '#10B981', // Green theme
-    
+
     subExperiments: {
       '2.1': {
         id: '2.1',
@@ -127,22 +127,22 @@ export const experimentRegistry = {
         description: 'Measure oscillation period and frequency of a simple pendulum',
         firmware: 'PEND_SIMPLE.bin',
         firmwareType: 'pendulum_simple',
-        
+
         dataFields: ['time', 'angle', 'angular_velocity', 'period'],
-        units: { 
-          time: 's', 
-          angle: '°', 
-          angular_velocity: '°/s', 
-          period: 's' 
+        units: {
+          time: 's',
+          angle: '°',
+          angular_velocity: '°/s',
+          period: 's'
         },
-        
+
         graphConfig: {
           xAxis: 'time',
           yAxes: ['angle', 'angular_velocity'],
           colors: ['#EF4444', '#F97316'],
           yAxisLabels: ['Angle (°)', 'Angular Velocity (°/s)']
         },
-        
+
         tableConfig: {
           columns: [
             { key: 'time', label: 'Time (s)', format: 'float', precision: 2 },
@@ -151,9 +151,9 @@ export const experimentRegistry = {
             { key: 'period', label: 'Period (s)', format: 'float', precision: 3 }
           ]
         },
-        
+
         requiredSensors: ['accelerometer', 'gyroscope'],
-        
+
         defaultConfig: {
           frequency_hz: 10,
           max_angle_degrees: 30,
@@ -161,7 +161,7 @@ export const experimentRegistry = {
           pendulum_length_cm: 100
         }
       },
-      
+
       '2.2': {
         id: '2.2',
         name: 'Compound Pendulum',
@@ -169,22 +169,22 @@ export const experimentRegistry = {
         description: 'Analyze complex pendulum motion with damping effects',
         firmware: 'PEND_COMPOUND.bin',
         firmwareType: 'pendulum_compound',
-        
+
         dataFields: ['time', 'angle', 'angular_velocity', 'damping_coefficient'],
-        units: { 
-          time: 's', 
-          angle: '°', 
-          angular_velocity: '°/s', 
-          damping_coefficient: '1/s' 
+        units: {
+          time: 's',
+          angle: '°',
+          angular_velocity: '°/s',
+          damping_coefficient: '1/s'
         },
-        
+
         graphConfig: {
           xAxis: 'time',
           yAxes: ['angle', 'angular_velocity'],
           colors: ['#DC2626', '#EA580C'],
           yAxisLabels: ['Angle (°)', 'Angular Velocity (°/s)']
         },
-        
+
         tableConfig: {
           columns: [
             { key: 'time', label: 'Time (s)', format: 'float', precision: 2 },
@@ -193,9 +193,9 @@ export const experimentRegistry = {
             { key: 'damping_coefficient', label: 'Damping (1/s)', format: 'float', precision: 4 }
           ]
         },
-        
+
         requiredSensors: ['accelerometer', 'gyroscope'],
-        
+
         defaultConfig: {
           frequency_hz: 15,
           max_angle_degrees: 45,
@@ -205,7 +205,7 @@ export const experimentRegistry = {
       }
     }
   },
-  
+
   '3': {
     id: '3',
     name: 'Temperature Analysis',
@@ -213,7 +213,7 @@ export const experimentRegistry = {
     icon: '🌡️',
     description: 'Thermal experiments and heat transfer analysis',
     color: '#EF4444', // Red theme
-    
+
     subExperiments: {
       '3.1': {
         id: '3.1',
@@ -222,22 +222,22 @@ export const experimentRegistry = {
         description: 'Measure temperature changes during heat transfer processes',
         firmware: 'THERMAL.bin',
         firmwareType: 'thermal',
-        
+
         dataFields: ['time', 'temperature', 'heat_flux', 'thermal_conductivity'],
-        units: { 
-          time: 's', 
-          temperature: '°C', 
-          heat_flux: 'W/m²', 
-          thermal_conductivity: 'W/m·K' 
+        units: {
+          time: 's',
+          temperature: '°C',
+          heat_flux: 'W/m²',
+          thermal_conductivity: 'W/m·K'
         },
-        
+
         graphConfig: {
           xAxis: 'time',
           yAxes: ['temperature', 'heat_flux'],
           colors: ['#EF4444', '#F97316'],
           yAxisLabels: ['Temperature (°C)', 'Heat Flux (W/m²)']
         },
-        
+
         tableConfig: {
           columns: [
             { key: 'time', label: 'Time (s)', format: 'float', precision: 2 },
@@ -246,9 +246,9 @@ export const experimentRegistry = {
             { key: 'thermal_conductivity', label: 'Conductivity (W/m·K)', format: 'float', precision: 3 }
           ]
         },
-        
+
         requiredSensors: ['temperature', 'thermal_sensor'],
-        
+
         defaultConfig: {
           frequency_hz: 5,
           max_temperature_c: 100,
@@ -266,7 +266,7 @@ export const experimentRegistry = {
     icon: '💡',
     description: 'Monitor ambient light levels and analyze intensity over time',
     color: '#F59E0B',
-    
+
     subExperiments: {
       '4.1': {
         id: '4.1',
@@ -331,6 +331,59 @@ export const experimentRegistry = {
         }
       }
     }
+  },
+
+  '5': {
+    id: '5',
+    name: 'Motion Detection',
+    category: 'sensors',
+    icon: '🏃',
+    description: 'Detect and track motion patterns using advanced sensors',
+    color: '#8B5CF6', // Purple theme
+
+    subExperiments: {
+      '5.1': {
+        id: '5.1',
+        name: 'Motion Tracker',
+        icon: '📡',
+        description: 'Real-time motion tracking and pattern recognition',
+        firmware: 'TOF.bin',
+        firmwareType: 'displacement',
+
+        dataFields: ['time', 'distance', 'velocity', 'motion_detected'],
+        units: {
+          time: 's',
+          distance: 'cm',
+          velocity: 'cm/s',
+          motion_detected: 'bool'
+        },
+
+        graphConfig: {
+          xAxis: 'time',
+          yAxes: ['distance', 'velocity'],
+          colors: ['#8B5CF6', '#EC4899'],
+          yAxisLabels: ['Distance (cm)', 'Velocity (cm/s)']
+        },
+
+        tableConfig: {
+          columns: [
+            { key: 'time', label: 'Time (s)', format: 'float', precision: 2 },
+            { key: 'distance', label: 'Distance (cm)', format: 'float', precision: 2 },
+            { key: 'velocity', label: 'Velocity (cm/s)', format: 'float', precision: 2 },
+            { key: 'motion_detected', label: 'Motion', format: 'bool' }
+          ]
+        },
+
+        requiredSensors: ['tof'],
+
+        defaultConfig: {
+          frequency_hz: 20,
+          max_distance_cm: 200,
+          duration_s: 60,
+          sensitivity: 0.5
+        }
+      }
+    }
   }
 };
 
@@ -341,24 +394,24 @@ export const experimentRegistry = {
 export const getExperimentConfig = (experimentId, subExperimentId) => {
   console.log('getExperimentConfig called with:', { experimentId, subExperimentId });
   console.log('Available experiments in registry:', Object.keys(experimentRegistry));
-  
+
   const mainExp = experimentRegistry[experimentId];
   console.log('Main experiment lookup result:', mainExp);
-  
+
   if (!mainExp) {
     console.error(`Main experiment ${experimentId} not found`);
     return null;
   }
-  
+
   console.log('Available sub-experiments:', Object.keys(mainExp.subExperiments));
   const subExp = mainExp.subExperiments[subExperimentId];
   console.log('Sub-experiment lookup result:', subExp);
-  
+
   if (!subExp) {
     console.error(`Sub-experiment ${subExperimentId} not found in ${experimentId}`);
     return null;
   }
-  
+
   const result = {
     mainExperiment: mainExp,
     subExperiment: subExp,
@@ -367,7 +420,7 @@ export const getExperimentConfig = (experimentId, subExperimentId) => {
       currentSubExperiment: subExp
     }
   };
-  
+
   console.log('Returning config:', result);
   return result;
 };
@@ -413,7 +466,7 @@ export const registerSubExperiment = (experimentId, subExperimentId, subExperime
     console.error(`Main experiment ${experimentId} not found`);
     return false;
   }
-  
+
   experimentRegistry[experimentId].subExperiments[subExperimentId] = subExperimentConfig;
   return true;
 };
