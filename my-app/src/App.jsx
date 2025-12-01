@@ -83,6 +83,8 @@ function AppContent() {
     );
   }
 
+  const isDashboard = location.pathname === '/dashboard';
+
   return (
     <div className="app">
       <Header />

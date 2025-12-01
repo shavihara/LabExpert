@@ -1,9 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWebSocket } from '../hooks/useWebSocket';
-import '../styles/UserDashboard.css';
 import pendulumGif from '../assets/images/pendulum.gif';
 import { useTheme } from '../context/ThemeContext';
+import {
+  LayoutDashboard,
+  FlaskConical,
+  History,
+  User,
+  Settings,
+  FileText,
+  LogOut,
+  Moon,
+  Sun,
+  Menu,
+  X,
+  Search,
+  Bell,
+  ChevronRight,
+  Activity,
+  Thermometer,
+  Ruler,
+  Zap,
+  Volume2,
+  Download
+} from 'lucide-react';
 
 function UserDashboard() {
   const [activeSection, setActiveSection] = useState('experiments');
@@ -13,6 +34,8 @@ function UserDashboard() {
   const [loading, setLoading] = useState(true);
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [showInstallButton, setShowInstallButton] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
 
@@ -29,61 +52,61 @@ function UserDashboard() {
       id: 1,
       name: 'Distance Measure',
       description: 'Measure distance using TOF sensor',
-      icon: '📏',
+      icon: <Ruler className="w-8 h-8" />,
       difficulty: 'Available',
       duration: '15+ min',
       category: 'Motion',
-      color: '#4f46e5'
+      color: 'bg-indigo-500'
     },
     {
       id: 2,
       name: 'Oscillation Counter',
       description: 'Count oscillations and measure frequency',
-      icon: pendulumGif,
+      icon: pendulumGif, // Keeping the GIF
       difficulty: 'Available',
       duration: '25+ min',
       category: 'Physics',
-      color: '#059669'
+      color: 'bg-emerald-500'
     },
     {
       id: 3,
       name: 'Temperature Monitoring',
       description: 'Monitor temperature changes over time',
-      icon: '🌡️',
+      icon: <Thermometer className="w-8 h-8" />,
       difficulty: 'Unavailable',
       duration: '20 min',
       category: 'Environmental',
-      color: '#dc2626'
+      color: 'bg-red-500'
     },
     {
       id: 4,
       name: 'Light Intensity Analysis',
       description: 'Analyze light intensity variations',
-      icon: '💡',
+      icon: <Zap className="w-8 h-8" />,
       difficulty: 'Available',
       duration: '18 min',
       category: 'Optics',
-      color: '#d97706'
+      color: 'bg-amber-500'
     },
     {
       id: 5,
       name: 'Motion Detection',
       description: 'Detect and track motion patterns',
-      icon: '🎯',
+      icon: <Activity className="w-8 h-8" />,
       difficulty: 'Available',
       duration: '35 min',
       category: 'Sensors',
-      color: '#7c3aed'
+      color: 'bg-purple-500'
     },
     {
       id: 6,
       name: 'Sound Wave Analysis',
       description: 'Analyze sound frequencies and amplitudes',
-      icon: '🔊',
+      icon: <Volume2 className="w-8 h-8" />,
       difficulty: 'Unavailable',
       duration: '30 min',
       category: 'Acoustics',
-      color: '#0891b2'
+      color: 'bg-cyan-500'
     }
   ];
 
@@ -157,41 +180,30 @@ function UserDashboard() {
       setUserProfile(currentUser);
       setLoading(false);
     }, 1000);
-  }, [currentUser]);
+  }, []);
 
   // Detect when user navigates back to dashboard and trigger device disconnection
   useEffect(() => {
-    // Only run this effect once when the component mounts (user navigates to dashboard)
     if (isConnected && currentUser.id) {
       console.log('User navigated back to dashboard - triggering device disconnection');
-      
-      // Send WebSocket message to backend to handle dashboard navigation
-      const success = sendMessage({
+      sendMessage({
         action: 'dashboard_navigation',
         user_id: currentUser.id
       });
-      
-      if (success) {
-        console.log('Dashboard navigation message sent successfully');
-      } else {
-        console.warn('Failed to send dashboard navigation message - WebSocket not connected');
-      }
     }
-  }, []); // Empty dependency array - run only once on mount
+  }, []);
 
-  // Updated startExperiment function with routing
   const startExperiment = (experiment) => {
-    // Check if experiment is available
     if (experiment.difficulty !== 'Available') {
       alert('This experiment is currently unavailable');
       return;
     }
-
-    console.log('Starting experiment:', experiment.name);
-
-    // Navigate to the specific experiment page based on ID
+    
+    // Create a serializable copy of the experiment object (exclude React elements like icon)
+    const { icon, ...serializableExperiment } = experiment;
+    
     navigate(`/experiment/${experiment.id}`, {
-      state: { experiment }
+      state: { experiment: serializableExperiment }
     });
   };
 
@@ -202,403 +214,421 @@ function UserDashboard() {
 
   if (loading) {
     return (
-      <div className="dashboard-loading">
-        <div className="loading-animation">
-          <div className="loading-spinner"></div>
-          <p>Loading your lab dashboard...</p>
+      <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600 dark:text-gray-300 font-medium">Loading your lab dashboard...</p>
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="user-dashboard">
-      {/* Welcome Section */}
-      <div className="dashboard-welcome">
-        <div className="welcome-content">
-          <h1 className="welcome-title">Welcome back, {currentUser.name}! 🧪</h1>
-          <p className="welcome-subtitle">Ready to explore experiments?</p>
-        </div>
-      </div>
+  const NavItem = ({ id, icon, label }) => (
+    <button
+      onClick={() => {
+        setActiveSection(id);
+        setIsSidebarOpen(false);
+      }}
+      className={`w-full flex items-center space-x-3 px-6 py-3 transition-colors duration-200 ${
+        activeSection === id
+          ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 border-r-4 border-indigo-600 dark:border-indigo-400'
+          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200'
+      }`}
+    >
+      {icon}
+      <span className="font-medium">{label}</span>
+    </button>
+  );
 
-      {/* Navigation */}
-      <nav className="dashboard-nav">
-        <div className="nav-container">
-          <button
-            className={`nav-item ${activeSection === 'experiments' ? 'active' : ''}`}
-            onClick={() => setActiveSection('experiments')}
-          >
-            🧪 Experiments
-          </button>
-          <button
-            className={`nav-item ${activeSection === 'recent' ? 'active' : ''}`}
-            onClick={() => setActiveSection('recent')}
-          >
-            📊 Recent
-          </button>
-          <button
-            className={`nav-item ${activeSection === 'profile' ? 'active' : ''}`}
-            onClick={() => setActiveSection('profile')}
-          >
-            👤 Profile
-          </button>
-          <button
-            className={`nav-item ${activeSection === 'sensors' ? 'active' : ''}`}
-            onClick={() => setActiveSection('sensors')}
-          >
-            📡 Sensors
-          </button>
-          <button
-            className={`nav-item ${activeSection === 'reports' ? 'active' : ''}`}
-            onClick={() => setActiveSection('reports')}
-          >
-            📈 Reports
-          </button>
+  return (
+    <div className="flex h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
+      {/* Mobile Sidebar Overlay */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside 
+        className={`fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-gray-800 shadow-xl transform transition-transform duration-300 ease-in-out md:relative md:translate-x-0 ${
+          isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <div className="h-full flex flex-col">
+          {/* Logo Area */}
+          <div className="h-16 flex items-center justify-center border-b border-gray-200 dark:border-gray-700">
+            <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+              LabExpert
+            </h1>
+          </div>
+
+          {/* Navigation */}
+          <nav className="flex-1 py-6 space-y-1 overflow-y-auto">
+            <NavItem id="experiments" icon={<FlaskConical size={20} />} label="Experiments" />
+            <NavItem id="recent" icon={<History size={20} />} label="Recent Activity" />
+            <NavItem id="profile" icon={<User size={20} />} label="Profile" />
+            <NavItem id="sensors" icon={<Settings size={20} />} label="Sensors" />
+            <NavItem id="reports" icon={<FileText size={20} />} label="Reports" />
+          </nav>
+
+          {/* User Info & Logout */}
+          <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold">
+                {currentUser.name ? currentUser.name.charAt(0).toUpperCase() : 'U'}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                  {currentUser.name || 'User'}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                  {currentUser.email || 'user@example.com'}
+                </p>
+              </div>
+            </div>
+            <button className="w-full flex items-center justify-center space-x-2 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+              <LogOut size={16} />
+              <span>Sign Out</span>
+            </button>
+          </div>
         </div>
-      </nav>
+      </aside>
 
       {/* Main Content */}
-      <main className="dashboard-main">
-        {/* Experiments Section */}
-        {activeSection === 'experiments' && (
-          <div className="section experiments-section">
-            <div className="section-header">
-              <h2>🧪 Experiments List</h2>
-              <p>Choose an experiment to get started</p>
-            </div>
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Top Header */}
+        <header className="h-16 bg-white dark:bg-gray-800 shadow-sm z-10 flex items-center justify-between px-4 md:px-6">
+          <div className="flex items-center">
+            <button 
+              onClick={() => setIsSidebarOpen(true)}
+              className="p-2 rounded-md text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 md:hidden"
+            >
+              <Menu size={24} />
+            </button>
+            <h2 className="ml-3 md:ml-0 text-xl font-semibold text-gray-800 dark:text-white capitalize">
+              {activeSection.replace('-', ' ')}
+            </h2>
+          </div>
 
-            <div className="experiments-grid">
-              {experiments.map((experiment) => (
-                <div
-                  key={experiment.id}
-                  className="experiment-card"
-                  style={{ '--accent-color': experiment.color }}
-                >
-                  <div className="experiment-header">
-                    <div className="experiment-icon">
-                      {experiment.icon.includes('.gif') || experiment.icon.includes('.png') || experiment.icon.includes('.jpg') ? (
-                        <img src={experiment.icon} alt={experiment.name} style={{ width: '20%', height: '20%', objectFit: 'contain' }} />
-                      ) : (
-                        experiment.icon
-                      )}
-                    </div>
-                    <div className="experiment-meta">
-                      <span className={`sensor-status online ${experiment.difficulty.toLowerCase()}`}>
-                        {experiment.difficulty}
-                      </span>
-                      <span className="duration">⏱️ {experiment.duration}</span>
-                    </div>
-                  </div>
+          <div className="flex items-center space-x-4">
+            <button className="p-2 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+              <Search size={20} />
+            </button>
+            <button className="p-2 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors relative">
+              <Bell size={20} />
+              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+            </button>
+            <div className="h-6 w-px bg-gray-200 dark:bg-gray-700 mx-2"></div>
+            <button
+              onClick={toggleTheme}
+              className="p-2 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            >
+              {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+            </button>
+          </div>
+        </header>
 
-                  <div className="experiment-content">
-                    <h3>{experiment.name}</h3>
-                    <p>{experiment.description}</p>
-                    <span className="category">{experiment.category}</span>
-                  </div>
+        {/* Scrollable Main Area */}
+        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 dark:bg-gray-900 p-4 md:p-8">
+          
+          {/* Experiments Section */}
+          {activeSection === 'experiments' && (
+            <div className="space-y-6">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Available Experiments</h3>
+                  <p className="text-gray-500 dark:text-gray-400">Choose an experiment to get started</p>
+                </div>
+                <div className="flex gap-2">
+                  <select className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 focus:ring-2 focus:ring-indigo-500">
+                    <option>All Categories</option>
+                    <option>Physics</option>
+                    <option>Chemistry</option>
+                    <option>Biology</option>
+                  </select>
+                </div>
+              </div>
 
-                  <button
-                    className="start-btn"
-                    onClick={() => startExperiment(experiment)}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {experiments.map((experiment) => (
+                  <div
+                    key={experiment.id}
+                    className="group bg-white dark:bg-gray-800 rounded-xl shadow-sm hover:shadow-xl border border-gray-200 dark:border-gray-700 transition-all duration-300 overflow-hidden"
                   >
-                    Start Experiment
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+                    <div className={`h-2 w-full ${experiment.color}`}></div>
+                    <div className="p-6">
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white">
+                          {typeof experiment.icon === 'string' && (experiment.icon.includes('.gif') || experiment.icon.includes('.png')) ? (
+                            <img src={experiment.icon} alt={experiment.name} className="w-8 h-8 object-contain" />
+                          ) : (
+                            experiment.icon
+                          )}
+                        </div>
+                        <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                          experiment.difficulty === 'Available' 
+                            ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                            : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                        }`}>
+                          {experiment.difficulty}
+                        </span>
+                      </div>
+                      
+                      <h4 className="text-lg font-bold text-gray-900 dark:text-white mb-2 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                        {experiment.name}
+                      </h4>
+                      <p className="text-gray-600 dark:text-gray-400 text-sm mb-4 line-clamp-2">
+                        {experiment.description}
+                      </p>
+                      
+                      <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400 mb-6">
+                        <span className="flex items-center gap-1">
+                          <History size={14} />
+                          {experiment.duration}
+                        </span>
+                        <span className="px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-xs font-medium">
+                          {experiment.category}
+                        </span>
+                      </div>
 
-        {/* Recent Experiments Section */}
-        {activeSection === 'recent' && (
-          <div className="section recent-section">
-            <div className="section-header">
-              <h2>📊 Recent Experiments</h2>
-              <p>Your recent experimental activities</p>
-            </div>
-
-            <div className="stats-overview">
-              <div className="stat-card">
-                <div className="stat-icon">🎯</div>
-                <div className="stat-info">
-                  <h3>{usageStats.totalExperiments}</h3>
-                  <p>Total Experiments</p>
-                </div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-icon">✅</div>
-                <div className="stat-info">
-                  <h3>{usageStats.completedExperiments}</h3>
-                  <p>Completed</p>
-                </div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-icon">⏱️</div>
-                <div className="stat-info">
-                  <h3>{usageStats.totalTime}</h3>
-                  <p>Total Time</p>
-                </div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-icon">⭐</div>
-                <div className="stat-info">
-                  <h3>{usageStats.averageScore}%</h3>
-                  <p>Average Score</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="recent-experiments-list">
-              <h3>Recent Activities</h3>
-              {recentExperiments.map((experiment) => (
-                <div key={experiment.id} className="recent-item">
-                  <div className="recent-info">
-                    <h4>{experiment.name}</h4>
-                    <p>Performed on {new Date(experiment.date).toLocaleDateString()}</p>
-                  </div>
-                  <div className="recent-details">
-                    <span className={`status ${experiment.status.toLowerCase().replace(' ', '-')}`}>
-                      {experiment.status}
-                    </span>
-                    <span className="duration">{experiment.duration}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Profile Section */}
-        {activeSection === 'profile' && (
-          <div className="section profile-section">
-            <div className="section-header">
-              <h2>👤 Profile Settings</h2>
-              <p>Manage your account and preferences</p>
-            </div>
-
-            <div className="profile-grid">
-              <div className="profile-card">
-                <h3>Personal Information</h3>
-                <div className="profile-form">
-                  <div className="form-group">
-                    <label>Name</label>
-                    <input type="text" value={currentUser.name || ''} readOnly />
-                  </div>
-                  <div className="form-group">
-                    <label>Email</label>
-                    <input type="email" value={currentUser.email || ''} readOnly />
-                  </div>
-                  <div className="form-group">
-                    <label>Role</label>
-                    <input type="text" value={currentUser.role || 'User'} readOnly />
-                  </div>
-                  <button className="edit-btn">Edit Profile</button>
-                </div>
-              </div>
-
-              <div className="profile-card">
-                <h3>Preferences</h3>
-                <div className="preferences-list">
-                  <div className="preference-item">
-                    <span>Email Notifications</span>
-                    <label className="switch">
-                      <input type="checkbox" defaultChecked />
-                      <span className="slider"></span>
-                    </label>
-                  </div>
-                  <div className="preference-item">
-                    <span>Auto-save Results</span>
-                    <label className="switch">
-                      <input type="checkbox" defaultChecked />
-                      <span className="slider"></span>
-                    </label>
-                  </div>
-                  <div className="preference-item">
-                    <span>Dark Mode</span>
-                    <label className="switch">
-                      <input
-                        type="checkbox"
-                        checked={theme === 'dark'}
-                        onChange={toggleTheme}
-                      />
-                      <span className="slider"></span>
-                    </label>
-                  </div>
-                  <div className="preference-item">
-                    <span>Install App</span>
-                    {showInstallButton ? (
                       <button
-                        onClick={handleInstallClick}
-                        className="install-btn bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition-colors"
+                        onClick={() => startExperiment(experiment)}
+                        className={`w-full py-2.5 px-4 rounded-lg font-medium transition-all duration-200 flex items-center justify-center gap-2 ${
+                          experiment.difficulty === 'Available'
+                            ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-md hover:shadow-lg'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
+                        }`}
+                        disabled={experiment.difficulty !== 'Available'}
                       >
-                        Install App
+                        {experiment.difficulty === 'Available' ? 'Start Experiment' : 'Unavailable'}
+                        {experiment.difficulty === 'Available' && <ChevronRight size={16} />}
                       </button>
-                    ) : (
-                      <span className="text-gray-500">Install option unavailable</span>
-                    )}
+                    </div>
                   </div>
-                </div>
+                ))}
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Sensor Settings Section */}
-        {activeSection === 'sensors' && (
-          <div className="section sensors-section">
-            <div className="section-header">
-              <h2>📡 Sensor Settings</h2>
-              <p>Configure and calibrate your sensors</p>
-            </div>
-
-            <div className="sensors-grid">
-              <div className="sensor-card">
-                <div className="sensor-header">
-                  <div className="sensor-icon">📏</div>
-                  <h3>TOF Distance Measuring Sensor</h3>
-                  <span className="sensor-status online">Online</span>
-                </div>
-                <div className="sensor-details">
-                  <p>Range: 5cm - 800cm</p>
-                  <p>Accuracy: ±3mm</p>
-                  <button className="calibrate-btn">Calibrate</button>
-                </div>
+          {/* Recent Activity Section */}
+          {activeSection === 'recent' && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {[
+                  { label: 'Total Experiments', value: usageStats.totalExperiments, icon: <FlaskConical className="text-blue-500" />, color: 'bg-blue-50 dark:bg-blue-900/20' },
+                  { label: 'Completed', value: usageStats.completedExperiments, icon: <Activity className="text-green-500" />, color: 'bg-green-50 dark:bg-green-900/20' },
+                  { label: 'Total Time', value: usageStats.totalTime, icon: <History className="text-purple-500" />, color: 'bg-purple-50 dark:bg-purple-900/20' },
+                  { label: 'Avg Score', value: `${usageStats.averageScore}%`, icon: <Zap className="text-amber-500" />, color: 'bg-amber-50 dark:bg-amber-900/20' },
+                ].map((stat, index) => (
+                  <div key={index} className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className={`p-3 rounded-lg ${stat.color}`}>
+                        {stat.icon}
+                      </div>
+                      <span className="text-xs font-medium text-green-600 bg-green-100 dark:bg-green-900/30 dark:text-green-400 px-2 py-1 rounded-full">
+                        +12%
+                      </span>
+                    </div>
+                    <h3 className="text-2xl font-bold text-gray-900 dark:text-white">{stat.value}</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{stat.label}</p>
+                  </div>
+                ))}
               </div>
 
-              <div className="sensor-card">
-                <div className="sensor-header">
-                  <div className="sensor-icon">📏</div>
-                  <h3>Ultrasonic Sensor</h3>
-                  <span className="sensor-status online">Online</span>
-                </div>
-                <div className="sensor-details">
-                  <p>Range: 5cm - 100cm</p>
-                  <p>Accuracy: ±4mm</p>
-                  <button className="calibrate-btn">Calibrate</button>
-                </div>
-              </div>
-
-              <div className="sensor-card">
-                <div className="sensor-header">
-                  <div className="sensor-icon">🌡️</div>
-                  <h3>Temperature Sensor</h3>
-                  <span className="sensor-status online">Online</span>
-                </div>
-                <div className="sensor-details">
-                  <p>Range: -40°C to 85°C</p>
-                  <p>Accuracy: ±0.5°C</p>
-                  <button className="calibrate-btn">Calibrate</button>
-                </div>
-              </div>
-
-              <div className="sensor-card">
-                <div className="sensor-header">
-                  <div className="sensor-icon">💡</div>
-                  <h3>Light Sensor</h3>
-                  <span className="sensor-status offline">Offline</span>
-                </div>
-                <div className="sensor-details">
-                  <p>Range: 0-65535 lux</p>
-                  <p>Accuracy: ±10%</p>
-                  <button className="calibrate-btn" disabled>Calibrate</button>
-                </div>
-              </div>
-
-              <div className="sensor-card">
-                <div className="sensor-header">
-                  <div className="sensor-icon">🔊</div>
-                  <h3>Sound Sensor</h3>
-                  <span className="sensor-status online">Online</span>
-                </div>
-                <div className="sensor-details">
-                  <p>Range: 30dB - 130dB</p>
-                  <p>Frequency: 20Hz - 20kHz</p>
-                  <button className="calibrate-btn">Calibrate</button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Reports Section */}
-        {activeSection === 'reports' && (
-          <div className="section reports-section">
-            <div className="section-header">
-              <h2>📈 Usage & Reports</h2>
-              <p>Download and analyze your experimental data</p>
-            </div>
-
-            <div className="reports-grid">
-              <div className="report-card">
-                <div className="report-icon">📊</div>
-                <h3>Experiment Summary</h3>
-                <p>Comprehensive report of all your experiments</p>
-                <button
-                  className="download-btn"
-                  onClick={() => downloadReport('summary')}
-                >
-                  Download PDF
-                </button>
-              </div>
-
-              <div className="report-card">
-                <div className="report-icon">📈</div>
-                <h3>Performance Analytics</h3>
-                <p>Detailed performance metrics and trends</p>
-                <button
-                  className="download-btn"
-                  onClick={() => downloadReport('analytics')}
-                >
-                  Download PDF
-                </button>
-              </div>
-
-              <div className="report-card">
-                <div className="report-icon">📋</div>
-                <h3>Raw Data Export</h3>
-                <p>Export raw sensor data in CSV format</p>
-                <button
-                  className="download-btn"
-                  onClick={() => downloadReport('raw-data')}
-                >
-                  Download CSV
-                </button>
-              </div>
-
-              <div className="report-card">
-                <div className="report-icon">🎯</div>
-                <h3>Custom Report</h3>
-                <p>Generate custom reports with specific parameters</p>
-                <button
-                  className="download-btn"
-                  onClick={() => downloadReport('custom')}
-                >
-                  Create Report
-                </button>
-              </div>
-            </div>
-
-            <div className="usage-chart">
-              <h3>Weekly Progress</h3>
-              <div className="chart-container">
-                <div className="chart-bars">
-                  {usageStats.weeklyProgress.map((value, index) => (
-                    <div key={index} className="chart-bar">
-                      <div
-                        className="bar-fill"
-                        style={{ height: `${value}%` }}
-                        data-value={value}
-                      ></div>
-                      <span className="bar-label">
-                        {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][index]}
+              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-6">Recent History</h3>
+                <div className="space-y-4">
+                  {recentExperiments.map((experiment) => (
+                    <div key={experiment.id} className="flex items-center justify-between p-4 rounded-lg bg-gray-50 dark:bg-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                      <div className="flex items-center gap-4">
+                        <div className="p-2 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400">
+                          <FlaskConical size={20} />
+                        </div>
+                        <div>
+                          <h4 className="font-semibold text-gray-900 dark:text-white">{experiment.name}</h4>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">
+                            {new Date(experiment.date).toLocaleDateString()} • {experiment.duration}
+                          </p>
+                        </div>
+                      </div>
+                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                        experiment.status === 'Completed'
+                          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                          : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                      }`}>
+                        {experiment.status}
                       </span>
                     </div>
                   ))}
                 </div>
               </div>
             </div>
-          </div>
-        )}
-      </main>
+          )}
+
+          {/* Profile Section */}
+          {activeSection === 'profile' && (
+            <div className="max-w-4xl mx-auto space-y-6">
+              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
+                <div className="flex flex-col md:flex-row items-center gap-8 mb-8">
+                  <div className="w-24 h-24 rounded-full bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center text-3xl font-bold text-indigo-600 dark:text-indigo-400">
+                    {currentUser.name ? currentUser.name.charAt(0).toUpperCase() : 'U'}
+                  </div>
+                  <div className="text-center md:text-left">
+                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{currentUser.name || 'User Name'}</h2>
+                    <p className="text-gray-500 dark:text-gray-400">{currentUser.email || 'user@example.com'}</p>
+                    <div className="mt-4 flex flex-wrap justify-center md:justify-start gap-2">
+                      <span className="px-3 py-1 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 text-sm font-medium">
+                        Student
+                      </span>
+                      <span className="px-3 py-1 rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 text-sm font-medium">
+                        Level 5
+                      </span>
+                    </div>
+                  </div>
+                  <button className="md:ml-auto px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors">
+                    Edit Profile
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Personal Information</h3>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Full Name</label>
+                        <input 
+                          type="text" 
+                          value={currentUser.name || ''} 
+                          readOnly 
+                          className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email Address</label>
+                        <input 
+                          type="email" 
+                          value={currentUser.email || ''} 
+                          readOnly 
+                          className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Preferences</h3>
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between p-4 rounded-lg bg-gray-50 dark:bg-gray-700/50">
+                        <span className="text-gray-700 dark:text-gray-300">Email Notifications</span>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input type="checkbox" className="sr-only peer" defaultChecked />
+                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 dark:peer-focus:ring-indigo-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-600"></div>
+                        </label>
+                      </div>
+                      <div className="flex items-center justify-between p-4 rounded-lg bg-gray-50 dark:bg-gray-700/50">
+                        <span className="text-gray-700 dark:text-gray-300">Dark Mode</span>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            className="sr-only peer" 
+                            checked={theme === 'dark'}
+                            onChange={toggleTheme}
+                          />
+                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 dark:peer-focus:ring-indigo-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-600"></div>
+                        </label>
+                      </div>
+                      {showInstallButton && (
+                         <div className="flex items-center justify-between p-4 rounded-lg bg-gray-50 dark:bg-gray-700/50">
+                         <span className="text-gray-700 dark:text-gray-300">Install App</span>
+                         <button
+                           onClick={handleInstallClick}
+                           className="px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors"
+                         >
+                           Install
+                         </button>
+                       </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Sensors Section */}
+          {activeSection === 'sensors' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {[
+                { name: 'TOF Distance', icon: <Ruler />, status: 'Online', range: '5cm - 800cm', accuracy: '±3mm' },
+                { name: 'Ultrasonic', icon: <Activity />, status: 'Online', range: '5cm - 100cm', accuracy: '±4mm' },
+                { name: 'Temperature', icon: <Thermometer />, status: 'Online', range: '-40°C to 85°C', accuracy: '±0.5°C' },
+                { name: 'Light Sensor', icon: <Zap />, status: 'Offline', range: '0-65535 lux', accuracy: '±10%' },
+                { name: 'Sound Sensor', icon: <Volume2 />, status: 'Online', range: '30dB - 130dB', accuracy: '20Hz - 20kHz' },
+              ].map((sensor, index) => (
+                <div key={index} className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="p-3 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400">
+                      {sensor.icon}
+                    </div>
+                    <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                      sensor.status === 'Online'
+                        ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                        : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                    }`}>
+                      {sensor.status}
+                    </span>
+                  </div>
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">{sensor.name}</h3>
+                  <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400 mb-6">
+                    <p>Range: {sensor.range}</p>
+                    <p>Accuracy: {sensor.accuracy}</p>
+                  </div>
+                  <button 
+                    className={`w-full py-2 rounded-lg font-medium transition-colors ${
+                      sensor.status === 'Online'
+                        ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                        : 'bg-gray-200 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
+                    }`}
+                    disabled={sensor.status !== 'Online'}
+                  >
+                    Calibrate
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Reports Section */}
+          {activeSection === 'reports' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {[
+                { title: 'Experiment Summary', desc: 'Comprehensive report of all your experiments', icon: <FileText /> },
+                { title: 'Performance Analytics', desc: 'Detailed performance metrics and trends', icon: <Activity /> },
+                { title: 'Raw Data Export', desc: 'Export raw sensor data in CSV format', icon: <LayoutDashboard /> },
+                { title: 'Custom Report', desc: 'Generate custom reports with specific parameters', icon: <Settings /> },
+              ].map((report, index) => (
+                <div key={index} className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 flex flex-col items-center text-center hover:shadow-md transition-shadow">
+                  <div className="p-4 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 mb-4">
+                    {React.cloneElement(report.icon, { size: 32 })}
+                  </div>
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">{report.title}</h3>
+                  <p className="text-gray-500 dark:text-gray-400 mb-6">{report.desc}</p>
+                  <button 
+                    onClick={() => downloadReport(report.title.toLowerCase().replace(' ', '-'))}
+                    className="flex items-center gap-2 px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors"
+                  >
+                    <Download size={18} />
+                    Download
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+        </main>
+      </div>
     </div>
   );
 }
