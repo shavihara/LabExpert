@@ -134,7 +134,7 @@ class ClientWebSocketManager:
                 await self.handle_dashboard_navigation(user_id)
             elif action == "flash_firmware":
                 # Flash firmware doesn't require device allocation - just needs device IP
-                await self._handle_flash_firmware(user_id, message.get("device_id"), message.get("experiment_type"))
+                await self._handle_flash_firmware(user_id, message.get("device_id"), message.get("experiment_type"), message.get("firmware_file"))
             else:
                 # Verify allocation for device-specific actions
                 user_devices = await self.session_manager.get_user_devices(user_id)
@@ -434,7 +434,7 @@ class ClientWebSocketManager:
             await self.send_to_user(user_id, {"type": "error", "message": "Failed to configure experiment"})
             await self.send_to_user(user_id, {"type": "configuration_result", "success": False, "message": str(e) or "Failed to configure experiment"})
 
-    async def _handle_flash_firmware(self, user_id: str, device_id: str, experiment_type: str):
+    async def _handle_flash_firmware(self, user_id: str, device_id: str, experiment_type: str, firmware_file: str = None):
         """Handle firmware flashing request"""
         from ota_manager import OTAManager
         ota_manager = OTAManager.get_instance()
@@ -444,7 +444,7 @@ class ClientWebSocketManager:
             return
         
         try:
-            logger.info(f"Flashing firmware for device {device_id}, experiment type: {experiment_type}")
+            logger.info(f"Flashing firmware for device {device_id}, experiment type: {experiment_type}, file: {firmware_file}")
             
             # Resolve device IP (in-memory or on-demand UDP discovery)
             device_status = await self.session_manager.get_device_status(device_id)
@@ -479,7 +479,8 @@ class ClientWebSocketManager:
             elif experiment_type == "angle":
                 ota_key = "angle"
             
-            if not ota_key:
+            # Allow proceeding if we have a specific firmware file even if experiment type mapping fails
+            if not ota_key and not firmware_file:
                 await self.send_to_user(user_id, {
                     "type": "firmware_flash_result", 
                     "success": False, 
@@ -490,11 +491,18 @@ class ClientWebSocketManager:
             # Set current context for progress updates
             ota_manager.set_current_context(user_id, device_id)
             
+            # Construct firmware path if file provided
+            firmware_path = None
+            if firmware_file:
+                # Ensure we look in the bin directory
+                firmware_path = os.path.join("bin", firmware_file)
+            
             # Perform OTA update
             result = await ota_manager.start_ota_update(
                 device_id=device_id,
                 device_ip=device_ip,
-                experiment_type=ota_key
+                experiment_type=ota_key,
+                firmware_path=firmware_path
             )
 
             logger.info(f"OTA result for {device_id}: {result}")

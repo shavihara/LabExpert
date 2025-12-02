@@ -357,22 +357,24 @@ export const ErrorFallback = ({ error, resetError, className = '' }) => {
 /**
  * Responsive Modal Component
  */
-export const ResponsiveModal = ({ isOpen, onClose, title, children, size = 'md' }) => {
+export const ResponsiveModal = ({ isOpen, onClose, title, children, size = 'md', className = '', noBodyScroll = false }) => {
   if (!isOpen) return null;
   
   const sizeClasses = {
     'sm': 'max-w-md',
     'md': 'max-w-lg',
     'lg': 'max-w-3xl',
-    'xl': 'max-w-5xl',
+    'xl': 'max-w-4xl',
+    '2xl': 'max-w-5xl',
+    '3xl': 'max-w-6xl',
     'full': 'max-w-[95vw]'
   }[size] || 'max-w-lg';
   
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[1000] p-4">
-      <div className={`bg-white rounded-xl shadow-2xl w-full ${sizeClasses} max-h-[90vh] overflow-hidden`}>
-        <div className="relative flex items-center justify-between p-6 border-b border-black/10 bg-gradient-to-r from-purple-600 via-purple-700 to-purple-800 modal-header-gradient">
-          <h2 className="text-xl font-bold text-white">{title}</h2>
+      <div className={`bg-white rounded-xl shadow-2xl w-full ${sizeClasses} max-h-[95vh] flex flex-col overflow-hidden ${className}`}>
+        <div className="relative flex items-center justify-between px-6 py-6 border-b border-black/10 bg-gradient-to-r from-purple-600 via-purple-700 to-purple-800 modal-header-gradient flex-none">
+          <h2 className="text-2xl font-bold text-white">{title}</h2>
           <button
             onClick={() => onClose && onClose()}
             className="text-white/80 hover:text-white transition-colors"
@@ -380,10 +382,11 @@ export const ResponsiveModal = ({ isOpen, onClose, title, children, size = 'md' 
             <FiX size={24} />
           </button>
           <span className="absolute inset-0 pointer-events-none">
-            <span className="absolute top-0 -left-full w-full h-full bg-gradient-to-r from-transparent via-white/25 to-transparent animate-[shimmer_8s_ease-in-out_infinite]"></span>
+            <span className="absolute top-0 -left-full w-full h-full bg-gradient-to-r from-transparent via-white/40 to-transparent animate-[shimmer_6s_ease-in-out_infinite] header-shimmer" style={{ animationDelay: '5s', filter: 'blur(1px)' }}></span>
+            <span className="absolute top-0 -left-full w-full h-full bg-gradient-to-r from-transparent via-purple-300/20 to-transparent animate-[shimmer_5s_ease-in-out_infinite] header-shimmer" style={{ animationDelay: '2s' }}></span>
           </span>
         </div>
-        <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+        <div className={`px-4 pt-5 pb-4 flex-1 ${noBodyScroll ? 'overflow-hidden flex flex-col' : 'overflow-y-auto'}`}>
           {children}
         </div>
       </div>

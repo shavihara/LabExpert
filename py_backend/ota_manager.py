@@ -123,6 +123,8 @@ class OTAManager:
                     firmware_path = alt_path
                 else:
                     return {"status": "error", "message": f"Firmware not found: {firmware_path}"}
+            else:
+                return {"status": "error", "message": f"Firmware file not found: {firmware_path}"}
         
         firmware_name = os.path.basename(firmware_path)  # Use filename as last_firmware
         
