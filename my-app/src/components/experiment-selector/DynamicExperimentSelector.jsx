@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../../context/ThemeContext';
 import { 
   FiSettings, 
@@ -40,6 +41,7 @@ const DynamicExperimentSelector = ({
   sharedExperimentManager 
 }) => {
   const { theme } = useTheme();
+  const navigate = useNavigate();
   const isDark = theme === 'dark';
   const userToken = localStorage.getItem('token');
   const [selectedSubExperiment, setSelectedSubExperiment] = useState(null);
@@ -573,7 +575,7 @@ const DynamicExperimentSelector = ({
                     <ResponsiveButton
                         variant="secondary"
                         size="sm"
-                        onClick={() => window.location.href = '/dashboard'}
+                        onClick={() => navigate('/dashboard')}
                         className="!py-2 !px-6 !rounded-full text-sm hover:bg-gray-200 shadow-sm"
                     >
                         Back to Dashboard

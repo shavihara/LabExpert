@@ -11,6 +11,8 @@ function Header() {
   const isAuthPage = ['/login', '/signup', '/forgot-password'].includes(location.pathname)
   const isExperimentPage = location.pathname.startsWith('/experiment')
 
+  const isDashboard = location.pathname === '/dashboard'
+
   const lastScrollYRef = useRef(0)
   useEffect(() => {
     let ticking = false
@@ -20,7 +22,7 @@ function Header() {
         window.requestAnimationFrame(() => {
           const isScrollingDown = currentY > lastScrollYRef.current
           lastScrollYRef.current = currentY
-          if (!isAuthPage) {
+          if (!isAuthPage && !isDashboard) {
             if (isScrollingDown && currentY > 10) {
               setIsHeaderCollapsed(true)
             } else if (currentY <= 10) {
@@ -35,10 +37,13 @@ function Header() {
     }
     window.addEventListener('scroll', handleScroll, { passive: true })
     return () => window.removeEventListener('scroll', handleScroll)
-  }, [isAuthPage])
+  }, [isAuthPage, isDashboard])
 
   useEffect(() => {
     setIsMenuOpen(false)
+    if (location.pathname === '/dashboard') {
+      setIsHeaderCollapsed(false)
+    }
   }, [location])
 
   useEffect(() => {
