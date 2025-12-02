@@ -47,6 +47,7 @@ export default function SensorProvisioning({ token }) {
 
   const scan = () => {
     setIsScanning(true);
+    setEnabled(true);
     setDevices([]);
     setSelected(null);
     setStatus('');
