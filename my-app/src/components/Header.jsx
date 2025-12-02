@@ -183,8 +183,7 @@ function Header() {
                 { path: '/home', label: 'Home' },
                 { path: '/about', label: 'About' },
                 { path: '/services', label: 'Services' },
-                { path: '/contact', label: 'Contact' },
-                { path: '/sensor', label: 'Add New Sub Modules' }
+                { path: '/contact', label: 'Contact' }
               ].map((item) => (
                 <li key={item.path}>
                   <Link

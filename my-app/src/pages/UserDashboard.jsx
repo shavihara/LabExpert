@@ -31,9 +31,11 @@ import {
   ResponsiveButton, 
   LogoutLoading 
 } from '../components/ui-system/ResponsiveUI';
+import SensorProvisioning from './SensorProvisioning';
 
 function UserDashboard() {
   const [activeSection, setActiveSection] = useState('experiments');
+  const [sensorMode, setSensorMode] = useState('menu'); // 'menu', 'add', 'calibration'
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [experiments, setExperiments] = useState([]);
   const [recentExperiments, setRecentExperiments] = useState([]);
@@ -727,45 +729,100 @@ function UserDashboard() {
           )}
 
           {/* Sensors Section */}
+          {/* Sensors Section */}
           {activeSection === 'sensors' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {[
-                { name: 'TOF Distance', icon: <Ruler />, status: 'Online', range: '5cm - 800cm', accuracy: '±3mm' },
-                { name: 'Ultrasonic', icon: <Activity />, status: 'Online', range: '5cm - 100cm', accuracy: '±4mm' },
-                { name: 'Temperature', icon: <Thermometer />, status: 'Online', range: '-40°C to 85°C', accuracy: '±0.5°C' },
-                { name: 'Light Sensor', icon: <Zap />, status: 'Offline', range: '0-65535 lux', accuracy: '±10%' },
-                { name: 'Sound Sensor', icon: <Volume2 />, status: 'Online', range: '30dB - 130dB', accuracy: '20Hz - 20kHz' },
-              ].map((sensor, index) => (
-                <div key={index} className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-                  <div className="flex justify-between items-start mb-4">
-                    <div className="p-3 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400">
-                      {sensor.icon}
-                    </div>
-                    <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                      sensor.status === 'Online'
-                        ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                        : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                    }`}>
-                      {sensor.status}
-                    </span>
-                  </div>
-                  <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">{sensor.name}</h3>
-                  <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400 mb-6">
-                    <p>Range: {sensor.range}</p>
-                    <p>Accuracy: {sensor.accuracy}</p>
-                  </div>
+            <div className="space-y-6">
+              {sensorMode === 'menu' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <button 
-                    className={`w-full py-2 rounded-lg font-medium transition-colors ${
-                      sensor.status === 'Online'
-                        ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
-                        : 'bg-gray-200 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
-                    }`}
-                    disabled={sensor.status !== 'Online'}
+                    onClick={() => setSensorMode('add')}
+                    className="flex flex-col items-center justify-center p-8 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 hover:shadow-lg hover:border-indigo-500 dark:hover:border-indigo-500 transition-all duration-300 group"
                   >
-                    Calibrate
+                    <div className="p-4 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 mb-4 group-hover:scale-110 transition-transform">
+                      <Settings size={48} />
+                    </div>
+                    <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Add New Sensor Module</h3>
+                    <p className="text-gray-500 dark:text-gray-400 text-center">Configure and provision new sensor modules via Bluetooth</p>
+                  </button>
+
+                  <button 
+                    onClick={() => setSensorMode('calibration')}
+                    className="flex flex-col items-center justify-center p-8 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 hover:shadow-lg hover:border-indigo-500 dark:hover:border-indigo-500 transition-all duration-300 group"
+                  >
+                    <div className="p-4 rounded-full bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 mb-4 group-hover:scale-110 transition-transform">
+                      <Activity size={48} />
+                    </div>
+                    <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Sensor Calibration</h3>
+                    <p className="text-gray-500 dark:text-gray-400 text-center">View status and calibrate existing sensors</p>
                   </button>
                 </div>
-              ))}
+              )}
+
+              {sensorMode === 'add' && (
+                <div className="space-y-4">
+                  <button 
+                    onClick={() => setSensorMode('menu')}
+                    className="flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                  >
+                    <ChevronRight className="rotate-180" size={20} />
+                    Back to Menu
+                  </button>
+                  <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+                    <SensorProvisioning token={userToken} />
+                  </div>
+                </div>
+              )}
+
+              {sensorMode === 'calibration' && (
+                <div className="space-y-4">
+                  <button 
+                    onClick={() => setSensorMode('menu')}
+                    className="flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                  >
+                    <ChevronRight className="rotate-180" size={20} />
+                    Back to Menu
+                  </button>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {[
+                      { name: 'TOF Distance', icon: <Ruler />, status: 'Online', range: '5cm - 800cm', accuracy: '±3mm' },
+                      { name: 'Ultrasonic', icon: <Activity />, status: 'Online', range: '5cm - 100cm', accuracy: '±4mm' },
+                      { name: 'Temperature', icon: <Thermometer />, status: 'Online', range: '-40°C to 85°C', accuracy: '±0.5°C' },
+                      { name: 'Light Sensor', icon: <Zap />, status: 'Offline', range: '0-65535 lux', accuracy: '±10%' },
+                      { name: 'Sound Sensor', icon: <Volume2 />, status: 'Online', range: '30dB - 130dB', accuracy: '20Hz - 20kHz' },
+                    ].map((sensor, index) => (
+                      <div key={index} className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+                        <div className="flex justify-between items-start mb-4">
+                          <div className="p-3 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400">
+                            {sensor.icon}
+                          </div>
+                          <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                            sensor.status === 'Online'
+                              ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                              : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                          }`}>
+                            {sensor.status}
+                          </span>
+                        </div>
+                        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">{sensor.name}</h3>
+                        <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400 mb-6">
+                          <p>Range: {sensor.range}</p>
+                          <p>Accuracy: {sensor.accuracy}</p>
+                        </div>
+                        <button 
+                          className={`w-full py-2 rounded-lg font-medium transition-colors ${
+                            sensor.status === 'Online'
+                              ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                              : 'bg-gray-200 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
+                          }`}
+                          disabled={sensor.status !== 'Online'}
+                        >
+                          Calibrate
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
