@@ -65,52 +65,52 @@ function UserDashboard() {
   const availableExperiments = [
     {
       id: 1,
-      name: 'Distance Measure',
-      description: 'Measure distance using TOF sensor',
+      name: 'Motion Analysis',
+      description: 'Analyze Displacement, Velocity, Acceleration',
       icon: <Ruler className="w-8 h-8" />,
       difficulty: 'Available',
       duration: '15+ min',
-      category: 'Motion',
+      category: 'Kinamatics',
       color: 'bg-indigo-500'
     },
     {
       id: 2,
-      name: 'Oscillation Counter',
-      description: 'Count oscillations and measure frequency',
+      name: 'Oscillation Analysis',
+      description: 'Analyze oscillation counts and measure frequency',
       icon: pendulumGif, // Keeping the GIF
       difficulty: 'Available',
       duration: '25+ min',
-      category: 'Physics',
+      category: 'Kinamatics',
       color: 'bg-emerald-500'
     },
     {
       id: 3,
       name: 'Temperature Monitoring',
-      description: 'Monitor temperature changes over time',
+      description: 'Monitor temperature changes over the time',
       icon: <Thermometer className="w-8 h-8" />,
       difficulty: 'Unavailable',
-      duration: '20 min',
+      duration: '20+ min',
       category: 'Environmental',
       color: 'bg-red-500'
     },
     {
       id: 4,
       name: 'Light Intensity Analysis',
-      description: 'Analyze light intensity variations',
+      description: 'Analyze light intensity variations in various conditions',
       icon: <Zap className="w-8 h-8" />,
       difficulty: 'Available',
-      duration: '18 min',
+      duration: '18+ min',
       category: 'Optics',
       color: 'bg-amber-500'
     },
     {
       id: 5,
-      name: 'Motion Detection',
-      description: 'Detect and track motion patterns',
+      name: 'Motion Analysis (AI)',
+      description: 'Detect and track motion patterns using Video Analysis',
       icon: <Activity className="w-8 h-8" />,
       difficulty: 'Available',
-      duration: '35 min',
-      category: 'Sensors',
+      duration: '35+ min',
+      category: 'Kinamatics',
       color: 'bg-purple-500'
     },
     {
@@ -119,8 +119,8 @@ function UserDashboard() {
       description: 'Analyze sound frequencies and amplitudes',
       icon: <Volume2 className="w-8 h-8" />,
       difficulty: 'Unavailable',
-      duration: '30 min',
-      category: 'Acoustics',
+      duration: '30+ min',
+      category: 'Waves',
       color: 'bg-cyan-500'
     }
   ];
