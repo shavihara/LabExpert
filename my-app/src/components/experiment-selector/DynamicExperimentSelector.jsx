@@ -53,6 +53,7 @@ const DynamicExperimentSelector = ({
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [experimentConfig, setExperimentConfig] = useState(null);
   const [subExperiments, setSubExperiments] = useState([]);
+  const [animationDirection, setAnimationDirection] = useState('initial');
   
   // Custom search animation state
   const [isSearchingAnim, setIsSearchingAnim] = useState(false);
@@ -139,11 +140,13 @@ const DynamicExperimentSelector = ({
       setSelectedSensorOption(null);
       setPendingFirmware(null);
       setFlashStatus('Select a sensor type');
+      setAnimationDirection('forward');
       setStep(2); // New step for sensor selection
     } else {
       setSelectedSensorOption(null);
       setPendingFirmware(subExperiment.firmwareType);
       setFlashStatus(`${subExperiment.firmware} prepared.`);
+      setAnimationDirection('forward');
       setStep(3); // Auto-advance to device selection
       handleSearch();
     }
@@ -153,6 +156,7 @@ const DynamicExperimentSelector = ({
     setSelectedSensorOption(option);
     setPendingFirmware(option.firmware);
     setFlashStatus(`${option.firmware} selected.`);
+    setAnimationDirection('forward');
     setStep(3); // Auto-advance to device selection
     handleSearch();
   };
@@ -268,6 +272,12 @@ const DynamicExperimentSelector = ({
   const compatibleDevices = getCompatibleDevices();
   const progressPercentage = getProgressPercentage();
 
+  const getAnimationClass = () => {
+    if (animationDirection === 'initial') return 'animate-slide-up';
+    return animationDirection === 'forward' ? 'animate-slide-in-right' : 'animate-slide-in-left';
+  };
+  const animationClass = getAnimationClass();
+
   if (!experimentConfig) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -296,10 +306,10 @@ const DynamicExperimentSelector = ({
         </div>
 
         {/* Main Content Area - Scrollable */}
-        <div className="flex-grow overflow-y-auto min-h-0 px-4 py-2 custom-scrollbar">
+        <div className="flex-grow overflow-y-auto overflow-x-hidden min-h-0 px-4 py-2 custom-scrollbar">
             {/* Wizard: Step 1 - Select Experiment Type */}
             {step === 1 && (
-            <div className="space-y-4 h-full animate-slide-up">
+            <div className={`space-y-4 h-full ${animationClass}`}>
                 <div className="flex items-center gap-3 mb-2 md:mb-4 flex-none">
                     <h4 className="text-lg font-bold text-gray-800">Select Experiment</h4>
                 </div>
@@ -343,12 +353,15 @@ const DynamicExperimentSelector = ({
 
             {/* Wizard: Step 2 - Select Sensor Type (New Step) */}
             {step === 2 && selectedSubExperiment?.sensorOptions && (
-            <div className="h-full flex flex-col animate-slide-up">
+            <div className={`h-full flex flex-col ${animationClass}`}>
                 <div className="flex items-center gap-3 mb-2 md:mb-4 flex-none">
                     <ResponsiveButton
                         variant="secondary"
                         size="sm"
-                        onClick={() => setStep(1)}
+                        onClick={() => {
+                            setAnimationDirection('back');
+                            setStep(1);
+                        }}
                         icon={<FiArrowLeft />}
                         className="!rounded-full !px-3 shadow-sm hover:shadow-md"
                     >
@@ -425,13 +438,16 @@ const DynamicExperimentSelector = ({
 
             {/* Wizard: Step 3 - Select Device & Flash */}
             {step === 3 && (
-            <div className="h-full flex flex-col animate-slide-up">
+            <div className={`h-full flex flex-col ${animationClass}`}>
                 <div className="flex items-center justify-between mb-4 flex-none">
                     <div className="flex items-center gap-3">
                         <ResponsiveButton
                             variant="secondary"
                             size="sm"
-                            onClick={() => setStep(selectedSubExperiment?.sensorOptions ? 2 : 1)}
+                            onClick={() => {
+                                setAnimationDirection('back');
+                                setStep(selectedSubExperiment?.sensorOptions ? 2 : 1);
+                            }}
                             icon={<FiArrowLeft />}
                             className="!rounded-full !px-3 shadow-sm hover:shadow-md"
                         >
