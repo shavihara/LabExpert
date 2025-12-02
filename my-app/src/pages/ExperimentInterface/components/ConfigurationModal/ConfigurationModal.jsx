@@ -33,7 +33,7 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
           name: 'Modern Galileo Experiment',
           description: 'Analyze motion on an inclined plane.',
           icon: '📐',
-          firmware: 'INC.bin',
+          firmware: 'ULTINC.bin',
           firmwareType: 'inclined_plane'
         }
       ]
@@ -325,20 +325,58 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  {tofDevices.map(device => (
+                  {tofDevices
+                    .slice()
+                    .sort((a, b) => {
+                        const getRank = (d) => {
+                            // Rank 0: Online (online_status == 1)
+                            if (d.online_status === 1) return 0;
+                            // Rank 1: In Use (online_status == 0 && availability == 0)
+                            if (d.online_status === 0 && d.availability === 0) return 1;
+                            // Rank 2: Offline (online_status == 0 && availability == 1)
+                            return 2;
+                        };
+                        return getRank(a) - getRank(b);
+                    })
+                    .map(device => {
+                    const getStatus = (d) => {
+                      const online = d.online_status === 1;
+                      const available = d.availability === 1;
+                      
+                      if (online) return { label: 'Online', color: 'text-green-600', bg: 'bg-green-100', border: 'border-green-200', dot: 'bg-green-500' };
+                      if (!online && !available) return { label: 'In Use', color: 'text-yellow-600', bg: 'bg-yellow-100', border: 'border-yellow-200', dot: 'bg-yellow-500' };
+                      return { label: 'Offline', color: 'text-red-600', bg: 'bg-red-100', border: 'border-red-200', dot: 'bg-red-500' };
+                    };
+                    const status = getStatus(device);
+                    const isDisabled = status.label === 'Offline' || status.label === 'In Use';
+
+                    return (
                     <button
                       key={device.id}
-                      onClick={() => handleFlash(device)}
-                      disabled={isFlashing}
-                      className="p-4 rounded-lg border-2 border-slate-200 bg-white text-left hover:border-purple-600 hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
+                      onClick={() => !isDisabled && handleFlash(device)}
+                      disabled={isFlashing || isDisabled}
+                      className={`p-0 rounded-lg border-2 border-slate-200 bg-white text-left transition-all disabled:opacity-50 disabled:cursor-not-allowed group overflow-hidden ${(!isFlashing && !isDisabled) ? 'hover:border-purple-600 hover:shadow-lg' : ''}`}
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-bold text-slate-800 group-hover:text-purple-600">{device.id}</span>
-                        <FiZap className="h-4 w-4 text-slate-400 group-hover:text-purple-600" />
+                      {device.sensor_type && (
+                        <div className={`w-full px-3 py-1 rounded-t-lg text-xs font-semibold border-b ${isDark ? 'bg-indigo-900/50 text-indigo-200 border-indigo-700' : 'bg-blue-100 text-blue-700 border-blue-200'}`}>
+                          Sensor: {device.sensor_type}
+                        </div>
+                      )}
+                      <div className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-slate-800 group-hover:text-purple-600">{device.id}</span>
+                            <div className={`flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${status.bg} ${status.color} ${status.border}`}>
+                               <div className={`w-1.5 h-1.5 rounded-full mr-1 ${status.dot}`}></div>
+                               {status.label}
+                            </div>
+                          </div>
+                          <FiZap className="h-4 w-4 text-slate-400 group-hover:text-purple-600" />
+                        </div>
+                        <div className="text-xs text-slate-500 mt-1">{device.ip_address || 'Unknown IP'}</div>
                       </div>
-                      <div className="text-xs text-slate-500 mt-1">{device.ip_address || 'Unknown IP'}</div>
                     </button>
-                  ))}
+                  )})}
                 </div>
               )}
             </div>

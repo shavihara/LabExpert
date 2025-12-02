@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWebSocket } from '../hooks/useWebSocket';
 import pendulumGif from '../assets/images/pendulum.gif';
 import { useTheme } from '../context/ThemeContext';
+import { logoutUser } from '../utils/api';
 import {
   LayoutDashboard,
   FlaskConical,
@@ -26,8 +27,16 @@ import {
   Download
 } from 'lucide-react';
 
+import { 
+  ResponsiveButton, 
+  LogoutLoading 
+} from '../components/ui-system/ResponsiveUI';
+import SensorProvisioning from './SensorProvisioning';
+
 function UserDashboard() {
   const [activeSection, setActiveSection] = useState('experiments');
+  const [sensorMode, setSensorMode] = useState('menu'); // 'menu', 'add', 'calibration'
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [experiments, setExperiments] = useState([]);
   const [recentExperiments, setRecentExperiments] = useState([]);
   const [userProfile, setUserProfile] = useState({});
@@ -35,6 +44,12 @@ function UserDashboard() {
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [showInstallButton, setShowInstallButton] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [highlightIndex, setHighlightIndex] = useState(-1);
+  const searchRef = useRef(null);
+  const searchInputRef = useRef(null);
   
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
@@ -162,6 +177,55 @@ function UserDashboard() {
     };
   }, []);
 
+  useEffect(() => {
+    if (isSearchOpen && searchInputRef.current) {
+      try { searchInputRef.current.focus(); } catch {}
+    }
+  }, [isSearchOpen]);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (searchRef.current && !searchRef.current.contains(e.target)) {
+        setIsSearchOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) {
+      setSearchResults([]);
+      setHighlightIndex(-1);
+      return;
+    }
+    const idMatch = q.startsWith('id:') ? q.slice(3).trim() : q.startsWith('#') ? q.slice(1).trim() : (/^\d+$/.test(q) ? q : null);
+    const results = experiments
+      .map((e) => {
+        const name = (e.name || '').toLowerCase();
+        let score = 0;
+        let matchStart = -1;
+        if (idMatch && e.id.toString() === idMatch) {
+          score = 100;
+        } else if (name.startsWith(q)) {
+          score = 80;
+          matchStart = 0;
+        } else if (name.includes(q)) {
+          score = 60;
+          matchStart = name.indexOf(q);
+        } else if (e.id.toString().includes(q)) {
+          score = 50;
+        }
+        return { e, score, matchStart };
+      })
+      .filter((r) => r.score > 0)
+      .sort((a, b) => b.score - a.score || a.e.name.localeCompare(b.e.name))
+      .slice(0, 8);
+    setSearchResults(results);
+    setHighlightIndex(results.length ? 0 : -1);
+  }, [searchQuery, experiments]);
+
   const handleInstallClick = async () => {
     if (deferredPrompt) {
       deferredPrompt.prompt();
@@ -212,6 +276,20 @@ function UserDashboard() {
     alert(`Downloading ${type} report...`);
   };
 
+  const handleLogout = async () => {
+    setIsLoggingOut(true);
+    
+    // Artificial delay for animation
+    await new Promise(resolve => setTimeout(resolve, 800));
+
+    try {
+      await logoutUser();
+    } finally {
+      localStorage.removeItem('user');
+      navigate('/login');
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -241,7 +319,8 @@ function UserDashboard() {
   );
 
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
+    <div className="flex h-[calc(100vh-var(--header-height))] bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
+      {isLoggingOut && <LogoutLoading />}
       {/* Mobile Sidebar Overlay */}
       {isSidebarOpen && (
         <div 
@@ -288,7 +367,7 @@ function UserDashboard() {
                 </p>
               </div>
             </div>
-            <button className="w-full flex items-center justify-center space-x-2 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+            <button onClick={handleLogout} className="w-full flex items-center justify-center space-x-2 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
               <LogOut size={16} />
               <span>Sign Out</span>
             </button>
@@ -313,9 +392,101 @@ function UserDashboard() {
           </div>
 
           <div className="flex items-center space-x-4">
-            <button className="p-2 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
-              <Search size={20} />
-            </button>
+            <div className="relative" ref={searchRef}>
+              <button
+                onClick={() => setIsSearchOpen((v) => !v)}
+                className="p-2 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              >
+                <Search size={20} />
+              </button>
+              {isSearchOpen && (
+                <div className="absolute right-0 top-10 w-80 sm:w-96 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl p-3">
+                  <input
+                    ref={searchInputRef}
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        setHighlightIndex((i) => Math.min(i + 1, searchResults.length - 1));
+                      } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        setHighlightIndex((i) => Math.max(i - 1, 0));
+                      } else if (e.key === 'Enter') {
+                        if (highlightIndex >= 0 && searchResults[highlightIndex]) {
+                          startExperiment(searchResults[highlightIndex].e);
+                          setIsSearchOpen(false);
+                          setSearchQuery('');
+                        }
+                      } else if (e.key === 'Escape') {
+                        setIsSearchOpen(false);
+                        setSearchQuery('');
+                      }
+                    }}
+                    placeholder="Search experiments by name or ID"
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <div className="mt-2 max-h-64 overflow-y-auto">
+                    {searchResults.length === 0 ? (
+                      <div className="px-3 py-6 text-center text-sm text-gray-500 dark:text-gray-400">No results</div>
+                    ) : (
+                      searchResults.map((r, idx) => (
+                        <button
+                          key={r.e.id}
+                          onClick={() => {
+                            startExperiment(r.e);
+                            setIsSearchOpen(false);
+                            setSearchQuery('');
+                          }}
+                          onMouseEnter={() => setHighlightIndex(idx)}
+                          className={`w-full text-left flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${
+                            idx === highlightIndex
+                              ? 'bg-indigo-50 dark:bg-indigo-900/30'
+                              : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                          }`}
+                        >
+                          <div className="p-2 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white">
+                            {typeof r.e.icon === 'string' && (r.e.icon.includes('.gif') || r.e.icon.includes('.png')) ? (
+                              <img src={r.e.icon} alt={r.e.name} className="w-6 h-6 object-contain" />
+                            ) : (
+                              r.e.icon
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium truncate">
+                                {(() => {
+                                  const name = r.e.name || '';
+                                  const lower = name.toLowerCase();
+                                  const q = searchQuery.trim().toLowerCase();
+                                  if (r.matchStart >= 0) {
+                                    const pre = name.slice(0, r.matchStart);
+                                    const mid = name.slice(r.matchStart, r.matchStart + q.length);
+                                    const post = name.slice(r.matchStart + q.length);
+                                    return (
+                                      <span>
+                                        <span>{pre}</span>
+                                        <span className="text-indigo-600 dark:text-indigo-400">{mid}</span>
+                                        <span>{post}</span>
+                                      </span>
+                                    );
+                                  }
+                                  return name;
+                                })()}
+                              </span>
+                              <span className="text-xs text-gray-500 dark:text-gray-400">#{r.e.id}</span>
+                            </div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                              {r.e.category} • {r.e.duration} • {r.e.difficulty}
+                            </div>
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
             <button className="p-2 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors relative">
               <Bell size={20} />
               <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
@@ -558,45 +729,100 @@ function UserDashboard() {
           )}
 
           {/* Sensors Section */}
+          {/* Sensors Section */}
           {activeSection === 'sensors' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {[
-                { name: 'TOF Distance', icon: <Ruler />, status: 'Online', range: '5cm - 800cm', accuracy: '±3mm' },
-                { name: 'Ultrasonic', icon: <Activity />, status: 'Online', range: '5cm - 100cm', accuracy: '±4mm' },
-                { name: 'Temperature', icon: <Thermometer />, status: 'Online', range: '-40°C to 85°C', accuracy: '±0.5°C' },
-                { name: 'Light Sensor', icon: <Zap />, status: 'Offline', range: '0-65535 lux', accuracy: '±10%' },
-                { name: 'Sound Sensor', icon: <Volume2 />, status: 'Online', range: '30dB - 130dB', accuracy: '20Hz - 20kHz' },
-              ].map((sensor, index) => (
-                <div key={index} className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-                  <div className="flex justify-between items-start mb-4">
-                    <div className="p-3 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400">
-                      {sensor.icon}
-                    </div>
-                    <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                      sensor.status === 'Online'
-                        ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                        : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                    }`}>
-                      {sensor.status}
-                    </span>
-                  </div>
-                  <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">{sensor.name}</h3>
-                  <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400 mb-6">
-                    <p>Range: {sensor.range}</p>
-                    <p>Accuracy: {sensor.accuracy}</p>
-                  </div>
+            <div className="space-y-6">
+              {sensorMode === 'menu' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <button 
-                    className={`w-full py-2 rounded-lg font-medium transition-colors ${
-                      sensor.status === 'Online'
-                        ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
-                        : 'bg-gray-200 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
-                    }`}
-                    disabled={sensor.status !== 'Online'}
+                    onClick={() => setSensorMode('add')}
+                    className="flex flex-col items-center justify-center p-8 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 hover:shadow-lg hover:border-indigo-500 dark:hover:border-indigo-500 transition-all duration-300 group"
                   >
-                    Calibrate
+                    <div className="p-4 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 mb-4 group-hover:scale-110 transition-transform">
+                      <Settings size={48} />
+                    </div>
+                    <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Add New Sensor Module</h3>
+                    <p className="text-gray-500 dark:text-gray-400 text-center">Configure and provision new sensor modules via Bluetooth</p>
+                  </button>
+
+                  <button 
+                    onClick={() => setSensorMode('calibration')}
+                    className="flex flex-col items-center justify-center p-8 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 hover:shadow-lg hover:border-indigo-500 dark:hover:border-indigo-500 transition-all duration-300 group"
+                  >
+                    <div className="p-4 rounded-full bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 mb-4 group-hover:scale-110 transition-transform">
+                      <Activity size={48} />
+                    </div>
+                    <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Sensor Calibration</h3>
+                    <p className="text-gray-500 dark:text-gray-400 text-center">View status and calibrate existing sensors</p>
                   </button>
                 </div>
-              ))}
+              )}
+
+              {sensorMode === 'add' && (
+                <div className="space-y-4">
+                  <button 
+                    onClick={() => setSensorMode('menu')}
+                    className="flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                  >
+                    <ChevronRight className="rotate-180" size={20} />
+                    Back to Menu
+                  </button>
+                  <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+                    <SensorProvisioning token={userToken} />
+                  </div>
+                </div>
+              )}
+
+              {sensorMode === 'calibration' && (
+                <div className="space-y-4">
+                  <button 
+                    onClick={() => setSensorMode('menu')}
+                    className="flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                  >
+                    <ChevronRight className="rotate-180" size={20} />
+                    Back to Menu
+                  </button>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {[
+                      { name: 'TOF Distance', icon: <Ruler />, status: 'Online', range: '5cm - 800cm', accuracy: '±3mm' },
+                      { name: 'Ultrasonic', icon: <Activity />, status: 'Online', range: '5cm - 100cm', accuracy: '±4mm' },
+                      { name: 'Temperature', icon: <Thermometer />, status: 'Online', range: '-40°C to 85°C', accuracy: '±0.5°C' },
+                      { name: 'Light Sensor', icon: <Zap />, status: 'Offline', range: '0-65535 lux', accuracy: '±10%' },
+                      { name: 'Sound Sensor', icon: <Volume2 />, status: 'Online', range: '30dB - 130dB', accuracy: '20Hz - 20kHz' },
+                    ].map((sensor, index) => (
+                      <div key={index} className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+                        <div className="flex justify-between items-start mb-4">
+                          <div className="p-3 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400">
+                            {sensor.icon}
+                          </div>
+                          <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                            sensor.status === 'Online'
+                              ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                              : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                          }`}>
+                            {sensor.status}
+                          </span>
+                        </div>
+                        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">{sensor.name}</h3>
+                        <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400 mb-6">
+                          <p>Range: {sensor.range}</p>
+                          <p>Accuracy: {sensor.accuracy}</p>
+                        </div>
+                        <button 
+                          className={`w-full py-2 rounded-lg font-medium transition-colors ${
+                            sensor.status === 'Online'
+                              ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                              : 'bg-gray-200 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
+                          }`}
+                          disabled={sensor.status !== 'Online'}
+                        >
+                          Calibrate
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

@@ -146,10 +146,11 @@
   background: #f8f9fa;
   border: 2px solid #e9ecef;
   border-radius: 10px;
-  padding: 15px;
+  padding: 22px 15px 15px 15px; /* extra top padding to accommodate banner */
   cursor: pointer;
   transition: all 0.3s ease;
   position: relative;
+  overflow: hidden;
 }
 
 .device-card:hover {
@@ -169,6 +170,19 @@
   cursor: not-allowed;
   border-color: #dc3545;
   background-color: #fff5f5;
+}
+
+.device-card.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  border-color: #e9ecef;
+  background-color: #f8f9fa;
+}
+
+.device-card.disabled:hover {
+  transform: none;
+  box-shadow: none;
+  border-color: #e9ecef;
 }
 
 .device-card.incompatible:hover {
@@ -423,4 +437,24 @@
   100% {
     opacity: 1;
   }
+}
+.sensor-banner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 6px 12px;
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+  background-color: #e0f2fe; /* light blue */
+  color: #1e3a8a; /* blue-900 */
+  border-bottom: 1px solid #93c5fd; /* blue-300 */
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.dark .sensor-banner {
+  background-color: rgba(49, 46, 129, 0.6); /* indigo-900 with opacity */
+  color: #c7d2fe; /* indigo-200 */
+  border-bottom-color: #6366f1; /* indigo-500 */
 }

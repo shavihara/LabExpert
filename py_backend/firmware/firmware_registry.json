@@ -14,7 +14,7 @@
     "checksum": ""
   },
   "inclined_plane": {
-    "filename": "INC.bin",
+    "filename": "ULTINC.bin",
     "version": "1.0.0",
     "description": "Inclined plane motion analysis firmware",
     "size": 0,

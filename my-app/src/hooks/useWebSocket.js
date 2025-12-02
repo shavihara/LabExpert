@@ -568,7 +568,7 @@ export const useExperimentManager = (webSocketInstance, externalExperimentData =
     sendMessage({ action: 'stop_experiment' });
   }, [isConnected, sendMessage]);
 
-  const flashFirmware = useCallback((deviceId, experimentType) => {
+  const flashFirmware = useCallback((deviceId, experimentType, firmwareFile = null) => {
     if (!isConnected) {
       setFirmwareStatus({ success: false, message: 'WebSocket not connected' });
       return;
@@ -578,7 +578,8 @@ export const useExperimentManager = (webSocketInstance, externalExperimentData =
     sendMessage({ 
       action: 'flash_firmware', 
       device_id: deviceId, 
-      experiment_type: experimentType 
+      experiment_type: experimentType,
+      firmware_file: firmwareFile
     });
   }, [isConnected, sendMessage]);
 

@@ -54,6 +54,12 @@ export const experimentRegistry = {
         // Sensor requirements
         requiredSensors: ['tof', 'accelerometer'],
 
+        // Available Sensor Options (Multi-sensor support)
+        sensorOptions: [
+          { type: 'TOF', label: 'TOF Sensor', firmware: 'TOFFFE.bin' },
+          { type: 'ULT', label: 'ULT Sensor', firmware: 'ULTFFE.bin' }
+        ],
+
         // Default configuration
         defaultConfig: {
           frequency_hz: 20,
@@ -69,7 +75,7 @@ export const experimentRegistry = {
         name: 'Modern Galileo Experiment',
         icon: '📐',
         description: 'Study motion on an inclined surface - analyze acceleration vs angle',
-        firmware: 'INC.bin',
+        firmware: 'ULTINC.bin',
         firmwareType: 'inclined_plane',
 
         dataFields: ['time', 'distance', 'velocity', 'acceleration', 'angle'],
@@ -99,6 +105,12 @@ export const experimentRegistry = {
         },
 
         requiredSensors: ['tof', 'gyroscope'],
+
+        // Available Sensor Options (Multi-sensor support)
+        sensorOptions: [
+          { type: 'TOF', label: 'TOF Sensor', firmware: 'TOFMGE.bin' },
+          { type: 'ULT', label: 'ULT Sensor', firmware: 'ULTMGE.bin' }
+        ],
 
         defaultConfig: {
           frequency_hz: 15,
