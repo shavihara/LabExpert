@@ -80,18 +80,16 @@ const DeviceScanner = ({ webSocketInstance, onDeviceSelected, selectedExperiment
     }
   };
 
-  const getDeviceStatusColor = (status) => {
-    switch (status) {
-      case 'available':
-        return '#27ae60';
-      case 'busy':
-        return '#f39c12';
-      case 'error':
-        return '#e74c3c';
-      case 'offline':
-        return '#95a5a6';
-      default:
-        return '#95a5a6';
+  const getDeviceStatusInfo = (device) => {
+    const online = device.online_status === 1;
+    const available = device.availability === 1;
+
+    if (online) {
+      return { label: 'Online', color: '#27ae60' };
+    } else if (!online && !available) {
+      return { label: 'In Use', color: '#f39c12' };
+    } else {
+      return { label: 'Offline', color: '#e74c3c' };
     }
   };
 
@@ -169,16 +167,35 @@ const DeviceScanner = ({ webSocketInstance, onDeviceSelected, selectedExperiment
           </div>
         )}
 
-        {devices.map((device) => {
+        {devices
+          .slice()
+          .sort((a, b) => {
+            const getRank = (d) => {
+              const s = getDeviceStatusInfo(d);
+              if (s.label === 'Online') return 0;
+              if (s.label === 'In Use') return 1;
+              return 2; // Offline
+            };
+            return getRank(a) - getRank(b);
+          })
+          .map((device) => {
           const isSelected = selectedDevice && selectedDevice.id === device.id;
           const isCompatible = isDeviceCompatible(device);
+          const statusInfo = getDeviceStatusInfo(device);
+          // Disable if Offline OR In Use (since In Use means offline-busy now)
+          // User asked to disable Offline sensors. Did not specify In Use.
+          // Usually In Use is not selectable.
+          const isDisabled = statusInfo.label === 'Offline' || statusInfo.label === 'In Use';
           
           return (
             <div 
               key={device.id}
-              className={`device-card ${isSelected ? 'selected' : ''} ${!isCompatible ? 'incompatible' : ''}`}
-              onClick={() => isCompatible && handleDeviceSelect(device.id)}
+              className={`device-card ${isSelected ? 'selected' : ''} ${!isCompatible ? 'incompatible' : ''} ${isDisabled ? 'disabled' : ''}`}
+              onClick={() => !isDisabled && isCompatible && handleDeviceSelect(device.id)}
             >
+              {device.sensor_type && (
+                <div className="sensor-banner">Sensor: {device.sensor_type}</div>
+              )}
               <div className="device-header">
                 <div className="device-info">
                   <h4 className="device-name">{device.name || `Device ${device.id}`}</h4>
@@ -186,9 +203,9 @@ const DeviceScanner = ({ webSocketInstance, onDeviceSelected, selectedExperiment
                 </div>
                 <div 
                   className="device-status"
-                  style={{ backgroundColor: getDeviceStatusColor(device.status) }}
+                  style={{ backgroundColor: statusInfo.color }}
                 >
-                  {device.status}
+                  {statusInfo.label}
                 </div>
               </div>
 

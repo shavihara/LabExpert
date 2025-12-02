@@ -269,10 +269,12 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
         <ResponsiveModal 
           isOpen={true} 
           onClose={() => setShowConfigModal(false)} 
-          title={experimentConfig?.name || 'Experiment Setup'} 
-          size="full"
+          title="Experiment Setup"
+          size="xl"
+          className="h-[85vh]"
+          noBodyScroll={true}
         >
-          <div className="animate-fade-in">
+          <div className="animate-fade-in h-full">
             <DynamicExperimentSelector
               experimentId={experimentId}
               onComplete={handleExperimentComplete}

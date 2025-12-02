@@ -293,11 +293,10 @@ class SessionManager:
         return None
 
     async def get_available_devices(self) -> List[Dict]:
-        # Get devices from database with online_status = 1 (only online devices)
+        # Get ALL devices from database, regardless of status
         stmt = text("""
             SELECT sensor_id, availability, online_status, last_firmware, last_updated 
             FROM available_sensors 
-            WHERE availability = 1 AND online_status = 1
         """)
         
         result = []
@@ -310,10 +309,27 @@ class SessionManager:
                     # Get additional info from in-memory devices if available
                     device = self.devices.get(sensor_id, {})
                     
+                    # Determine sensor type
+                    sensor_type = device.get("sensor_id") or device.get("status", {}).get("sensor_type")
+                    
+                    if not sensor_type or sensor_type == "Unknown":
+                        if last_firmware:
+                            fw_upper = last_firmware.upper()
+                            if "TOF" in fw_upper:
+                                sensor_type = "TOF"
+                            elif "OSI" in fw_upper:
+                                sensor_type = "OSI"
+                            elif "INC" in fw_upper:
+                                sensor_type = "INC"
+                            else:
+                                sensor_type = "Unknown"
+                        else:
+                            sensor_type = "Unknown"
+                    
                     entry = {
                         "device_id": sensor_id,
                         "id": sensor_id,
-                        "sensor_type": device.get("sensor_id") or device.get("status", {}).get("sensor_type", "Unknown"),
+                        "sensor_type": sensor_type,
                         "firmware": device.get("status", {}).get("firmware_version", last_firmware or "Unknown"),
                         "last_seen": device.get("last_seen"),
                         "availability": availability,
@@ -326,10 +342,15 @@ class SessionManager:
                         entry["ip_address"] = ip
                     
                     # Set status based on allocation and online status
-                    if device.get("allocated_to"):
-                        entry["status"] = "In Use"
-                    elif online_status == 1:
+                    # Logic (New User Request):
+                    # 1. If online_status is 1, it is Online (regardless of availability)
+                    # 2. If online_status is 0 AND availability is 0, it is In Use
+                    # 3. If online_status is 0 AND availability is 1, it is Offline
+                    
+                    if online_status == 1:
                         entry["status"] = "online"
+                    elif online_status == 0 and availability == 0:
+                        entry["status"] = "In Use"
                     else:
                         entry["status"] = "offline"
                     
@@ -519,30 +540,19 @@ class SessionManager:
 
     async def check_all_available_devices_online_status(self):
         """
-        Check online status for all devices with availability=1 using UDP discovery and update database.
-        Also set online_status=0 for devices with availability=0.
+        Check online status for ALL devices using UDP discovery and update database.
         """
-        logger.info("=== Checking online status for all available devices using UDP discovery ===")
+        logger.info("=== Checking online status for all devices using UDP discovery ===")
         
         try:
-            # First, set online_status=0 for all devices with availability=0
+            # Get all devices
             with engine.connect() as conn:
-                conn.execute(
-                    text("""
-                        UPDATE available_sensors 
-                        SET online_status = 0 
-                        WHERE availability = 0
-                    """)
-                )
-                conn.commit()
-                
-                # Get all devices with availability=1
                 result = conn.execute(
-                    text("SELECT sensor_id FROM available_sensors WHERE availability = 1")
+                    text("SELECT sensor_id FROM available_sensors")
                 )
                 available_devices = result.fetchall()
                 
-            logger.info(f"Found {len(available_devices)} devices with availability=1 in database")
+            logger.info(f"Found {len(available_devices)} devices in database")
             
             # Start UDP discovery service on-demand for this check
             if not udp_discovery_service.is_running:
@@ -698,13 +708,13 @@ class SessionManager:
                                 device_info["last_seen"] = asyncio.get_event_loop().time()
                                 break
                     else:
-                        # Device is offline (only if it was previously available)
-                        if availability == 1:
-                            conn.execute(
-                                text("UPDATE available_sensors SET online_status = 0 WHERE sensor_id = :sensor_id"),
-                                {"sensor_id": sensor_id}
-                            )
-                            logger.info(f"Device {sensor_id} is offline (not found in manual discovery)")
+                        # Device is offline (not found in discovery)
+                        # Update online_status to 0 regardless of availability
+                        conn.execute(
+                            text("UPDATE available_sensors SET online_status = 0 WHERE sensor_id = :sensor_id"),
+                            {"sensor_id": sensor_id}
+                        )
+                        logger.info(f"Device {sensor_id} is offline (not found in manual discovery)")
             
             # Broadcast updated device list to all frontend clients
             try:
