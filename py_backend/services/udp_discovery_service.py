@@ -218,16 +218,21 @@ class UDPDiscoveryService:
     
     def _create_discovery_packet(self) -> bytes:
         """Create enhanced discovery packet with MQTT broker info and backend MAC"""
-        import uuid
+        # Get backend MAC address using robust utility
+        from utils.network_utils import get_host_mac
+        mac = get_host_mac()
         
-        # Get backend MAC address
-        mac = ':'.join(['{:02x}'.format((uuid.getnode() >> i) & 0xff) 
-                        for i in range(0, 48, 8)])
+        # Fallback (should be handled by utility, but just in case)
+        if not mac:
+            import uuid
+            mac = ':'.join(['{:02x}'.format((uuid.getnode() >> i) & 0xff) 
+                            for i in range(0, 48, 8)])
         
-        # Get MQTT broker IP (resolve localhost to actual IP)
+        # Get MQTT broker IP using robust utility
+        from utils.network_utils import get_host_ip
         mqtt_host = self.mqtt_broker_host
         if mqtt_host == "localhost" or mqtt_host == "127.0.0.1":
-            mqtt_host = self._get_local_ip()
+            mqtt_host = get_host_ip()
         
         discovery_data = {
             "magic": "LABEXPERT_DISCOVERY",

@@ -184,29 +184,29 @@ function ForgotPassword() {
   };
 
   return (
-    <div className="auth-container min-h-[calc(100vh-var(--header-height))] pt-[var(--header-height)] px-8 sm:px-12 lg:px-20 xl:px-28 flex items-center justify-center bg-gradient-to-br from-purple-500 via-purple-600 to-purple-800 relative overflow-auto">
-      <div className="auth-card bg-white/95 backdrop-blur-xl p-6 md:p-10 rounded-3xl shadow-2xl border border-white/20 w-full max-w-lg mx-4 animate-[fadeSlideUp_1s_ease-out_0.1s_forwards] opacity-0">
-        <h1 className="text-center text-purple-600 text-4xl mb-2 font-extrabold">
+    <div className="auth-container min-h-[calc(100vh-var(--header-height))] pt-[var(--header-height)] px-8 sm:px-12 lg:px-20 xl:px-28 flex items-center justify-center bg-gradient-to-br from-purple-500 via-purple-600 to-purple-800 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 relative overflow-auto">
+      <div className="auth-card bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl p-6 md:p-10 rounded-3xl shadow-2xl border border-white/20 dark:border-gray-700 w-full max-w-lg mx-4 animate-[fadeSlideUp_1s_ease-out_0.1s_forwards] opacity-0">
+        <h1 className="text-center text-purple-600 dark:text-purple-400 text-4xl mb-2 font-extrabold">
           Lab Expert
         </h1>
-        <h2 className="text-center text-gray-600 text-xl mb-6 font-normal">
+        <h2 className="text-center text-gray-600 dark:text-gray-300 text-xl mb-6 font-normal">
           {step === 1 ? 'Reset Password' : step === 2 ? 'Verify OTP' : 'Set New Password'}
         </h2>
 
         {step === 1 && (
           <form onSubmit={handleEmailSubmit} className="auth-form flex flex-col gap-4 md:gap-6">
             {error && (
-              <div className="bg-red-50 text-red-600 px-4 py-3 rounded-lg border border-red-200 text-sm text-center animate-[shake_0.3s_ease-in-out]">
+              <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-4 py-3 rounded-lg border border-red-200 dark:border-red-800 text-sm text-center animate-[shake_0.3s_ease-in-out]">
                 {error}
               </div>
             )}
             {success && (
-              <div className="bg-green-50 text-green-600 px-4 py-3 rounded-lg border border-green-200 text-sm text-center">
+              <div className="bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 px-4 py-3 rounded-lg border border-green-200 dark:border-green-800 text-sm text-center">
                 {success}
               </div>
             )}
             <div className="flex flex-col gap-2">
-              <label htmlFor="email" className="text-gray-700 font-semibold text-sm">
+              <label htmlFor="email" className="text-gray-700 dark:text-gray-300 font-semibold text-sm">
                 Email
               </label>
               <input
@@ -215,7 +215,7 @@ function ForgotPassword() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="Enter your email"
-                className="w-full px-4 py-3.5 border-2 border-gray-200 rounded-lg text-base transition-all duration-300 bg-white focus:outline-none focus:border-purple-600 focus:ring-4 focus:ring-purple-100 placeholder:text-gray-400 disabled:opacity-60 disabled:cursor-not-allowed"
+                className="w-full px-4 py-3.5 border-2 border-gray-200 dark:border-gray-600 rounded-lg text-base transition-all duration-300 bg-white dark:bg-gray-700 dark:text-white focus:outline-none focus:border-purple-600 dark:focus:border-purple-400 focus:ring-4 focus:ring-purple-100 dark:focus:ring-purple-900/30 placeholder:text-gray-400 disabled:opacity-60 disabled:cursor-not-allowed"
                 disabled={loading}
               />
             </div>
@@ -232,20 +232,20 @@ function ForgotPassword() {
         {step === 2 && (
           <form onSubmit={handleOtpSubmit} className="auth-form flex flex-col gap-4 md:gap-6">
             {error && (
-              <div className="bg-red-50 text-red-600 px-4 py-3 rounded-lg border border-red-200 text-sm text-center animate-[shake_0.3s_ease-in-out]">
+              <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-4 py-3 rounded-lg border border-red-200 dark:border-red-800 text-sm text-center animate-[shake_0.3s_ease-in-out]">
                 {error}
               </div>
             )}
             {success && (
-              <div className="bg-green-50 text-green-600 px-4 py-3 rounded-lg border border-green-200 text-sm text-center">
+              <div className="bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 px-4 py-3 rounded-lg border border-green-200 dark:border-green-800 text-sm text-center">
                 {success}
               </div>
             )}
-            <p className="text-center text-gray-500 text-sm leading-relaxed">
+            <p className="text-center text-gray-500 dark:text-gray-400 text-sm leading-relaxed">
               OTP sent to <strong>{email}</strong>
             </p>
             {otpExpiry && (
-              <p className="text-center text-gray-500 text-sm px-3 py-3 bg-purple-50 rounded-lg border border-purple-100 transition-all duration-300 hover:bg-purple-100 cursor-pointer">
+              <p className="text-center text-gray-500 dark:text-gray-400 text-sm px-3 py-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-100 dark:border-purple-800 transition-all duration-300 hover:bg-purple-100 dark:hover:bg-purple-900/40 cursor-pointer">
                 Time remaining: <strong
                   className="text-base font-bold transition-colors duration-300"
                   style={{ color: timeRemaining <= 60 ? '#dc2626' : '#667eea' }}
@@ -255,7 +255,7 @@ function ForgotPassword() {
               </p>
             )}
             <div className="flex flex-col gap-2">
-              <label htmlFor="otp" className="text-gray-700 font-semibold text-sm">
+              <label htmlFor="otp" className="text-gray-700 dark:text-gray-300 font-semibold text-sm">
                 Enter 6-Digit OTP
               </label>
                 <div className="flex justify-center items-center gap-2 sm:gap-3 my-2 md:my-4">
@@ -263,8 +263,8 @@ function ForgotPassword() {
                     <input
                       key={i}
                       type="text"
-                      className={`otp-box w-9 h-9 sm:w-12 sm:h-12 text-center text-lg sm:text-xl font-bold border-2 rounded-lg bg-white transition-all duration-300 outline-none focus:border-purple-600 focus:ring-4 focus:ring-purple-100 ${
-                        otp[i] ? 'border-green-600 bg-green-50' : 'border-gray-200'
+                      className={`otp-box w-9 h-9 sm:w-12 sm:h-12 text-center text-lg sm:text-xl font-bold border-2 rounded-lg bg-white dark:bg-gray-700 dark:text-white transition-all duration-300 outline-none focus:border-purple-600 dark:focus:border-purple-400 focus:ring-4 focus:ring-purple-100 dark:focus:ring-purple-900/30 ${
+                        otp[i] ? 'border-green-600 bg-green-50 dark:bg-green-900/20 dark:border-green-500' : 'border-gray-200 dark:border-gray-600'
                       }`}
                   value={otp[i] || ''}
                   onChange={(e) => handleOtpChange(i, e.target.value, e)}
@@ -291,7 +291,7 @@ function ForgotPassword() {
               <button
                 type="button"
                 onClick={resendOtp}
-                className="bg-transparent border-0 text-purple-600 cursor-pointer text-sm underline px-4 py-2 rounded transition-all duration-300 font-semibold hover:bg-purple-50 hover:no-underline hover:text-purple-700"
+                className="bg-transparent border-0 text-purple-600 dark:text-purple-400 cursor-pointer text-sm underline px-4 py-2 rounded transition-all duration-300 font-semibold hover:bg-purple-50 dark:hover:bg-gray-700 hover:no-underline hover:text-purple-700 dark:hover:text-purple-300"
                 disabled={loading}
               >
                 {loading ? 'Sending...' : 'Resend OTP'}
@@ -299,7 +299,7 @@ function ForgotPassword() {
               <button
                 type="button"
                 onClick={() => {setStep(1); setOtp(''); setError(''); setSuccess('');}}
-                className="bg-transparent border-0 text-purple-600 cursor-pointer text-sm underline px-4 py-2 rounded transition-all duration-300 font-semibold hover:bg-purple-50 hover:no-underline hover:text-purple-700"
+                className="bg-transparent border-0 text-purple-600 dark:text-purple-400 cursor-pointer text-sm underline px-4 py-2 rounded transition-all duration-300 font-semibold hover:bg-purple-50 dark:hover:bg-gray-700 hover:no-underline hover:text-purple-700 dark:hover:text-purple-300"
               >
                 Change Email
               </button>
@@ -310,17 +310,17 @@ function ForgotPassword() {
         {step === 3 && (
           <form onSubmit={handlePasswordReset} className="auth-form flex flex-col gap-4 md:gap-6">
             {error && (
-              <div className="bg-red-50 text-red-600 px-4 py-3 rounded-lg border border-red-200 text-sm text-center animate-[shake_0.3s_ease-in-out]">
+              <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-4 py-3 rounded-lg border border-red-200 dark:border-red-800 text-sm text-center animate-[shake_0.3s_ease-in-out]">
                 {error}
               </div>
             )}
             {success && (
-              <div className="bg-green-50 text-green-600 px-4 py-3 rounded-lg border border-green-200 text-sm text-center">
+              <div className="bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 px-4 py-3 rounded-lg border border-green-200 dark:border-green-800 text-sm text-center">
                 {success}
               </div>
             )}
             <div className="flex flex-col gap-2">
-              <label htmlFor="newPassword" className="text-gray-700 font-semibold text-sm">
+              <label htmlFor="newPassword" className="text-gray-700 dark:text-gray-300 font-semibold text-sm">
                 New Password
               </label>
               <input
@@ -329,12 +329,12 @@ function ForgotPassword() {
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="New password"
-                className="w-full px-4 py-3.5 border-2 border-gray-200 rounded-lg text-base transition-all duration-300 bg-white focus:outline-none focus:border-purple-600 focus:ring-4 focus:ring-purple-100 placeholder:text-gray-400 disabled:opacity-60 disabled:cursor-not-allowed"
+                className="w-full px-4 py-3.5 border-2 border-gray-200 dark:border-gray-600 rounded-lg text-base transition-all duration-300 bg-white dark:bg-gray-700 dark:text-white focus:outline-none focus:border-purple-600 dark:focus:border-purple-400 focus:ring-4 focus:ring-purple-100 dark:focus:ring-purple-900/30 placeholder:text-gray-400 disabled:opacity-60 disabled:cursor-not-allowed"
                 disabled={loading}
               />
             </div>
             <div className="flex flex-col gap-2">
-              <label htmlFor="confirmPassword" className="text-gray-700 font-semibold text-sm">
+              <label htmlFor="confirmPassword" className="text-gray-700 dark:text-gray-300 font-semibold text-sm">
                 Confirm Password
               </label>
               <input
@@ -343,7 +343,7 @@ function ForgotPassword() {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Confirm password"
-                className="w-full px-4 py-3.5 border-2 border-gray-200 rounded-lg text-base transition-all duration-300 bg-white focus:outline-none focus:border-purple-600 focus:ring-4 focus:ring-purple-100 placeholder:text-gray-400 disabled:opacity-60 disabled:cursor-not-allowed"
+                className="w-full px-4 py-3.5 border-2 border-gray-200 dark:border-gray-600 rounded-lg text-base transition-all duration-300 bg-white dark:bg-gray-700 dark:text-white focus:outline-none focus:border-purple-600 dark:focus:border-purple-400 focus:ring-4 focus:ring-purple-100 dark:focus:ring-purple-900/30 placeholder:text-gray-400 disabled:opacity-60 disabled:cursor-not-allowed"
                 disabled={loading}
               />
             </div>
@@ -357,10 +357,10 @@ function ForgotPassword() {
           </form>
         )}
 
-        <div className="mt-6 text-center pt-4 border-t border-gray-200">
+        <div className="mt-6 text-center pt-4 border-t border-gray-200 dark:border-gray-700">
           <Link
             to="/login"
-            className="text-purple-600 no-underline font-semibold transition-all duration-300 hover:text-purple-700 hover:underline"
+            className="text-purple-600 dark:text-purple-400 no-underline font-semibold transition-all duration-300 hover:text-purple-700 dark:hover:text-purple-300 hover:underline"
           >
             Back to Login
           </Link>

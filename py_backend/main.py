@@ -92,6 +92,7 @@ from config.database import engine
 
 # Import MQTT service
 from services.mqtt_service import MQTTService
+from utils.network_utils import get_host_ip
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -254,6 +255,7 @@ app.add_middleware(
         "http://127.0.0.1:5175",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        f"http://{get_host_ip()}:3000",
         f"http://{LOCAL_IP}:5173",
         f"http://{LOCAL_IP}:5174",
         f"http://{LOCAL_IP}:5175",
