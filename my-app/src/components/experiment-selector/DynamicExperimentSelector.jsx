@@ -15,7 +15,8 @@ import {
   FiActivity,
   FiRadio,
   FiSearch,
-  FiRefreshCw
+  FiRefreshCw,
+  FiWifi
 } from 'react-icons/fi';
 import { 
   getExperimentConfig, 
@@ -502,9 +503,12 @@ const DynamicExperimentSelector = ({
                         </div>
                     ) : compatibleDevices.length === 0 ? (
                         <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-2xl">
-                        <FiWifiOff className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                        <h5 className="text-lg font-medium text-gray-600">No compatible devices found</h5>
-                        <p className="text-sm text-gray-500 mt-1">Ensure your device is powered on and connected to the network.</p>
+                            <div className="relative w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+                                <div className={`absolute inset-0 rounded-full ${isDark ? 'bg-indigo-500/20' : 'bg-blue-100'} animate-ping`}></div>
+                                <FiWifi className={`w-10 h-10 relative z-10 ${isDark ? 'text-indigo-400' : 'text-blue-500'} animate-pulse`} />
+                            </div>
+                            <h5 className={`text-lg font-medium ${isDark ? 'text-slate-300' : 'text-gray-600'}`}>Waiting For Sensors Response..</h5>
+                            <p className={`text-sm mt-1 ${isDark ? 'text-slate-500' : 'text-gray-500'}`}>Please ensure your device is powered on</p>
                         </div>
                     ) : (
                         <div className="grid grid-cols-1 gap-3">
