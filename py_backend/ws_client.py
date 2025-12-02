@@ -203,7 +203,7 @@ class ClientWebSocketManager:
             if not ready:
                 await self.send_to_user(user_id, {"type": "ble_scan_result", "devices": [], "enabled": False, "message": "Bluetooth disabled. Enable Bluetooth in Windows settings."})
                 return
-            devices = await svc.scan(timeout=10.0)
+            devices = await svc.scan(timeout=15.0)
             await self.send_to_user(user_id, {"type": "ble_scan_result", "devices": devices, "enabled": True})
         except Exception as e:
             await self.send_to_user(user_id, {"type": "ble_scan_result", "devices": [], "enabled": False, "message": str(e)})

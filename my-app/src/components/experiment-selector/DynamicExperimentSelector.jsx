@@ -461,7 +461,7 @@ const DynamicExperimentSelector = ({
                     <button
                         onClick={handleSearch}
                         disabled={isScanning || isSearchingAnim}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-full font-medium transition-all duration-300 ${
+                        className={`flex items-center gap-2 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full text-sm sm:text-base font-medium transition-all duration-300 ${
                             isScanning || isSearchingAnim
                             ? (isDark ? 'bg-indigo-500/20 text-indigo-300' : 'bg-blue-50 text-blue-500')
                             : (isDark 
@@ -478,7 +478,7 @@ const DynamicExperimentSelector = ({
                     </button>
                 </div>
 
-                <div className="flex-grow overflow-y-auto min-h-0 px-4 py-2 custom-scrollbar">
+                <div className="flex-grow overflow-y-auto min-h-0 px-2 sm:px-4 py-2 custom-scrollbar">
                     {(isScanning || isSearchingAnim) ? (
                         <div className="flex flex-col items-center justify-center h-64">
                             {/* Custom Search Animation */}
@@ -538,7 +538,7 @@ const DynamicExperimentSelector = ({
                             <div
                                 key={device.id}
                                 onClick={() => !isDisabled && handleFlash(device)}
-                                className={`group relative flex items-center p-2 rounded-full border transition-all duration-300 ${
+                                className={`group relative flex items-center p-1.5 sm:p-2 rounded-full border transition-all duration-300 ${
                                     isDisabled 
                                         ? 'opacity-60 cursor-not-allowed bg-gray-50 border-gray-100' 
                                         : `cursor-pointer hover:scale-[1.01] ${isDark 
@@ -547,19 +547,19 @@ const DynamicExperimentSelector = ({
                                 }`}
                             >
                                 {/* Disk Icon Area */}
-                                <div className={`w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 mr-4 transition-colors ${
+                                <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center flex-shrink-0 mr-2 sm:mr-4 transition-colors ${
                                     isDisabled 
                                         ? 'bg-gray-200 text-gray-400' 
                                         : (isDark ? 'bg-slate-700 text-indigo-400 group-hover:bg-indigo-500 group-hover:text-white group-hover:shadow-[0_0_10px_rgba(99,102,241,0.5)]' : 'bg-blue-50 text-blue-500 group-hover:bg-blue-500 group-hover:text-white')
                                 }`}>
-                                    <FiZap className="w-6 h-6" />
+                                    <FiZap className="w-5 h-5 sm:w-6 sm:h-6" />
                                 </div>
 
                                 {/* Content Area */}
-                                <div className="flex-1 min-w-0 flex items-center justify-between pr-4">
+                                <div className="flex-1 min-w-0 flex items-center justify-between pr-2 sm:pr-4">
                                     <div>
                                         <div className="flex items-center gap-2">
-                                            <span className={`font-mono font-bold text-base ${isDark ? 'text-slate-200' : 'text-gray-800'}`}>{device.id}</span>
+                                            <span className={`font-mono font-bold text-sm sm:text-base ${isDark ? 'text-slate-200' : 'text-gray-800'}`}>{device.id}</span>
                                             {device.sensor_type && (
                                                 <span className={`text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full ${
                                                     isDark ? 'bg-indigo-900/50 text-indigo-300 border border-indigo-500/30' : 'bg-blue-100 text-blue-700 border border-blue-200'
@@ -568,14 +568,14 @@ const DynamicExperimentSelector = ({
                                                 </span>
                                             )}
                                         </div>
-                                        <div className={`text-xs ${isDark ? 'text-slate-400' : 'text-gray-500'}`}>
+                                        <div className={`text-[10px] sm:text-xs ${isDark ? 'text-slate-400' : 'text-gray-500'}`}>
                                             {device.ip_address || 'Unknown IP'}
                                         </div>
                                     </div>
 
                                     {/* Status Badge */}
-                                    <div className={`flex items-center px-3 py-1 rounded-full text-xs font-bold border ${status.bg} ${status.color} ${status.border} ${isDark ? status.glow : ''}`}>
-                                        <div className={`w-2 h-2 rounded-full mr-2 ${status.dot} ${status.label === 'Online' ? 'animate-pulse' : ''}`}></div>
+                                    <div className={`flex items-center px-2 py-0.5 sm:px-3 sm:py-1 rounded-full text-[10px] sm:text-xs font-bold border ${status.bg} ${status.color} ${status.border} ${isDark ? status.glow : ''}`}>
+                                        <div className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full mr-1.5 sm:mr-2 ${status.dot} ${status.label === 'Online' ? 'animate-pulse' : ''}`}></div>
                                         {status.label}
                                     </div>
                                 </div>

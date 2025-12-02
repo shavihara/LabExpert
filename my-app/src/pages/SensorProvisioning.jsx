@@ -76,16 +76,18 @@ export default function SensorProvisioning({ token }) {
             </div>
             <div>
               <h2 className="text-xl font-bold text-gray-900 dark:text-white">Connect New Sensor</h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Provision ESP32 devices via Bluetooth</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Provision LabExpert Sensor Modules via Bluetooth</p>
             </div>
           </div>
           {status && (
             <div className={`px-3 py-1 rounded-full text-xs font-medium ${
-              status.includes('success') || status === 'provisioned' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
+              status.includes('success') || status === 'provisioned' || status === 'WIFI_OK' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
               status.includes('fail') || status.includes('error') ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
               'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
             }`}>
-              {status}
+              {status === 'WIFI_FAIL' ? "Press Reset Button & check Connection" : 
+               status === 'WIFI_OK' ? "WiFi Connected" : 
+               status}
             </div>
           )}
         </div>
@@ -102,6 +104,14 @@ export default function SensorProvisioning({ token }) {
             </div>
           )}
 
+          {/* Pre-scan Instruction */}
+          <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md text-blue-700 dark:text-blue-300">
+            <AlertCircle className="flex-shrink-0" size={16} />
+            <p className="text-xs font-medium">
+              Press Bluetooth Discover Button in Your sensor Module for 3 seconds before Scan
+            </p>
+          </div>
+
           {/* Step 1: Scan for Devices */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -110,7 +120,7 @@ export default function SensorProvisioning({ token }) {
               </h3>
               <button
                 onClick={scan}
-                disabled={isScanning || !enabled}
+                disabled={isScanning}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
                   isScanning 
                     ? 'bg-gray-100 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
@@ -131,12 +141,29 @@ export default function SensorProvisioning({ token }) {
               </button>
             </div>
 
-            {devices.length === 0 && !isScanning ? (
-              <div className="text-center py-12 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
-                <div className="w-12 h-12 mx-auto mb-3 text-gray-300 dark:text-gray-600">
-                  <Bluetooth size={48} strokeWidth={1} />
+            {devices.length === 0 ? (
+              <div className="text-center py-16 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl relative overflow-hidden bg-gray-50/50 dark:bg-gray-800/50 transition-all duration-500">
+                <div className="relative inline-flex items-center justify-center mb-6">
+                   {isScanning && (
+                      <>
+                        <span className="absolute w-full h-full rounded-full bg-indigo-500/20 animate-ping duration-1000"></span>
+                        <span className="absolute w-[160%] h-[160%] rounded-full border border-indigo-500/20 animate-[pulse_2s_infinite]"></span>
+                        <span className="absolute w-[220%] h-[220%] rounded-full border border-indigo-500/10 animate-[pulse_3s_infinite]"></span>
+                      </>
+                   )}
+                   <div className={`relative p-5 rounded-full transition-all duration-500 ${isScanning ? 'bg-white dark:bg-gray-800 shadow-lg text-indigo-600 dark:text-indigo-400 scale-110 ring-4 ring-indigo-50 dark:ring-indigo-900/20' : 'bg-gray-100 dark:bg-gray-800 text-gray-300 dark:text-gray-600'}`}>
+                      <Bluetooth size={40} strokeWidth={1.5} className={isScanning ? 'animate-pulse' : ''} />
+                   </div>
                 </div>
-                <p className="text-gray-500 dark:text-gray-400">No devices found. Click scan to start.</p>
+                
+                <div className="relative z-10 space-y-1.5">
+                  <p className={`font-medium transition-colors duration-300 ${isScanning ? 'text-indigo-700 dark:text-indigo-300' : 'text-gray-500 dark:text-gray-400'}`}>
+                    {isScanning ? "Scanning for nearby devices..." : "No devices found"}
+                  </p>
+                  <p className="text-sm text-gray-400 dark:text-gray-500">
+                    {isScanning ? "Looking for LabExpert Sensor Modules" : "Click scan to start searching"}
+                  </p>
+                </div>
               </div>
             ) : (
               <div className="space-y-2 max-h-60 overflow-y-auto pr-1 custom-scrollbar">
@@ -175,7 +202,13 @@ export default function SensorProvisioning({ token }) {
           </div>
 
           {/* Step 2: WiFi Credentials */}
-          <div className={`space-y-4 transition-opacity duration-300 ${!selected ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
+          <form 
+            className={`space-y-4 transition-opacity duration-300 ${!selected ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}
+            onSubmit={(e) => {
+              e.preventDefault();
+              provision();
+            }}
+          >
             <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
               2. Configure WiFi
             </h3>
@@ -187,6 +220,9 @@ export default function SensorProvisioning({ token }) {
                 </div>
                 <input
                   type="text"
+                  name="wifi_ssid"
+                  id="wifi_ssid"
+                  autoComplete="section-wifi ssid"
                   value={ssid}
                   onChange={(e) => setSsid(e.target.value)}
                   placeholder="WiFi SSID"
@@ -200,6 +236,9 @@ export default function SensorProvisioning({ token }) {
                 </div>
                 <input
                   type="password"
+                  name="wifi_password"
+                  id="wifi_password"
+                  autoComplete="section-wifi current-password"
                   value={passw}
                   onChange={(e) => setPassw(e.target.value)}
                   placeholder="Password"
@@ -209,7 +248,7 @@ export default function SensorProvisioning({ token }) {
             </div>
 
             <button
-              onClick={provision}
+              type="submit"
               disabled={isProvisioning || !ssid || !passw || !selected}
               className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-white transition-all duration-300 ${
                 isProvisioning || !ssid || !passw || !selected
@@ -229,7 +268,7 @@ export default function SensorProvisioning({ token }) {
                 </>
               )}
             </button>
-          </div>
+          </form>
         </div>
       </div>
     </div>
