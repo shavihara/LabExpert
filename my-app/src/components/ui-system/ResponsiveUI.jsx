@@ -393,3 +393,22 @@ export const ResponsiveModal = ({ isOpen, onClose, title, children, size = 'md',
     </div>
   );
 };
+
+/**
+ * Logout Loading Overlay
+ */
+export const LogoutLoading = () => {
+  return (
+    <div className="fixed inset-0 z-[9999] bg-white/80 dark:bg-gray-900/90 backdrop-blur-sm flex flex-col items-center justify-center animate-fade-in">
+      <div className="relative w-20 h-20 mb-4">
+        <div className="absolute inset-0 border-4 border-indigo-200 dark:border-indigo-900 rounded-full"></div>
+        <div className="absolute inset-0 border-4 border-indigo-600 dark:border-indigo-400 rounded-full border-t-transparent animate-spin"></div>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <FiStopCircle className="w-8 h-8 text-indigo-600 dark:text-indigo-400 animate-pulse" />
+        </div>
+      </div>
+      <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-2">Signing Out</h2>
+      <p className="text-gray-500 dark:text-gray-400">Securely clearing your session...</p>
+    </div>
+  );
+};

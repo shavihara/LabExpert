@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { FiChevronUp, FiChevronDown } from 'react-icons/fi'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../utils/api';
+import { LogoutLoading } from './ui-system/ResponsiveUI';
 
 function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
@@ -10,6 +11,8 @@ function Header() {
   const location = useLocation()
   const isAuthPage = ['/login', '/signup', '/forgot-password'].includes(location.pathname)
   const isExperimentPage = location.pathname.startsWith('/experiment')
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const navigate = useNavigate()
 
   const isDashboard = location.pathname === '/dashboard'
 
@@ -79,6 +82,11 @@ function Header() {
   }, [isAuthPage])
 
   const handleLogout = async () => {
+    setIsLoggingOut(true);
+    
+    // Artificial delay for animation
+    await new Promise(resolve => setTimeout(resolve, 800));
+
     const token = localStorage.getItem('token');
     if (token) {
       try {
@@ -89,11 +97,13 @@ function Header() {
     }
     localStorage.removeItem('user');
     localStorage.removeItem('token');
-    window.location.href = '/login';
+    navigate('/login');
+    setIsLoggingOut(false);
   }
 
   return (
     <>
+      {isLoggingOut && <LogoutLoading />}
       <header className={`fixed top-0 left-0 right-0 z-[1000] transition-all duration-500 transform ${
         isScrolled ? 'shadow-2xl' : 'shadow-lg'
       } ${isAuthPage ? 'h-20' : 'h-[70px]'} ${isHeaderCollapsed ? '-translate-y-[calc(100%-12px)]' : 'translate-y-0'}`}

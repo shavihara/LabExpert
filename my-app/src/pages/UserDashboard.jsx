@@ -27,8 +27,14 @@ import {
   Download
 } from 'lucide-react';
 
+import { 
+  ResponsiveButton, 
+  LogoutLoading 
+} from '../components/ui-system/ResponsiveUI';
+
 function UserDashboard() {
   const [activeSection, setActiveSection] = useState('experiments');
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [experiments, setExperiments] = useState([]);
   const [recentExperiments, setRecentExperiments] = useState([]);
   const [userProfile, setUserProfile] = useState({});
@@ -269,6 +275,11 @@ function UserDashboard() {
   };
 
   const handleLogout = async () => {
+    setIsLoggingOut(true);
+    
+    // Artificial delay for animation
+    await new Promise(resolve => setTimeout(resolve, 800));
+
     try {
       await logoutUser();
     } finally {
@@ -307,6 +318,7 @@ function UserDashboard() {
 
   return (
     <div className="flex h-[calc(100vh-var(--header-height))] bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
+      {isLoggingOut && <LogoutLoading />}
       {/* Mobile Sidebar Overlay */}
       {isSidebarOpen && (
         <div 
