@@ -23,7 +23,8 @@ class UDPDiscoveryService:
     - Supports device filtering by availability status
     """
     
-    def __init__(self, broadcast_port: int = 8888, response_port: int = 8889):
+    def __init__(self, broadcast_port: int = 8888, response_port: int = 8889,
+                 mqtt_broker_host: str = "localhost", mqtt_broker_port: int = 1883):
         self.broadcast_port = broadcast_port
         self.response_port = response_port
         self.broadcast_address = "255.255.255.255"
@@ -35,6 +36,10 @@ class UDPDiscoveryService:
         self.last_discovery_time = 0
 
         self.device_timeout = 60  # seconds after which device is considered offline if no response
+
+        # MQTT broker configuration for discovery packet
+        self.mqtt_broker_host = mqtt_broker_host
+        self.mqtt_broker_port = mqtt_broker_port
 
         
         # Socket setup
@@ -184,11 +189,54 @@ class UDPDiscoveryService:
         ]
         
         return common_broadcasts
+
+    def _get_local_ip(self) -> str:
+        """Get local IP address of this machine, preferring 192.168.x.x"""
+        try:
+            # Get all IP addresses associated with the hostname
+            hostname = socket.gethostname()
+            _, _, ip_list = socket.gethostbyname_ex(hostname)
+            
+            # First pass: Look for 192.168.x.x (common home network)
+            for ip in ip_list:
+                if ip.startswith("192.168."):
+                    return ip
+            
+            # Second pass: Look for any private IP that is NOT 127.0.0.1
+            for ip in ip_list:
+                if not ip.startswith("127.") and ":" not in ip:
+                    return ip
+            
+            # Fallback to the connect method if gethostbyname_ex fails to find a good one
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+            return local_ip
+        except:
+            return "127.0.0.1"
     
     def _create_discovery_packet(self) -> bytes:
-        """Create discovery packet - ESP32 expects simple string"""
-        # ESP32 expects just the magic string "LABEXPERT_DISCOVERY" with null terminator
-        return b"LABEXPERT_DISCOVERY\x00"
+        """Create enhanced discovery packet with MQTT broker info and backend MAC"""
+        import uuid
+        
+        # Get backend MAC address
+        mac = ':'.join(['{:02x}'.format((uuid.getnode() >> i) & 0xff) 
+                        for i in range(0, 48, 8)])
+        
+        # Get MQTT broker IP (resolve localhost to actual IP)
+        mqtt_host = self.mqtt_broker_host
+        if mqtt_host == "localhost" or mqtt_host == "127.0.0.1":
+            mqtt_host = self._get_local_ip()
+        
+        discovery_data = {
+            "magic": "LABEXPERT_DISCOVERY",
+            "mqtt_broker": mqtt_host,
+            "mqtt_port": self.mqtt_broker_port,
+            "backend_mac": mac
+        }
+        
+        return json.dumps(discovery_data).encode('utf-8')
     
     async def _handle_response(self, data: bytes, addr: tuple):
         """Handle response from ESP32 device"""
