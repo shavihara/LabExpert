@@ -48,20 +48,6 @@ class UDPDiscoveryService:
         self.is_running = False
         
     async def initialize(self):
-        
-        # Device tracking with timeout mechanism
-        self.online_devices: Dict[str, Dict] = {}  # device_id -> device_info
-        self.last_discovery_time = 0
-
-        self.device_timeout = 60  # seconds after which device is considered offline if no response
-
-        
-        # Socket setup
-        self.broadcast_socket = None
-        self.response_socket = None
-        self.is_running = False
-        
-    async def initialize(self):
         """Initialize UDP sockets for broadcasting and receiving"""
         try:
             # Create broadcast socket
@@ -205,8 +191,23 @@ class UDPDiscoveryService:
         return common_broadcasts
 
     def _get_local_ip(self) -> str:
-        """Get local IP address of this machine"""
+        """Get local IP address of this machine, preferring 192.168.x.x"""
         try:
+            # Get all IP addresses associated with the hostname
+            hostname = socket.gethostname()
+            _, _, ip_list = socket.gethostbyname_ex(hostname)
+            
+            # First pass: Look for 192.168.x.x (common home network)
+            for ip in ip_list:
+                if ip.startswith("192.168."):
+                    return ip
+            
+            # Second pass: Look for any private IP that is NOT 127.0.0.1
+            for ip in ip_list:
+                if not ip.startswith("127.") and ":" not in ip:
+                    return ip
+            
+            # Fallback to the connect method if gethostbyname_ex fails to find a good one
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))
             local_ip = s.getsockname()[0]
