@@ -215,6 +215,8 @@ class ClientWebSocketManager:
     async def _handle_ble_provision(self, user_id: str, ssid: str, password: str):
         import os
         from services.ble_service import BLEService
+        import psutil
+        import uuid
         if not ssid or not password:
             await self.send_to_user(user_id, {"type": "ble_result", "success": False, "message": "missing_credentials"})
             return
@@ -227,7 +229,24 @@ class ClientWebSocketManager:
         def cb(status: str):
             asyncio.run_coroutine_threadsafe(self.send_to_user(user_id, {"type": "ble_status", "status": status}), asyncio.get_event_loop())
         try:
-            result = await svc.provision(address, ssid, password, status_cb=cb, timeout=30.0)
+            # Determine host MAC address (cross-platform)
+            import re
+            def _format_mac(n: int) -> str:
+                mac = f"{n:012x}".upper()
+                return ":".join(mac[i:i+2] for i in range(0, 12, 2))
+
+            # Use robust MAC selection from utility
+            from utils.network_utils import get_host_mac
+            host_mac = get_host_mac()
+            
+            if not host_mac:
+                # Should not happen given the fallback in utility, but just in case
+                import uuid
+                node = uuid.getnode()
+                mac_hex = f"{node:012x}".upper()
+                host_mac = ":".join(mac_hex[i:i+2] for i in range(0, 12, 2))
+
+            result = await svc.provision(address, ssid, password, host_mac, status_cb=cb, timeout=30.0)
             await self.send_to_user(user_id, {"type": "ble_result", **result})
         except Exception as e:
             await self.send_to_user(user_id, {"type": "ble_result", "success": False, "message": str(e)})
