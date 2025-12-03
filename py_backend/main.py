@@ -92,7 +92,7 @@ from config.database import engine
 
 # Import MQTT service
 from services.mqtt_service import MQTTService
-from utils.network_utils import get_host_ip
+from utils.network_utils import get_host_ip, get_candidate_local_ips
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -244,64 +244,23 @@ class DynamicCORSMiddleware:
 # Remove DynamicCORSMiddleware since it's not working properly
 # app.add_middleware(DynamicCORSMiddleware)
 
+origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "http://localhost:5175",
+    "http://127.0.0.1:5175",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    f"http://{get_host_ip()}:3000",
+]
+# Add dynamic local IPs (WiFi + hotspot) at runtime for port 3000
+origins += [f"http://{ip}:3000" for ip in get_candidate_local_ips()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5174",
-        "http://localhost:5175",
-        "http://127.0.0.1:5175",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        f"http://{get_host_ip()}:3000",
-        #f"http://{LOCAL_IP}:5173",
-        #f"http://{LOCAL_IP}:5174",
-        #f"http://{LOCAL_IP}:5175",
-        #"http://192.168.137.1:3000",
-        #"http://192.168.1.198:3000",
-        #f"http://{LOCAL_IP}:3000",
-        #"http://192.168.1.198:5173",
-        # Allow all private IP ranges
-        # "http://10.*.*.*:3000",
-        # "http://172.16.*.*:3000", 
-        # "http://172.17.*.*:3000",
-        # "http://172.18.*.*:3000",
-        # "http://172.19.*.*:3000",
-        # "http://172.20.*.*:3000",
-        # "http://172.21.*.*:3000",
-        # "http://172.22.*.*:3000",
-        # "http://172.23.*.*:3000",
-        # "http://172.24.*.*:3000",
-        # "http://172.25.*.*:3000",
-        # "http://172.26.*.*:3000",
-        # "http://172.27.*.*:3000",
-        # "http://172.28.*.*:3000",
-        # "http://172.29.*.*:3000",
-        # "http://172.30.*.*:3000",
-        # "http://172.31.*.*:3000",
-        # "http://192.168.*.*:3000",
-        # Also allow these ranges on other ports
-        #"http://10.*.*.*:5173",
-        #"http://172.16.*.*:5173",
-        #"http://172.17.*.*:5173",
-        #"http://172.18.*.*:5173",
-        #"http://172.19.*.*:5173",
-        #"http://172.20.*.*:5173",
-        #"http://172.21.*.*:5173",
-        #"http://172.22.*.*:5173",
-        #"http://172.23.*.*:5173",
-        #"http://172.24.*.*:5173",
-        #"http://172.25.*.*:5173",
-        #"http://172.26.*.*:5173",
-        #"http://172.27.*.*:5173",
-        #"http://172.28.*.*:5173",
-        #"http://172.29.*.*:5173",
-        #"http://172.30.*.*:5173",
-        #"http://172.31.*.*:5173",
-        #"http://192.168.*.*:5173"
-    ],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
