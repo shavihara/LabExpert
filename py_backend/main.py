@@ -92,7 +92,7 @@ from config.database import engine
 
 # Import MQTT service
 from services.mqtt_service import MQTTService
-from utils.network_utils import get_host_ip
+from utils.network_utils import get_host_ip, get_candidate_local_ips
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -243,6 +243,20 @@ class DynamicCORSMiddleware:
 # Add both middlewares - our custom one first, then the standard one
 # Remove DynamicCORSMiddleware since it's not working properly
 # app.add_middleware(DynamicCORSMiddleware)
+
+origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "http://localhost:5175",
+    "http://127.0.0.1:5175",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    f"http://{get_host_ip()}:3000",
+]
+# Add dynamic local IPs (WiFi + hotspot) at runtime for port 3000
+origins += [f"http://{ip}:3000" for ip in get_candidate_local_ips()]
 
 app.add_middleware(
     CORSMiddleware,

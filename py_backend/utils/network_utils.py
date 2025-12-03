@@ -2,7 +2,7 @@ import psutil
 import re
 import uuid
 import logging
-
+import ipaddress
 logger = logging.getLogger(__name__)
 
 def get_host_mac() -> str:
@@ -125,3 +125,61 @@ def get_host_ip() -> str:
         logger.error(f"Error determining IP: {e}")
         
     return host_ip
+def select_local_ip_for_peer(peer_ip: str) -> str:
+    host_ip = None
+    try:
+        ip_peer = ipaddress.ip_address(peer_ip) if peer_ip else None
+        ignored_keywords = ['loopback', 'tap', 'tun', 'vmware', 'virtual', 'docker', 'vbox', 'pseudo']
+        stats = psutil.net_if_stats()
+        candidates = []
+        for name, addrs in psutil.net_if_addrs().items():
+            lower_name = name.lower()
+            if any(k in lower_name for k in ignored_keywords):
+                continue
+            is_up = name in stats and getattr(stats[name], 'isup', False)
+            for a in addrs:
+                if getattr(a, 'family', 0) == 2:
+                    ip = getattr(a, 'address', '') or ''
+                    netmask = getattr(a, 'netmask', '') or ''
+                    if ip and netmask and ip_peer is not None:
+                        try:
+                            network = ipaddress.ip_network(f"{ip}/{netmask}", strict=False)
+                            if ip_peer in network:
+                                score = 0
+                                if 'wi-fi' in lower_name or 'wlan' in lower_name or 'wireless' in lower_name:
+                                    score = 2
+                                elif 'ethernet' in lower_name or 'eth' in lower_name or 'en' in lower_name:
+                                    score = 1
+                                if is_up:
+                                    score += 10
+                                candidates.append((score, ip, name))
+                        except Exception:
+                            pass
+        if candidates:
+            candidates.sort(key=lambda x: x[0], reverse=True)
+            host_ip = candidates[0][1]
+    except Exception:
+        host_ip = None
+    return host_ip or get_host_ip()
+
+def get_candidate_local_ips() -> list:
+    ips = set()
+    try:
+        ignored_keywords = ['loopback', 'tap', 'tun', 'vmware', 'virtual', 'docker', 'vbox', 'pseudo']
+        stats = psutil.net_if_stats()
+        for name, addrs in psutil.net_if_addrs().items():
+            lower_name = name.lower()
+            if any(k in lower_name for k in ignored_keywords):
+                continue
+            is_up = name in stats and getattr(stats[name], 'isup', False)
+            if not is_up:
+                continue
+            for a in addrs:
+                if getattr(a, 'family', 0) == 2:
+                    ip = getattr(a, 'address', '') or ''
+                    if ip and not ip.startswith('127.') and not ip.startswith('169.254.'):
+                        ips.add(ip)
+    except Exception:
+        pass
+    ips.add(get_host_ip())
+    return list(ips)
