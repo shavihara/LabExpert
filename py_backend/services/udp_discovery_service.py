@@ -217,7 +217,7 @@ class UDPDiscoveryService:
             return "127.0.0.1"
     
     def _create_discovery_packet(self) -> bytes:
-        """Create enhanced discovery packet with MQTT broker info and backend MAC"""
+        """Create enhanced discovery packet with backend MAC (IP is implicit via UDP source)"""
         # Get backend MAC address using robust utility
         from utils.network_utils import get_host_mac
         mac = get_host_mac()
@@ -228,16 +228,11 @@ class UDPDiscoveryService:
             mac = ':'.join(['{:02x}'.format((uuid.getnode() >> i) & 0xff) 
                             for i in range(0, 48, 8)])
         
-        # Get MQTT broker IP using robust utility
-        from utils.network_utils import get_host_ip
-        mqtt_host = self.mqtt_broker_host
-        if mqtt_host == "localhost" or mqtt_host == "127.0.0.1":
-            mqtt_host = get_host_ip()
+        # We NO LONGER send mqtt_broker or mqtt_port. 
+        # The ESP32 will use the UDP packet's source IP.
         
         discovery_data = {
             "magic": "LABEXPERT_DISCOVERY",
-            "mqtt_broker": mqtt_host,
-            "mqtt_port": self.mqtt_broker_port,
             "backend_mac": mac
         }
         
@@ -255,9 +250,28 @@ class UDPDiscoveryService:
             if not device_id:
                 logger.warning(f"Received response without device_id from {addr}")
                 return
+            # --- NEW SECURITY VERIFICATION START ---
+            # Bidirectional Security Verification: Check if device is bonded to THIS backend
+            device_backend_mac = device_info.get('backend_mac')
             
-            # Network segmentation: Only accept devices from our network segment
-            # This prevents interference between team members on the same physical network
+            # 1. Get our own MAC
+            from utils.network_utils import get_host_mac
+            my_mac = get_host_mac()
+            
+            # 2. Check if device sent a MAC at all
+            if not device_backend_mac:
+                logger.warning(f"Ignoring device {device_id} from {addr}: Missing backend_mac in response!")
+                return
+                
+            # 3. Check for mismatch
+            if my_mac and device_backend_mac.lower() != my_mac.lower():
+                logger.warning(f"Ignoring device {device_id} from {addr}: Backend MAC mismatch!")
+                logger.warning(f"  Expected: {my_mac}")
+                logger.warning(f"  Received: {device_backend_mac}")
+                return
+            # --- NEW SECURITY VERIFICATION END ---
+            
+            # Network segmentation check
             if not self._is_same_network_segment(addr[0]):
                 logger.debug(f"Ignoring device {device_id} from different network segment: {addr[0]}")
                 return
@@ -274,7 +288,7 @@ class UDPDiscoveryService:
             
         except Exception as e:
             logger.error(f"Error handling response from {addr}: {e}")
-    
+            
     def _parse_response_packet(self, data: bytes) -> Dict:
         """Parse ESP32 response packet - ESP32 sends simple JSON"""
         try:
