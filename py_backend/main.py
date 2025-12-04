@@ -720,6 +720,27 @@ async def upload_profile(file: UploadFile = File(...), current_user=Depends(get_
     updated_user = UserService.find_by_id(current_user['id'])
     return {"success": True, "file": saved, "user": to_camel_case(updated_user)}
 
+@app.delete("/api/files/profile-picture")
+async def remove_profile_picture(current_user=Depends(get_current_user)):
+    try:
+        user_id = current_user['id']
+        with engine.begin() as conn:
+            result = conn.execute(text("""
+                SELECT id FROM files
+                WHERE user_id = :user_id AND file_type = 'profile_picture' AND is_active = 1
+                ORDER BY rowid DESC LIMIT 1
+            """), {"user_id": user_id})
+            row = result.fetchone()
+            if row:
+                FileService.delete_file(row[0])
+            # Clear user profile_picture
+            conn.execute(text("UPDATE users SET profile_picture = NULL WHERE id = :user_id"), {"user_id": user_id})
+        updated_user = UserService.find_by_id(user_id)
+        return {"success": True, "user": to_camel_case(updated_user)}
+    except Exception as e:
+        logger.error(f"Failed to remove profile picture: {e}")
+        raise HTTPException(500, "Failed to remove profile picture")
+
 
 # ------------------ Admin Routes ------------------
 

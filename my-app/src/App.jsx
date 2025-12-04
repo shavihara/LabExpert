@@ -18,6 +18,7 @@ import ExperimentRouter from './ExperimentRouter';
 import PrivateRoute from './components/PrivateRoute';
 import { getCurrentUser, bootstrapDevAuth } from './utils/api';
 import { ThemeProvider } from './context/ThemeContext';
+import { FullscreenProvider } from './context/FullscreenContext';
 import './App.css';
 import SensorProvisioning from './pages/SensorProvisioning';
 import ProgramSensor from './pages/ProgramSensor';
@@ -174,7 +175,9 @@ function AppContent() {
 function App() {
   return (
     <ThemeProvider>
-      <AppContent />
+      <FullscreenProvider>
+        <AppContent />
+      </FullscreenProvider>
     </ThemeProvider>
   );
 }

@@ -9,6 +9,8 @@ import {
   FiSave, FiEye, FiEyeOff, FiDollarSign, FiTarget
 } from 'react-icons/fi';
 
+import { useFullscreen } from '../context/FullscreenContext';
+
 const PlotlyGraph = ({ 
   experimentType, 
   token, 
@@ -50,7 +52,7 @@ const PlotlyGraph = ({
   }, []);
 
   const [mode, setMode] = useState('live'); // 'live' or 'analysis'
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const { isFullscreen, fullscreenElement, requestFullscreenFor, exitFullscreen } = useFullscreen();
   const plotContainerRef = useRef(null);
   const mapKey = useCallback((k) => ({
     intensity: 'i-t', distance: 's-t', velocity: 'v-t', acceleration: 'a-t'
@@ -80,15 +82,7 @@ const PlotlyGraph = ({
   const axisLockRef = useRef(null);
   const axisRangeRef = useRef({ x: null, y: null });
 
-  useEffect(() => {
-    const onFsChange = () => {
-      const active = !!document.fullscreenElement;
-      setIsFullscreen(active);
-      document.body.style.overflow = active ? 'hidden' : '';
-    };
-    document.addEventListener('fullscreenchange', onFsChange);
-    return () => document.removeEventListener('fullscreenchange', onFsChange);
-  }, []);
+  useEffect(() => {}, []);
 
   useEffect(() => {
     if (externalMode && externalMode !== mode) {
@@ -108,23 +102,10 @@ const PlotlyGraph = ({
   }, []);
 
   const toggleFullscreen = async () => {
-    try {
-      if (!document.fullscreenElement) {
-        if (plotContainerRef.current && plotContainerRef.current.requestFullscreen) {
-          await plotContainerRef.current.requestFullscreen();
-        } else {
-          setIsFullscreen(true);
-          document.body.style.overflow = 'hidden';
-        }
-      } else {
-        await document.exitFullscreen();
-        setIsFullscreen(false);
-        document.body.style.overflow = '';
-      }
-    } catch (e) {
-      setIsFullscreen(prev => !prev);
-      const active = !isFullscreen;
-      document.body.style.overflow = active ? 'hidden' : '';
+    if (fullscreenElement === plotContainerRef.current) {
+      await exitFullscreen()
+    } else {
+      await requestFullscreenFor(plotContainerRef.current)
     }
   };
 
@@ -672,7 +653,7 @@ const PlotlyGraph = ({
 
       {/* Plot Container */}
       <div ref={plotContainerRef} className={`bg-white rounded-xl shadow-lg border border-slate-200 ${
-        isFullscreen ? 'fixed inset-0 z-[10000] p-4 md:p-6' : 'p-2 sm:p-3 md:p-4'
+        fullscreenElement === plotContainerRef.current ? 'fixed inset-0 z-[10000] p-4 md:p-6' : 'p-2 sm:p-3 md:p-4'
       }`}>
         <div className={`${isFullscreen ? 'mb-4' : 'mb-2'} flex items-center justify-between`}>
           <div className="flex items-center gap-2">
@@ -694,8 +675,8 @@ const PlotlyGraph = ({
               onClick={toggleFullscreen}
               className={`${isDark ? 'px-2 py-1 border border-slate-700 bg-slate-800 text-purple-300 hover:bg-slate-700' : 'px-2 py-1 bg-purple-50 text-purple-700 hover:bg-purple-100'} rounded transition-all text-xs flex items-center gap-1 shrink-0`}
             >
-              {isFullscreen ? <FiMinimize size={14} /> : <FiMaximize size={14} />}
-              <span className="hidden sm:inline">{isFullscreen ? 'Exit' : 'Full'}</span>
+              {fullscreenElement === plotContainerRef.current ? <FiMinimize size={14} /> : <FiMaximize size={14} />}
+              <span className="hidden sm:inline">{fullscreenElement === plotContainerRef.current ? 'Exit' : 'Full'}</span>
             </button>
           </div>
         </div>
@@ -709,7 +690,7 @@ const PlotlyGraph = ({
         </div>
 
         {/* Plotly Graph */}
-        <div style={{ height: isFullscreen ? 'calc(100vh - 120px)' : '400px' }}>
+        <div style={{ height: fullscreenElement === plotContainerRef.current ? 'calc(100vh - 120px)' : '400px' }}>
           <Plot
             ref={plotRef}
             plotly={plotlyLib}
@@ -724,12 +705,12 @@ const PlotlyGraph = ({
                 gridcolor: isDark ? '#334155' : '#e2e8f0',
                 zeroline: false,
                 showticklabels: true,
-                tickfont: { size: isFullscreen ? 14 : 12 },
-                titlefont: { size: isFullscreen ? 16 : 14 },
+                tickfont: { size: fullscreenElement === plotContainerRef.current ? 14 : 12 },
+                titlefont: { size: fullscreenElement === plotContainerRef.current ? 16 : 14 },
                 tickangle: isFullscreen ? 0 : 0,
                 automargin: true,
-                nticks: isFullscreen ? 15 : 10,
-                tickformat: isFullscreen ? '.2f' : undefined,
+                nticks: fullscreenElement === plotContainerRef.current ? 15 : 10,
+                tickformat: fullscreenElement === plotContainerRef.current ? '.2f' : undefined,
                 range: axisRangeRef.current.x || undefined,
                 autorange: axisRangeRef.current.x ? false : true
               },
@@ -747,8 +728,8 @@ const PlotlyGraph = ({
                 range: axisRangeRef.current.y || getYAxisRange(),
                 autorange: axisRangeRef.current.y ? false : true,
                 showticklabels: true,
-                tickfont: { size: isFullscreen ? 14 : 12 },
-                titlefont: { size: isFullscreen ? 16 : 14 },
+                tickfont: { size: fullscreenElement === plotContainerRef.current ? 14 : 12 },
+                titlefont: { size: fullscreenElement === plotContainerRef.current ? 16 : 14 },
                 automargin: true,
                 nticks: isFullscreen ? 12 : 8
               },
@@ -756,9 +737,9 @@ const PlotlyGraph = ({
                 x: 0,
                 y: 1.1,
                 orientation: 'h',
-                font: { size: isFullscreen ? 14 : 12 }
+                font: { size: fullscreenElement === plotContainerRef.current ? 14 : 12 }
               },
-              margin: isFullscreen ? { l: 50, r: 35, t: 40, b: 60 } : { l: 40, r: 20, t: 30, b: 45 },
+              margin: fullscreenElement === plotContainerRef.current ? { l: 50, r: 35, t: 40, b: 60 } : { l: 40, r: 20, t: 30, b: 45 },
               hovermode: 'closest',
               plot_bgcolor: isDark ? '#0b1220' : '#f8fafc',
               paper_bgcolor: isDark ? '#111827' : '#ffffff',
@@ -805,7 +786,7 @@ const PlotlyGraph = ({
             <AnalysisTools />
           </div>
         )}
-        {isFullscreen && (
+        {fullscreenElement === plotContainerRef.current && (
           <div className="text-center text-xs text-slate-500 mt-2">
             {mode === 'live' 
               ? 'Real-time data streaming. Use mouse to interact with the plot.'

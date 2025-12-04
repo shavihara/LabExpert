@@ -26,6 +26,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   const [graphCardHeight, setGraphCardHeight] = useState(null);
   const graphRORef = useRef(null);
   const graphCardElRef = useRef(null);
+  const tableContainerRef = useRef(null);
   const setGraphCardEl = useCallback((el) => {
     graphCardElRef.current = el;
     if (graphRORef.current) {
@@ -461,6 +462,15 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     return () => window.removeEventListener('keydown', handleEsc);
   }, [isTableFullscreen]);
 
+  useEffect(() => {
+    const onFsChange = () => {
+      const el = document.fullscreenElement || null;
+      setIsTableFullscreen(el === tableContainerRef.current);
+    };
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, []);
+
   // ===== METADATA-DERIVED TRACES AND AXIS =====
   const availableTraces = React.useMemo(() => {
     if (!subExperiment || !subExperiment.graphConfig) {
@@ -634,6 +644,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
               neglectedData={neglectedData}
               columns={tableColumns}
               visibleRowCount={20}
+              onContainerRef={(el) => { tableContainerRef.current = el; }}
             />
           </div>
         </>
@@ -678,6 +689,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
               hideCsvButton={true}
               visibleRowCount={isAnalysisMode ? 20 : undefined}
               containerClassName=""
+              onContainerRef={(el) => { tableContainerRef.current = el; }}
             />
           </div>
         </div>

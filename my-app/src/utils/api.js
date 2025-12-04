@@ -216,6 +216,8 @@ export const userAPI = {
     api.post('/api/files/profile-picture', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     }),
+  removeProfilePicture: async () =>
+    api.delete('/api/files/profile-picture'),
 };
 
 export const deviceAPI = {

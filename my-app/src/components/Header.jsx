@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
-import { FiChevronUp, FiChevronDown } from 'react-icons/fi'
+import { FiChevronUp, FiChevronDown, FiMaximize2, FiMinimize2 } from 'react-icons/fi'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../utils/api';
 import { LogoutLoading } from './ui-system/ResponsiveUI';
+import { useFullscreen } from '../context/FullscreenContext';
 
 function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
@@ -13,6 +14,7 @@ function Header() {
   const isExperimentPage = location.pathname.startsWith('/experiment')
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const navigate = useNavigate()
+  const { isFullscreen, scope, toggleAppFullscreen, exitFullscreen } = useFullscreen()
 
   const isDashboard = location.pathname === '/dashboard'
 
@@ -48,6 +50,8 @@ function Header() {
       setIsHeaderCollapsed(false)
     }
   }, [location])
+
+  useEffect(() => {}, [])
 
   useEffect(() => {
     const collapse = () => setIsHeaderCollapsed(true)
@@ -99,6 +103,14 @@ function Header() {
     localStorage.removeItem('token');
     navigate('/login');
     setIsLoggingOut(false);
+  }
+
+  const toggleFullscreenUI = async () => {
+    if (isFullscreen) {
+      await exitFullscreen()
+    } else {
+      await toggleAppFullscreen()
+    }
   }
 
   return (
@@ -234,7 +246,23 @@ function Header() {
                 <span className="relative z-10">Logout</span>
               </button>
             )}
-            
+
+            <div className="w-px h-8 bg-white/20 mx-1"></div>
+
+            <button
+              onClick={toggleFullscreenUI}
+              className={`relative w-12 h-12 bg-white/10 backdrop-blur-sm rounded-xl border-2 ${
+                isFullscreen ? 'border-purple-400 bg-purple-500/20' : 'border-white/30'
+              } text-white cursor-pointer transition-all duration-300 hover:bg-white/20 hover:border-white hover:scale-105 flex items-center justify-center group shadow-lg`}
+              aria-label="Toggle fullscreen"
+              title={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+            >
+              {isFullscreen ? (
+                <FiMinimize2 className="w-5 h-5 transition-transform duration-300 group-hover:scale-110" />
+              ) : (
+                <FiMaximize2 className="w-5 h-5 transition-transform duration-300 group-hover:scale-110" />
+              )}
+            </button>
           </div>
         )}
 

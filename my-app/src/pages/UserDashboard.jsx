@@ -26,6 +26,7 @@ import {
   Volume2,
   Download,
   Wrench
+  , Maximize2, Minimize2
 } from 'lucide-react';
 
 import { 
@@ -52,6 +53,8 @@ function UserDashboard() {
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const searchRef = useRef(null);
   const searchInputRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const [isFullscreen, setIsFullscreen] = useState(() => !!document.fullscreenElement);
 
   // Profile State
   const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -78,6 +81,22 @@ function UserDashboard() {
   
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
+
+  useEffect(() => {
+    const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, []);
+
+  const toggleFullscreenUI = async () => {
+    if (document.fullscreenElement) {
+      try { await document.exitFullscreen(); } catch (e) {}
+    } else {
+      const el = document.documentElement;
+      const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+      if (req) { try { await req.call(el); } catch (e) {} }
+    }
+  };
 
   // Listen for storage events to update currentUser state (for sidebar sync)
   const [currentUser, setCurrentUser] = useState(() => JSON.parse(localStorage.getItem('user') || '{}'));
@@ -378,6 +397,22 @@ function UserDashboard() {
     }
   };
 
+  const handleProfilePictureRemove = async () => {
+    try {
+      const response = await userAPI.removeProfilePicture();
+      if (response.data && response.data.user) {
+        setProfileImagePreview(null);
+        setUserProfile(response.data.user);
+        localStorage.setItem('user', JSON.stringify(response.data.user));
+        window.dispatchEvent(new Event('storage'));
+      }
+      setNotification({ type: 'success', message: 'Profile picture removed' });
+    } catch (error) {
+      console.error(error);
+      setNotification({ type: 'error', message: 'Failed to remove profile picture' });
+    }
+  };
+
   const handleLogout = async () => {
     setIsLoggingOut(true);
     
@@ -614,13 +649,20 @@ function UserDashboard() {
               <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
             </button>
             <div className="h-6 w-px bg-gray-200 dark:bg-gray-700 mx-2"></div>
-            <button
-              onClick={toggleTheme}
-              className="p-2 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-            >
-              {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
-            </button>
-          </div>
+          <button
+            onClick={toggleTheme}
+            className="p-2 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+          >
+            {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+          </button>
+          <button
+            onClick={toggleFullscreenUI}
+            className="p-2 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            aria-label="Toggle fullscreen"
+          >
+            {isFullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
+          </button>
+        </div>
         </header>
 
         {/* Scrollable Main Area */}
@@ -779,10 +821,25 @@ function UserDashboard() {
                         </span>
                       )}
                     </div>
-                    <label className={`absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 text-white rounded-full cursor-pointer transition-opacity duration-200 ${isEditingProfile ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-                      <span className="text-xs font-medium">Change</span>
-                      <input type="file" className="hidden" accept="image/*" onChange={handleProfilePictureUpload} disabled={!isEditingProfile} />
-                    </label>
+                    <div className={`absolute inset-0 flex items-center justify-center gap-3 bg-black bg-opacity-50 text-white rounded-full transition-opacity duration-200 ${isEditingProfile ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current && fileInputRef.current.click()}
+                        className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-white/20 hover:bg-white/30"
+                        title="Change picture"
+                      >
+                        <Wrench size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleProfilePictureRemove}
+                        className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-white/20 hover:bg-white/30"
+                        title="Remove picture"
+                      >
+                        <X size={16} />
+                      </button>
+                      <input ref={fileInputRef} type="file" className="hidden" accept="image/*" onChange={handleProfilePictureUpload} disabled={!isEditingProfile} />
+                    </div>
                   </div>
 
                   <div className="text-center md:text-left flex-1">
