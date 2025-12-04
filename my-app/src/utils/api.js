@@ -197,6 +197,20 @@ export const bootstrapDevAuth = async () => {
 
 // ADDITIONAL APIs
 
+export const updateUserProfile = async (userData) => {
+  try {
+    const response = await api.put('/api/user/profile', userData);
+    console.log('updateUserProfile response:', response.data);
+    if (response.data.success) {
+      return response.data.user;
+    }
+    throw new Error(response.data.message || 'Profile update failed');
+  } catch (error) {
+    console.error('Update profile error:', error);
+    throw error;
+  }
+};
+
 export const userAPI = {
   uploadProfilePicture: async (formData) =>
     api.post('/api/files/profile-picture', formData, {

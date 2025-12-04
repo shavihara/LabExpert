@@ -39,6 +39,7 @@ from datetime import datetime
 import secrets
 import uuid
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Query, Request, Header, WebSocket, WebSocketDisconnect, Form
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse, FileResponse
@@ -102,6 +103,11 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 app = FastAPI()
+
+# Mount uploads directory (project root uploads)
+UPLOADS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../uploads"))
+os.makedirs(UPLOADS_DIR, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
 # Initialize WebSocket/session managers
 session_manager = SessionManager()
@@ -320,6 +326,15 @@ async def global_exception_handler(request: Request, exc: Exception):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+
+
+class ProfileUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    institutionType: Optional[str] = None
+    userType: Optional[str] = None
+    studentNo: Optional[str] = None
+    academicLevel: Optional[str] = None
+    grade: Optional[str] = None
 
 
 class SignupRequest(BaseModel):
@@ -572,9 +587,39 @@ async def root():
     }
 
 
+def to_camel_case(data):
+    if not data:
+        return data
+    result = {}
+    for key, value in data.items():
+        # Convert snake_case to camelCase
+        parts = key.split('_')
+        camel_key = parts[0] + ''.join(x.title() for x in parts[1:])
+        result[camel_key] = value
+    return result
+
+
 @app.get("/api/user/me")
 async def get_me(current_user=Depends(get_current_user)):
-    return {"success": True, "user": current_user}
+    return {"success": True, "user": to_camel_case(current_user)}
+
+
+@app.put("/api/user/profile")
+async def update_profile(req: ProfileUpdateRequest, current_user=Depends(get_current_user)):
+    # Map camelCase to snake_case
+    data = {}
+    if req.name is not None: data['name'] = req.name
+    if req.institutionType is not None: data['institution_type'] = req.institutionType
+    if req.userType is not None: data['user_type'] = req.userType
+    if req.studentNo is not None: data['student_no'] = req.studentNo
+    if req.academicLevel is not None: data['academic_level'] = req.academicLevel
+    if req.grade is not None: data['grade'] = req.grade
+    
+    updated_user = UserService.update_profile(current_user['id'], data)
+    if not updated_user:
+        raise HTTPException(404, "User not found")
+        
+    return {"success": True, "user": to_camel_case(updated_user)}
 
 
 @app.post("/api/auth/login")
@@ -590,12 +635,7 @@ async def login(req: LoginRequest, request: Request):
     return {
         "success": True,
         "token": token,
-        "user": {
-            "id": user['id'],
-            "name": user['name'],
-            "email": user['email'],
-            "role": user['role'],
-        },
+        "user": to_camel_case(user),
     }
 
 
@@ -613,7 +653,7 @@ async def signup(req: SignupRequest):
     return {
         "success": True,
         "token": token,
-        "user": {"id": user['id'], "name": req.name, "email": req.email},
+        "user": to_camel_case(user),
     }
 
 
@@ -676,7 +716,9 @@ def health():
 @app.post("/api/files/profile-picture")
 async def upload_profile(file: UploadFile = File(...), current_user=Depends(get_current_user)):
     saved = FileService.save_profile_picture(file, current_user['id'])
-    return {"success": True, "file": saved}
+    # Return updated user so frontend can update state
+    updated_user = UserService.find_by_id(current_user['id'])
+    return {"success": True, "file": saved, "user": to_camel_case(updated_user)}
 
 
 # ------------------ Admin Routes ------------------

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useWebSocket } from '../hooks/useWebSocket';
 import pendulumGif from '../assets/images/pendulum.gif';
 import { useTheme } from '../context/ThemeContext';
-import { logoutUser } from '../utils/api';
+import { logoutUser, updateUserProfile, userAPI, API_URL } from '../utils/api';
 import {
   LayoutDashboard,
   FlaskConical,
@@ -52,12 +52,50 @@ function UserDashboard() {
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const searchRef = useRef(null);
   const searchInputRef = useRef(null);
+
+  // Profile State
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [profileFormData, setProfileFormData] = useState({
+    name: '',
+    institutionType: 'Personal',
+    userType: 'Student',
+    studentNo: '',
+    academicLevel: '',
+    grade: '',
+  });
+  const [profileImagePreview, setProfileImagePreview] = useState(null);
+  const [notification, setNotification] = useState(null);
+
+  // Auto-clear notification after 3 seconds
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => {
+        setNotification(null);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
   
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
 
-  // Get current user
-  const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+  // Listen for storage events to update currentUser state (for sidebar sync)
+  const [currentUser, setCurrentUser] = useState(() => JSON.parse(localStorage.getItem('user') || '{}'));
+  
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const updatedUser = JSON.parse(localStorage.getItem('user') || '{}');
+      setCurrentUser(updatedUser);
+      // Also update userProfile if it's the current user
+      if (updatedUser.id) {
+         setUserProfile(prev => ({ ...prev, ...updatedUser }));
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
   const userToken = localStorage.getItem('token');
   
   // Initialize WebSocket connection
@@ -278,6 +316,68 @@ function UserDashboard() {
     alert(`Downloading ${type} report...`);
   };
 
+  // Sync profile form data with user profile
+  useEffect(() => {
+    if (userProfile) {
+      setProfileFormData(prev => ({
+        ...prev,
+        name: userProfile.name || '',
+        institutionType: userProfile.institutionType || 'Personal',
+        userType: userProfile.userType || 'Student',
+        studentNo: userProfile.studentNo || '',
+        academicLevel: userProfile.academicLevel || '',
+        grade: userProfile.grade || '',
+      }));
+    }
+  }, [userProfile]);
+
+  const handleProfileUpdate = async () => {
+    try {
+      // setLoading(true); // Don't full screen load, maybe just local loading state?
+      const updatedUser = await updateUserProfile(profileFormData);
+      setUserProfile(updatedUser);
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      setIsEditingProfile(false);
+      setNotification({ type: 'success', message: 'Profile updated successfully!' });
+      window.dispatchEvent(new Event('storage'));
+    } catch (error) {
+      setNotification({ type: 'error', message: 'Failed to update profile: ' + error.message });
+    }
+  };
+
+  const handleProfilePictureUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Preview
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setProfileImagePreview(reader.result);
+    };
+    reader.readAsDataURL(file);
+
+    // Upload
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await userAPI.uploadProfilePicture(formData);
+      if (response.data && response.data.user) {
+         setUserProfile(response.data.user);
+         localStorage.setItem('user', JSON.stringify(response.data.user));
+         window.dispatchEvent(new Event('storage'));
+      } else {
+         // Fallback if API doesn't return user, maybe fetch it again
+         const updatedUser = await updateUserProfile({}); // Just to refresh? Or use getCurrentUser
+         // logic depends on backend.
+      }
+      setNotification({ type: 'success', message: 'Profile picture updated!' });
+    } catch (error) {
+      console.error(error);
+      setNotification({ type: 'error', message: 'Failed to upload profile picture' });
+    }
+  };
+
   const handleLogout = async () => {
     setIsLoggingOut(true);
     
@@ -321,7 +421,19 @@ function UserDashboard() {
   );
 
   return (
-    <div className="flex h-[calc(100vh-var(--header-height))] bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
+    <div className="flex h-[calc(100vh-var(--header-height))] bg-gray-50 dark:bg-gray-900 transition-colors duration-300 relative">
+      {/* Notification Toast */}
+      {notification && (
+        <div className={`fixed top-20 right-4 z-50 px-6 py-3 rounded-lg shadow-lg transform transition-all duration-300 flex items-center gap-2 ${
+          notification.type === 'success' 
+            ? 'bg-green-500 text-white' 
+            : 'bg-red-500 text-white'
+        }`}>
+          {notification.type === 'success' ? <Activity size={20} /> : <X size={20} />}
+          <span className="font-medium">{notification.message}</span>
+        </div>
+      )}
+
       {isLoggingOut && <LogoutLoading />}
       {/* Mobile Sidebar Overlay */}
       {isSidebarOpen && (
@@ -357,8 +469,16 @@ function UserDashboard() {
           {/* User Info & Logout */}
           <div className="p-4 border-t border-gray-200 dark:border-gray-700">
             <div className="flex items-center space-x-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold">
-                {currentUser.name ? currentUser.name.charAt(0).toUpperCase() : 'U'}
+              <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold overflow-hidden">
+                {currentUser.profilePicture ? (
+                  <img 
+                    src={currentUser.profilePicture.startsWith('http') || currentUser.profilePicture.startsWith('data:') ? currentUser.profilePicture : `${API_URL}${currentUser.profilePicture.startsWith('/') ? '' : '/'}${currentUser.profilePicture}`} 
+                    alt="Profile" 
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  currentUser.name ? currentUser.name.charAt(0).toUpperCase() : 'U'
+                )}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
@@ -645,48 +765,189 @@ function UserDashboard() {
             <div className="max-w-4xl mx-auto space-y-6">
               <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
                 <div className="flex flex-col md:flex-row items-center gap-8 mb-8">
-                  <div className="w-24 h-24 rounded-full bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center text-3xl font-bold text-indigo-600 dark:text-indigo-400">
-                    {currentUser.name ? currentUser.name.charAt(0).toUpperCase() : 'U'}
+                  <div className="relative group">
+                    <div className="w-24 h-24 rounded-full bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center overflow-hidden border-4 border-white dark:border-gray-800 shadow-lg">
+                      {profileImagePreview || userProfile.profilePicture ? (
+                        <img 
+                          src={profileImagePreview || (userProfile.profilePicture?.startsWith('http') || userProfile.profilePicture?.startsWith('data:') ? userProfile.profilePicture : `${API_URL}${userProfile.profilePicture?.startsWith('/') ? '' : '/'}${userProfile.profilePicture}`)} 
+                          alt="Profile" 
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <span className="text-3xl font-bold text-indigo-600 dark:text-indigo-400">
+                          {userProfile.name ? userProfile.name.charAt(0).toUpperCase() : 'U'}
+                        </span>
+                      )}
+                    </div>
+                    <label className={`absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 text-white rounded-full cursor-pointer transition-opacity duration-200 ${isEditingProfile ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                      <span className="text-xs font-medium">Change</span>
+                      <input type="file" className="hidden" accept="image/*" onChange={handleProfilePictureUpload} disabled={!isEditingProfile} />
+                    </label>
                   </div>
-                  <div className="text-center md:text-left">
-                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{currentUser.name || 'User Name'}</h2>
-                    <p className="text-gray-500 dark:text-gray-400">{currentUser.email || 'user@example.com'}</p>
+
+                  <div className="text-center md:text-left flex-1">
+                    {isEditingProfile ? (
+                      <input 
+                        type="text"
+                        value={profileFormData.name}
+                        onChange={(e) => setProfileFormData({...profileFormData, name: e.target.value})}
+                        className="text-2xl font-bold text-gray-900 dark:text-white bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full md:w-auto"
+                        placeholder="Enter your name"
+                      />
+                    ) : (
+                      <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{userProfile.name || 'User Name'}</h2>
+                    )}
+                    
+                    <p className="text-gray-500 dark:text-gray-400">{userProfile.email || 'user@example.com'}</p>
+                    
                     <div className="mt-4 flex flex-wrap justify-center md:justify-start gap-2">
                       <span className="px-3 py-1 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 text-sm font-medium">
-                        Student
+                        {userProfile.userType || 'Student'}
                       </span>
-                      <span className="px-3 py-1 rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 text-sm font-medium">
-                        Level 5
-                      </span>
+                      {userProfile.institutionType === 'University' && userProfile.academicLevel && (
+                        <span className="px-3 py-1 rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 text-sm font-medium">
+                          {userProfile.academicLevel}
+                        </span>
+                      )}
+                      {userProfile.institutionType === 'School' && userProfile.grade && (
+                        <span className="px-3 py-1 rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 text-sm font-medium">
+                          {userProfile.grade}
+                        </span>
+                      )}
                     </div>
                   </div>
-                  <button className="md:ml-auto px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors">
-                    Edit Profile
+
+                  <button 
+                    onClick={() => {
+                      if (isEditingProfile) {
+                        handleProfileUpdate();
+                      } else {
+                        setIsEditingProfile(true);
+                      }
+                    }}
+                    className={`px-6 py-2 rounded-lg font-medium transition-colors ${
+                      isEditingProfile 
+                        ? 'bg-green-600 hover:bg-green-700 text-white'
+                        : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                    }`}
+                  >
+                    {isEditingProfile ? 'Save Changes' : 'Edit Profile'}
                   </button>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div>
-                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Personal Information</h3>
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Academic Information</h3>
                     <div className="space-y-4">
+                      
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Full Name</label>
-                        <input 
-                          type="text" 
-                          value={currentUser.name || ''} 
-                          readOnly 
-                          className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
-                        />
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Institution Type</label>
+                        {isEditingProfile ? (
+                          <select
+                            value={profileFormData.institutionType}
+                            onChange={(e) => setProfileFormData({...profileFormData, institutionType: e.target.value})}
+                            className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                          >
+                            <option value="Personal">Personal</option>
+                            <option value="University">University</option>
+                            <option value="Institute">Institute</option>
+                            <option value="School">School</option>
+                          </select>
+                        ) : (
+                          <div className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                            {userProfile.institutionType || 'Personal'}
+                          </div>
+                        )}
                       </div>
+
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email Address</label>
-                        <input 
-                          type="email" 
-                          value={currentUser.email || ''} 
-                          readOnly 
-                          className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
-                        />
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">User Type</label>
+                        {isEditingProfile ? (
+                          <select
+                            value={profileFormData.userType}
+                            onChange={(e) => setProfileFormData({...profileFormData, userType: e.target.value})}
+                            className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                          >
+                            <option value="Student">Student</option>
+                            <option value="Researcher">Researcher</option>
+                            <option value="Instructor">Instructor</option>
+                          </select>
+                        ) : (
+                          <div className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                            {userProfile.userType || 'Student'}
+                          </div>
+                        )}
                       </div>
+
+                      {/* Student No */}
+                      {(profileFormData.institutionType === 'University' || profileFormData.institutionType === 'Institute' || userProfile.institutionType === 'University' || userProfile.institutionType === 'Institute') && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            {profileFormData.userType === 'Student' ? 'Student No' : 'ID Number'}
+                          </label>
+                          {isEditingProfile ? (
+                            <input
+                              type="text"
+                              value={profileFormData.studentNo}
+                              onChange={(e) => setProfileFormData({...profileFormData, studentNo: e.target.value})}
+                              placeholder={profileFormData.institutionType === 'University' ? 'XX/XXXX/XXX' : 'Enter ID'}
+                              className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                            />
+                          ) : (
+                            <div className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                              {userProfile.studentNo || 'N/A'}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* University -> Academic Level */}
+                      {(profileFormData.institutionType === 'University' || userProfile.institutionType === 'University') && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Academic Level</label>
+                          {isEditingProfile ? (
+                            <select
+                                value={profileFormData.academicLevel}
+                                onChange={(e) => setProfileFormData({...profileFormData, academicLevel: e.target.value})}
+                                className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                            >
+                              <option value="">Select Level</option>
+                              <option value="Level 1">Level 1</option>
+                              <option value="Level 2">Level 2</option>
+                              <option value="Level 3">Level 3</option>
+                              <option value="Level 4">Level 4</option>
+                              <option value="Level 5">Level 5</option>
+                            </select>
+                          ) : (
+                            <div className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                              {userProfile.academicLevel || 'N/A'}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      
+                      {/* School -> Grade */}
+                      {(profileFormData.institutionType === 'School' || userProfile.institutionType === 'School') && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Grade</label>
+                          {isEditingProfile ? (
+                            <select
+                                value={profileFormData.grade}
+                                onChange={(e) => setProfileFormData({...profileFormData, grade: e.target.value})}
+                                className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                            >
+                              <option value="">Select Grade</option>
+                              {[...Array(13)].map((_, i) => (
+                                <option key={i} value={`Grade ${i+1}`}>Grade {i+1}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <div className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                              {userProfile.grade || 'N/A'}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
 
