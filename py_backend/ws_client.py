@@ -124,7 +124,8 @@ class ClientWebSocketManager:
             elif action == "ble_provision":
                 ssid = message.get("ssid")
                 password = message.get("pass") or message.get("password")
-                await self._handle_ble_provision(user_id, ssid, password)
+                username = message.get("user") or message.get("username")
+                await self._handle_ble_provision(user_id, ssid, password, username)
             elif action == "select_device":
                 device_id = message.get("device_id")
                 await self._handle_select_device(user_id, device_id)
@@ -212,7 +213,7 @@ class ClientWebSocketManager:
         self._ble_selected[user_id] = address or ""
         await self.send_to_user(user_id, {"type": "ble_selected", "address": address})
 
-    async def _handle_ble_provision(self, user_id: str, ssid: str, password: str):
+    async def _handle_ble_provision(self, user_id: str, ssid: str, password: str, username: str | None = None):
         import os
         from services.ble_service import BLEService
         import psutil
@@ -246,7 +247,7 @@ class ClientWebSocketManager:
                 mac_hex = f"{node:012x}".upper()
                 host_mac = ":".join(mac_hex[i:i+2] for i in range(0, 12, 2))
 
-            result = await svc.provision(address, ssid, password, host_mac, status_cb=cb, timeout=30.0)
+            result = await svc.provision(address, ssid, password, host_mac, username=username, status_cb=cb, timeout=30.0)
             await self.send_to_user(user_id, {"type": "ble_result", **result})
         except Exception as e:
             await self.send_to_user(user_id, {"type": "ble_result", "success": False, "message": str(e)})
