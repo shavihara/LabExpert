@@ -18,7 +18,7 @@ function ExperimentRouter() {
       return <ExperimentInterface experimentId={'1'} goBack={goBack} />;
 
     case '2':
-      return <OSIInterface goBack={goBack} />;
+      return <ExperimentInterface experimentId={'2'} goBack={goBack} />;
 
     case '5':
       return <ExperimentInterface experimentId={'5'} goBack={goBack} />;
