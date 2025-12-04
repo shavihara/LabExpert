@@ -24,7 +24,8 @@ import {
   Ruler,
   Zap,
   Volume2,
-  Download
+  Download,
+  Wrench
 } from 'lucide-react';
 
 import { 
@@ -32,6 +33,7 @@ import {
   LogoutLoading 
 } from '../components/ui-system/ResponsiveUI';
 import SensorProvisioning from './SensorProvisioning';
+import ProgramSensor from './ProgramSensor';
 
 function UserDashboard() {
   const [activeSection, setActiveSection] = useState('experiments');
@@ -755,6 +757,32 @@ function UserDashboard() {
                     <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Sensor Calibration</h3>
                     <p className="text-gray-500 dark:text-gray-400 text-center">View status and calibrate existing sensors</p>
                   </button>
+
+                  <button 
+                    onClick={() => setSensorMode('program')}
+                    className="flex flex-col items-center justify-center p-8 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 hover:shadow-lg hover:border-indigo-500 dark:hover:border-indigo-500 transition-all duration-300 group"
+                  >
+                    <div className="p-4 rounded-full bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 mb-4 group-hover:scale-110 transition-transform">
+                      <Wrench size={48} />
+                    </div>
+                    <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Program Sensor</h3>
+                    <p className="text-gray-500 dark:text-gray-400 text-center">Repair and reprogram sensor EEPROM IDs</p>
+                  </button>
+                </div>
+              )}
+
+              {sensorMode === 'program' && (
+                <div className="space-y-4">
+                  <button 
+                    onClick={() => setSensorMode('menu')}
+                    className="flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                  >
+                    <ChevronRight className="rotate-180" size={20} />
+                    Back to Menu
+                  </button>
+                  <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+                    <ProgramSensor token={userToken} isEmbedded={true} />
+                  </div>
                 </div>
               )}
 

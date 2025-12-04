@@ -313,18 +313,10 @@ class SessionManager:
                     sensor_type = device.get("sensor_id") or device.get("status", {}).get("sensor_type")
                     
                     if not sensor_type or sensor_type == "Unknown":
-                        if last_firmware:
-                            fw_upper = last_firmware.upper()
-                            if "TOF" in fw_upper:
-                                sensor_type = "TOF"
-                            elif "OSI" in fw_upper:
-                                sensor_type = "OSI"
-                            elif "INC" in fw_upper:
-                                sensor_type = "INC"
-                            else:
-                                sensor_type = "Unknown"
-                        else:
-                            sensor_type = "Unknown"
+                        sensor_type = "Unknown"
+                        # Removed firmware-based inference as it causes false positives for corrupted sensors
+                        # The user wants to see if the sensor is truly unknown/corrupted
+                        pass
                     
                     entry = {
                         "device_id": sensor_id,
@@ -480,8 +472,11 @@ class SessionManager:
         """
         logger.info(f"=== Checking online status for sensor_id: {sensor_id} ===")
         
+        # Check if service was already running
+        was_running = udp_discovery_service.is_running
+        
         # Start UDP discovery service on-demand for this check
-        if not udp_discovery_service.is_running:
+        if not was_running:
             logger.info("Starting UDP discovery service for device status check")
             await udp_discovery_service.start()
         
@@ -489,8 +484,8 @@ class SessionManager:
         try:
             discovered_devices = await udp_discovery_service.discover_devices()
             
-            # Stop UDP discovery service after check to prevent continuous background discovery
-            if udp_discovery_service.is_running:
+            # Stop UDP discovery service ONLY if we started it
+            if not was_running and udp_discovery_service.is_running:
                 logger.info("Stopping UDP discovery service after device status check")
                 await udp_discovery_service.stop()
             
@@ -516,6 +511,10 @@ class SessionManager:
                         "sensor_type": device.get('sensor_type', 'unknown'),
                         "availability": device.get('availability', 1)
                     })
+                    
+                    # Update top-level sensor_id with the discovered sensor_type
+                    if device.get('sensor_type'):
+                        device_info["sensor_id"] = device.get('sensor_type')
                     
                     device_info["last_seen"] = asyncio.get_event_loop().time()
                     
@@ -601,6 +600,10 @@ class SessionManager:
                                     "sensor_type": device.get('sensor_type', 'unknown'),
                                     "availability": device.get('availability', 1)
                                 })
+                                
+                                # Update top-level sensor_id with the discovered sensor_type
+                                if device.get('sensor_type'):
+                                    device_info["sensor_id"] = device.get('sensor_type')
                                 
                                 device_info["last_seen"] = asyncio.get_event_loop().time()
                                 break
@@ -705,6 +708,10 @@ class SessionManager:
                                     "availability": device.get('availability', 1)
                                 })
                                 
+                                # Update top-level sensor_id with the discovered sensor_type
+                                if device.get('sensor_type'):
+                                    device_info["sensor_id"] = device.get('sensor_type')
+                                
                                 device_info["last_seen"] = asyncio.get_event_loop().time()
                                 break
                     else:
@@ -752,9 +759,10 @@ class SessionManager:
             
         finally:
             # Stop UDP discovery service after scan to prevent continuous background discovery
+            # UDP discovery service kept running to receive real-time updates
             if udp_discovery_service.is_running:
-                logger.info("Stopping UDP discovery service after manual scan")
-                await udp_discovery_service.stop()
+                logger.info("UDP discovery service kept running after manual scan for real-time updates")
+                # await udp_discovery_service.stop()
         
         # Return the updated device list
         return await self.get_available_devices()

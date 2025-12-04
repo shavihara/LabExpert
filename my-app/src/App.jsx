@@ -20,6 +20,7 @@ import { getCurrentUser, bootstrapDevAuth } from './utils/api';
 import { ThemeProvider } from './context/ThemeContext';
 import './App.css';
 import SensorProvisioning from './pages/SensorProvisioning';
+import ProgramSensor from './pages/ProgramSensor';
 import About from './pages/About';
 
 function AppContent() {
@@ -152,6 +153,14 @@ function AppContent() {
             element={
               <PrivateRoute>
                 <SensorProvisioning token={localStorage.getItem('token')} />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/sensor/program"
+            element={
+              <PrivateRoute>
+                <ProgramSensor token={localStorage.getItem('token')} />
               </PrivateRoute>
             }
           />
