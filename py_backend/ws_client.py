@@ -124,7 +124,8 @@ class ClientWebSocketManager:
             elif action == "ble_provision":
                 ssid = message.get("ssid")
                 password = message.get("pass") or message.get("password")
-                await self._handle_ble_provision(user_id, ssid, password)
+                username = message.get("user") or message.get("username")
+                await self._handle_ble_provision(user_id, ssid, password, username)
             elif action == "select_device":
                 device_id = message.get("device_id")
                 await self._handle_select_device(user_id, device_id)
@@ -135,6 +136,8 @@ class ClientWebSocketManager:
             elif action == "flash_firmware":
                 # Flash firmware doesn't require device allocation - just needs device IP
                 await self._handle_flash_firmware(user_id, message.get("device_id"), message.get("experiment_type"), message.get("firmware_file"))
+            elif action == "repair_sensor":
+                await self._handle_repair_sensor(user_id, message.get("device_id"), message.get("sensor_type"))
             else:
                 # Verify allocation for device-specific actions
                 user_devices = await self.session_manager.get_user_devices(user_id)
@@ -212,7 +215,7 @@ class ClientWebSocketManager:
         self._ble_selected[user_id] = address or ""
         await self.send_to_user(user_id, {"type": "ble_selected", "address": address})
 
-    async def _handle_ble_provision(self, user_id: str, ssid: str, password: str):
+    async def _handle_ble_provision(self, user_id: str, ssid: str, password: str, username: str | None = None):
         import os
         from services.ble_service import BLEService
         import psutil
@@ -246,7 +249,7 @@ class ClientWebSocketManager:
                 mac_hex = f"{node:012x}".upper()
                 host_mac = ":".join(mac_hex[i:i+2] for i in range(0, 12, 2))
 
-            result = await svc.provision(address, ssid, password, host_mac, status_cb=cb, timeout=30.0)
+            result = await svc.provision(address, ssid, password, host_mac, username=username, status_cb=cb, timeout=30.0)
             await self.send_to_user(user_id, {"type": "ble_result", **result})
         except Exception as e:
             await self.send_to_user(user_id, {"type": "ble_result", "success": False, "message": str(e)})
@@ -583,3 +586,49 @@ class ClientWebSocketManager:
                 "success": False,
                 "message": f"Failed to save experiment data: {str(e)}"
             })
+    async def _handle_repair_sensor(self, user_id: str, device_id: str, sensor_type: str):
+        if not device_id or not sensor_type:
+            await self.send_to_user(user_id, {"type": "repair_sensor_result", "success": False, "message": "missing_parameters"})
+            return
+        try:
+            # Resolve device IP from session manager/UDP discovery
+            device = await self.session_manager.get_device(device_id)
+            ip = None
+            if device:
+                status = device.get("status", {})
+                ip = status.get("ip_address") or device.get("ip_address")
+            if not ip:
+                # Fall back to UDP discovery registry
+                from services.udp_discovery_service import udp_discovery_service
+                for d in udp_discovery_service.get_online_devices():
+                    if d.get("device_id") == device_id:
+                        ip = d.get("ip_address")
+                        break
+            if not ip:
+                await self.send_to_user(user_id, {"type": "repair_sensor_result", "success": False, "message": "device_ip_not_found"})
+                return
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                url = f"http://{ip}/sensor/repair"
+                payload = {"id": sensor_type}
+                async with session.post(url, json=payload, timeout=10) as resp:
+                    ok = resp.status == 200
+                    try:
+                        data = await resp.json()
+                    except Exception:
+                        data = {"message": await resp.text()}
+                    await self.send_to_user(user_id, {"type": "repair_sensor_result", "success": ok, **data})
+                    
+                    if ok:
+                        # Trigger immediate device status check to update sensor ID
+                        # Allow a short delay for device to process changes and broadcast new ID
+                        logger.info(f"Repair successful for {device_id}, triggering status check update")
+                        asyncio.create_task(self._delayed_status_check(device_id))
+                        
+        except Exception as e:
+            await self.send_to_user(user_id, {"type": "repair_sensor_result", "success": False, "message": str(e)})
+
+    async def _delayed_status_check(self, device_id: str):
+        """Wait briefly then check device status to capture new sensor ID"""
+        await asyncio.sleep(2)
+        await self.session_manager.check_device_online_status(device_id)

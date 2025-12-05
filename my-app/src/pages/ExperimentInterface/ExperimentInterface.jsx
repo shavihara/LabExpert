@@ -8,6 +8,7 @@ import {
 
 // New modular components
 import DynamicExperimentSelector from '../../components/experiment-selector/DynamicExperimentSelector';
+import OSIInterface from '../../components/OSIInterface';
 import ExperimentGraph from './components/ExperimentGraph/ExperimentGraph';
 import { ResponsiveCard, ResponsiveButton, StatusIndicator, ResponsiveModal } from '../../components/ui-system/ResponsiveUI';
 import { useExperimentStore } from '../../stores/experimentStore';
@@ -98,7 +99,7 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
   }, [experimentId, setSelectedExperimentId, setActiveExperiment]); // Removed showInfo and showError from dependencies
 
   useEffect(() => {
-    window.dispatchEvent(new CustomEvent('labex:header:collapse'))
+    window.dispatchEvent(new CustomEvent('labex:header:expand'))
   }, [])
 
   useEffect(() => {
@@ -398,61 +399,65 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
           </ResponsiveCard>
           
           {/* Main Content */}
-          <ResponsiveCard padding="xs">
-            <div className="mb-1 md:mb-6">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg md:text-2xl font-bold text-slate-800 flex items-center gap-2">
-                  <FiBarChart2 className="text-purple-600" />
-                  Live Data Feed
-                </h2>
-                <div className="hidden sm:grid grid-cols-3 gap-3 w-full pl-4">
-                  <div className={`rounded-xl border-2 p-3 ${isDark ? 'border-slate-700 bg-slate-800' : 'border-slate-300 bg-slate-100'}`}>
-                    <div className={`text-xs font-semibold mb-1 ${isDark ? 'text-slate-300 opacity-80' : 'text-slate-600 opacity-75'}`}>Status</div>
-                    <div className={`text-lg font-bold ${isDark ? 'text-slate-100' : ''}`}>{tileState.status || 'Stopped'}</div>
+          {experimentConfig?.id === '2' ? (
+            <OSIInterface />
+          ) : (
+            <ResponsiveCard padding="xs">
+              <div className="mb-1 md:mb-6">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg md:text-2xl font-bold text-slate-800 flex items-center gap-2">
+                    <FiBarChart2 className="text-purple-600" />
+                    Live Data Feed
+                  </h2>
+                  <div className="hidden sm:grid grid-cols-3 gap-3 w-full pl-4">
+                    <div className={`rounded-xl border-2 p-3 ${isDark ? 'border-slate-700 bg-slate-800' : 'border-slate-300 bg-slate-100'}`}>
+                      <div className={`text-xs font-semibold mb-1 ${isDark ? 'text-slate-300 opacity-80' : 'text-slate-600 opacity-75'}`}>Status</div>
+                      <div className={`text-lg font-bold ${isDark ? 'text-slate-100' : ''}`}>{tileState.status || 'Stopped'}</div>
+                    </div>
+                    <div className={`rounded-xl border-2 p-3 ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-300 bg-blue-50'}`}>
+                      <div className={`text-xs font-semibold mb-1 ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Time Remaining</div>
+                      <div className={`text-2xl font-bold font-mono ${isDark ? 'text-blue-200' : 'text-blue-900'} flex items-center gap-2`}>{formatTime(tileState.timeRemaining || 0)}</div>
+                    </div>
+                    <div className={`rounded-xl border-2 p-3 ${isDark ? 'border-purple-700 bg-purple-900/20' : 'border-purple-300 bg-purple-50'}`}>
+                      <div className={`text-xs font-semibold mb-1 ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>Configuration</div>
+                      <div className={`text-sm ${isDark ? 'text-purple-200' : 'text-purple-900'}`}>
+                        <div>Duration: {(tileState?.config?.duration_s) || 10}s</div>
+                        <div className={`text-xs ${isDark ? 'opacity-80' : 'opacity-75'}`}>Samples: {tileState.samples || 0}</div>
+                      </div>
+                    </div>
                   </div>
-                  <div className={`rounded-xl border-2 p-3 ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-300 bg-blue-50'}`}>
-                    <div className={`text-xs font-semibold mb-1 ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Time Remaining</div>
-                    <div className={`text-2xl font-bold font-mono ${isDark ? 'text-blue-200' : 'text-blue-900'} flex items-center gap-2`}>{formatTime(tileState.timeRemaining || 0)}</div>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2 sm:hidden">
+                  <div className={`rounded-lg border p-2 ${isDark ? 'border-slate-700 bg-slate-800' : 'border-slate-300 bg-slate-100'}`}>
+                    <div className={`text-[11px] font-semibold mb-1 ${isDark ? 'text-slate-300 opacity-80' : 'opacity-75'}`}>Status</div>
+                    <div className={`text-base font-bold ${isDark ? 'text-slate-100' : ''}`}>{tileState.status || 'Stopped'}</div>
                   </div>
-                  <div className={`rounded-xl border-2 p-3 ${isDark ? 'border-purple-700 bg-purple-900/20' : 'border-purple-300 bg-purple-50'}`}>
-                    <div className={`text-xs font-semibold mb-1 ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>Configuration</div>
-                    <div className={`text-sm ${isDark ? 'text-purple-200' : 'text-purple-900'}`}>
-                      <div>Duration: {(tileState?.config?.duration_s) || 10}s</div>
-                      <div className={`text-xs ${isDark ? 'opacity-80' : 'opacity-75'}`}>Samples: {tileState.samples || 0}</div>
+                  <div className={`rounded-lg border p-2 ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-300 bg-blue-50'}`}>
+                    <div className={`text-[11px] font-semibold mb-1 ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Time Remaining</div>
+                    <div className={`text-lg font-bold font-mono ${isDark ? 'text-blue-200' : 'text-blue-900'}`}>{formatTime(tileState.timeRemaining || 0)}</div>
+                  </div>
+                  <div className={`rounded-lg border p-2 ${isDark ? 'border-purple-700 bg-purple-900/20' : 'border-purple-300 bg-purple-50'} col-span-2`}>
+                    <div className={`text-[11px] font-semibold mb-1 ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>Configuration</div>
+                    <div className={`text-xs ${isDark ? 'text-purple-200' : 'text-purple-900'} flex justify-between`}>
+                      <span>Duration: {(tileState?.config?.duration_s) || 10}s</span>
+                      <span>Samples: {tileState.samples || 0}</span>
                     </div>
                   </div>
                 </div>
               </div>
-              <div className="mt-2 grid grid-cols-2 gap-2 sm:hidden">
-                <div className={`rounded-lg border p-2 ${isDark ? 'border-slate-700 bg-slate-800' : 'border-slate-300 bg-slate-100'}`}>
-                  <div className={`text-[11px] font-semibold mb-1 ${isDark ? 'text-slate-300 opacity-80' : 'opacity-75'}`}>Status</div>
-                  <div className={`text-base font-bold ${isDark ? 'text-slate-100' : ''}`}>{tileState.status || 'Stopped'}</div>
-                </div>
-                <div className={`rounded-lg border p-2 ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-300 bg-blue-50'}`}>
-                  <div className={`text-[11px] font-semibold mb-1 ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Time Remaining</div>
-                  <div className={`text-lg font-bold font-mono ${isDark ? 'text-blue-200' : 'text-blue-900'}`}>{formatTime(tileState.timeRemaining || 0)}</div>
-                </div>
-                <div className={`rounded-lg border p-2 ${isDark ? 'border-purple-700 bg-purple-900/20' : 'border-purple-300 bg-purple-50'} col-span-2`}>
-                  <div className={`text-[11px] font-semibold mb-1 ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>Configuration</div>
-                  <div className={`text-xs ${isDark ? 'text-purple-200' : 'text-purple-900'} flex justify-between`}>
-                    <span>Duration: {(tileState?.config?.duration_s) || 10}s</span>
-                    <span>Samples: {tileState.samples || 0}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            {/* Optimized Graph Renderer */}
-            <ExperimentGraph 
-              experimentType={experimentType}
-              token={userToken}
-              sharedWebSocket={sharedWebSocket}
-              sharedExperimentManager={sharedExperimentManager}
-              config={config}
-              subExperiment={selectedSubExperiment}
-              externalControls={false}
-            />
-          </ResponsiveCard>
+              
+              {/* Optimized Graph Renderer */}
+              <ExperimentGraph 
+                experimentType={experimentType}
+                token={userToken}
+                sharedWebSocket={sharedWebSocket}
+                sharedExperimentManager={sharedExperimentManager}
+                config={config}
+                subExperiment={selectedSubExperiment}
+                externalControls={false}
+              />
+            </ResponsiveCard>
+          )}
           
         </div>
       )}

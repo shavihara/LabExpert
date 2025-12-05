@@ -5,6 +5,7 @@ venv/
 .venv/
 env/
 LabEx_V1.2.code-workspace
+uploads
 # -------------------------
 # Python cache and compiled files
 # -------------------------

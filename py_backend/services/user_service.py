@@ -9,43 +9,82 @@ import sqlite3
 
 class UserService:
     @staticmethod
+    def ensure_profile_columns():
+        """
+        Ensures that the users table has all the necessary profile columns.
+        """
+        new_columns = {
+            "institution_type": "TEXT",
+            "user_type": "TEXT",
+            "student_no": "TEXT",
+            "academic_level": "TEXT",
+            "grade": "TEXT",
+            "profile_picture": "TEXT"
+        }
+        
+        with engine.connect() as conn:
+            # Get existing columns
+            result = conn.execute(text("PRAGMA table_info(users)"))
+            existing_columns = {row[1] for row in result.fetchall()}
+            
+            for col, dtype in new_columns.items():
+                if col not in existing_columns:
+                    try:
+                        conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} {dtype}"))
+                    except OperationalError:
+                        pass  # Column might have been added concurrently
+
+    @staticmethod
+    def update_profile(user_id, profile_data):
+        UserService.ensure_profile_columns()
+        
+        # Filter allowed fields
+        allowed_fields = [
+            'name', 'institution_type', 'user_type', 
+            'student_no', 'academic_level', 'grade'
+        ]
+        
+        update_fields = {}
+        for field in allowed_fields:
+            if field in profile_data:
+                update_fields[field] = profile_data[field]
+        
+        if not update_fields:
+            return None
+
+        # Construct dynamic update query
+        set_clause = ", ".join([f"{key} = :{key}" for key in update_fields.keys()])
+        stmt = text(f"UPDATE users SET {set_clause} WHERE id = :id")
+        
+        update_fields['id'] = user_id
+        
+        with engine.begin() as conn:
+            conn.execute(stmt, update_fields)
+            
+        return UserService.find_by_id(user_id)
+
+    @staticmethod
     def find_by_id(user_id):
+        UserService.ensure_profile_columns()
         stmt = text("SELECT * FROM users WHERE id = :id AND is_active = 1")
         with engine.connect() as conn:
+            # Use row mapping for safer access
             result = conn.execute(stmt, {"id": user_id})
-            row = result.fetchone()
+            row = result.mappings().fetchone()
+            
             if row:
-                return {
-                    'id': row[0],
-                    'name': row[1],
-                    'email': row[2],
-                    'password': row[3],
-                    'role': row[4] if len(row) > 4 else 'user',
-                    'is_email_verified': row[5] if len(row) > 5 else False,
-                    'is_active': row[6] if len(row) > 6 else True,
-                    'created_at': row[7] if len(row) > 7 else None,
-                    'last_login': row[8] if len(row) > 8 else None
-                }
+                return dict(row)
             return None
 
     @staticmethod
     def find_by_email(email):
+        UserService.ensure_profile_columns()
         stmt = text("SELECT * FROM users WHERE email = :email AND is_active = 1")
         with engine.connect() as conn:
             result = conn.execute(stmt, {"email": email})
-            row = result.fetchone()
+            row = result.mappings().fetchone()
             if row:
-                return {
-                    'id': row[0],
-                    'name': row[1],
-                    'email': row[2],
-                    'password': row[3],
-                    'role': row[4] if len(row) > 4 else 'user',
-                    'is_email_verified': row[5] if len(row) > 5 else False,
-                    'is_active': row[6] if len(row) > 6 else True,
-                    'created_at': row[7] if len(row) > 7 else None,
-                    'last_login': row[8] if len(row) > 8 else None
-                }
+                return dict(row)
             return None
 
     @staticmethod
@@ -89,12 +128,7 @@ class UserService:
                 "role": "user"
             })
 
-        return {
-            "id": user_id,
-            "name": user_data['name'],
-            "email": user_data['email'],
-            "role": "user"
-        }
+        return UserService.find_by_id(user_id)
 
     @staticmethod
     def count_all():

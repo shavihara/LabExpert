@@ -19,6 +19,8 @@ export default function SensorProvisioning({ token }) {
   const [selected, setSelected] = useState(null);
   const [ssid, setSsid] = useState('');
   const [passw, setPassw] = useState('');
+  const [username, setUsername] = useState('');
+  const [wifiMethod, setWifiMethod] = useState('personal'); // 'personal' or 'enterprise'
   const [status, setStatus] = useState('');
   const [enabled, setEnabled] = useState(true);
   const [isScanning, setIsScanning] = useState(false);
@@ -61,9 +63,15 @@ export default function SensorProvisioning({ token }) {
   };
 
   const provision = () => {
-    if (!ssid || !passw || !selected) return;
+    if (!ssid || !selected) return;
+    if (wifiMethod === 'personal' && !passw) return;
+    if (wifiMethod === 'enterprise' && (!username || !passw)) return;
     setIsProvisioning(true);
-    ws.sendMessage({ action: 'ble_provision', ssid, pass: passw });
+    const msg = { action: 'ble_provision', ssid, pass: passw };
+    if (wifiMethod === 'enterprise') {
+      msg.user = username;
+    }
+    ws.sendMessage(msg);
   };
 
   return (
@@ -213,6 +221,23 @@ export default function SensorProvisioning({ token }) {
             <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
               2. Configure WiFi
             </h3>
+            {/* Method selection */}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setWifiMethod('personal')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${wifiMethod === 'personal' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600'}`}
+              >
+                WPA2-Personal
+              </button>
+              <button
+                type="button"
+                onClick={() => setWifiMethod('enterprise')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${wifiMethod === 'enterprise' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600'}`}
+              >
+                WPA2-Enterprise
+              </button>
+            </div>
             
             <div className="grid grid-cols-1 gap-4">
               <div className="relative">
@@ -230,6 +255,23 @@ export default function SensorProvisioning({ token }) {
                   className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-shadow"
                 />
               </div>
+              {wifiMethod === 'enterprise' && (
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                    <Lock size={18} />
+                  </div>
+                  <input
+                    type="text"
+                    name="wifi_username"
+                    id="wifi_username"
+                    autoComplete="section-wifi username"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder="Username (Identity)"
+                    className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-shadow"
+                  />
+                </div>
+              )}
               
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
@@ -242,7 +284,7 @@ export default function SensorProvisioning({ token }) {
                   autoComplete="section-wifi current-password"
                   value={passw}
                   onChange={(e) => setPassw(e.target.value)}
-                  placeholder="Password"
+                  placeholder={wifiMethod === 'enterprise' ? 'Password (MSCHAPv2)' : 'Password'}
                   className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-shadow"
                 />
               </div>
@@ -250,9 +292,15 @@ export default function SensorProvisioning({ token }) {
 
             <button
               type="submit"
-              disabled={isProvisioning || !ssid || !passw || !selected}
+              disabled={
+                isProvisioning ||
+                !ssid ||
+                !selected ||
+                (wifiMethod === 'personal' && !passw) ||
+                (wifiMethod === 'enterprise' && (!username || !passw))
+              }
               className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-white transition-all duration-300 ${
-                isProvisioning || !ssid || !passw || !selected
+                isProvisioning || !ssid || !selected || (wifiMethod === 'enterprise' && (!username || !passw)) || (wifiMethod === 'personal' && !passw)
                   ? 'bg-gray-300 dark:bg-gray-700 cursor-not-allowed'
                   : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5'
               }`}
@@ -265,7 +313,7 @@ export default function SensorProvisioning({ token }) {
               ) : (
                 <>
                   <Wifi size={20} />
-                  Connect Sensor
+                  {wifiMethod === 'enterprise' ? 'Connect (Enterprise)' : 'Connect Sensor'}
                 </>
               )}
             </button>

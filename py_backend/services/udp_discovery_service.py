@@ -293,7 +293,8 @@ class UDPDiscoveryService:
         """Parse ESP32 response packet - ESP32 sends simple JSON"""
         try:
             # ESP32 sends JSON response directly
-            response_str = data.decode('utf-8')
+            # Use replace errors to handle garbage characters from corrupted EEPROMs
+            response_str = data.decode('utf-8', errors='replace')
             device_info = json.loads(response_str)
             
             # Validate required fields and magic value

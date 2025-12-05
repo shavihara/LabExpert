@@ -18,8 +18,10 @@ import ExperimentRouter from './ExperimentRouter';
 import PrivateRoute from './components/PrivateRoute';
 import { getCurrentUser, bootstrapDevAuth } from './utils/api';
 import { ThemeProvider } from './context/ThemeContext';
+import { FullscreenProvider } from './context/FullscreenContext';
 import './App.css';
 import SensorProvisioning from './pages/SensorProvisioning';
+import ProgramSensor from './pages/ProgramSensor';
 import About from './pages/About';
 
 function AppContent() {
@@ -155,6 +157,14 @@ function AppContent() {
               </PrivateRoute>
             }
           />
+          <Route
+            path="/sensor/program"
+            element={
+              <PrivateRoute>
+                <ProgramSensor token={localStorage.getItem('token')} />
+              </PrivateRoute>
+            }
+          />
         </Routes>
       </main>
       <ToastContainer />
@@ -165,7 +175,9 @@ function AppContent() {
 function App() {
   return (
     <ThemeProvider>
-      <AppContent />
+      <FullscreenProvider>
+        <AppContent />
+      </FullscreenProvider>
     </ThemeProvider>
   );
 }

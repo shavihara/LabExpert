@@ -23,6 +23,15 @@ function Login({ setCurrentUser }) {
         console.log('Stored user:', user);
         console.log('Stored token:', localStorage.getItem('token'));
 
+        const isMobile = window.matchMedia('(max-width: 768px)').matches;
+        if (isMobile) {
+          const el = document.documentElement;
+          const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+          if (req) {
+            try { await req.call(el); localStorage.setItem('fullscreen', 'true'); } catch (e) {}
+          }
+        }
+
         const currentUser = await getCurrentUser();
         console.log('getCurrentUser response:', currentUser);
         if (currentUser) {
