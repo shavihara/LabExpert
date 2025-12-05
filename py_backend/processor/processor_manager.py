@@ -39,6 +39,8 @@ class SensorProcessorManager:
             mapped_experiment_type = "displacement"
         elif experiment_type == "distance":
             mapped_experiment_type = "displacement"
+        elif experiment_type == "pendulum_simple" or experiment_type == "pendulum_compound":
+            mapped_experiment_type = "oscillation"
         
         if mapped_experiment_type not in self.processors[device_id]:
             # Create appropriate processor based on experiment type
@@ -70,6 +72,8 @@ class SensorProcessorManager:
             mapped_experiment_type = "displacement"
         elif experiment_type == "inclined_plane":
             mapped_experiment_type = "displacement"
+        elif experiment_type == "pendulum_simple" or experiment_type == "pendulum_compound":
+            mapped_experiment_type = "oscillation"
         
         self.device_experiments[device_id] = mapped_experiment_type
         logger.info(f"Device {device_id} set to experiment type: {mapped_experiment_type} (original: {experiment_type})")

@@ -1168,6 +1168,8 @@ class ExperimentType(Enum):
     DISTANCE = "distance"
     OSCILLATION = "oscillation"
     DISPLACEMENT = "displacement"
+    PENDULUM_SIMPLE = "pendulum_simple"
+    PENDULUM_COMPOUND = "pendulum_compound"
 
 
 class ExperimentSelectRequest(BaseModel):
@@ -1212,6 +1214,8 @@ async def select_experiment(
             ota_key = "oscillation"
         elif exp == ExperimentType.DISPLACEMENT:
             ota_key = "displacement"
+        elif exp == ExperimentType.PENDULUM_SIMPLE or exp == ExperimentType.PENDULUM_COMPOUND:
+            ota_key = "oscillation"
         else:
             raise HTTPException(400, f"Unknown experiment type: {exp}")
 
@@ -1315,7 +1319,9 @@ async def get_available_experiments(
     experiments = [
         {"type": "distance", "file": f"{device_id}.bin", "name": "Distance Measurement"},
         {"type": "oscillation", "file": f"{device_id}_OSC.bin", "name": "Oscillation Timing"},
-        {"type": "displacement", "file": f"{device_id}.bin", "name": "Displacement Analysis"}
+        {"type": "displacement", "file": f"{device_id}.bin", "name": "Displacement Analysis"},
+        {"type": "pendulum_simple", "file": "OSISIM.bin", "name": "Simple Pendulum"},
+        {"type": "pendulum_compound", "file": "OSICOM.bin", "name": "Compound Pendulum"}
     ]
 
     for exp in experiments:

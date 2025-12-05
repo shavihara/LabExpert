@@ -8,7 +8,6 @@ import {
 
 // New modular components
 import DynamicExperimentSelector from '../../components/experiment-selector/DynamicExperimentSelector';
-import OSIInterface from '../../components/OSIInterface';
 import ExperimentGraph from './components/ExperimentGraph/ExperimentGraph';
 import { ResponsiveCard, ResponsiveButton, StatusIndicator, ResponsiveModal } from '../../components/ui-system/ResponsiveUI';
 import { useExperimentStore } from '../../stores/experimentStore';
@@ -35,6 +34,7 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
   const [config, setConfig] = useState({ frequency_hz: 20, max_distance_cm: 150, duration_s: 10 });
   const [experimentType, setExperimentType] = useState(localStorage.getItem('experimentType') || 'displacement');
   const [tileState, setTileState] = useState({ status: 'Stopped', timeRemaining: 0, samples: 0, config });
+  const [experimentResults, setExperimentResults] = useState([]);
   
   // Store integration
   const {
@@ -139,19 +139,21 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
     if (!lastMessage) return;
     
     try {
-      // Check if the message data is valid before parsing
-      if (!lastMessage.data || lastMessage.data === 'undefined') {
-        console.warn('Received invalid WebSocket message data:', lastMessage.data);
-        return;
+      let data = lastMessage;
+      if (typeof data === 'string') {
+        try { data = JSON.parse(data); } catch {}
       }
-      
-      const data = JSON.parse(lastMessage.data);
       
       // Handle different message types
       switch (data.type) {
         case 'experiment_data':
           setRawData(prevData => [...prevData, data.payload]);
           setExperimentData(prevData => [...prevData, data.payload]);
+          break;
+
+        case 'processed_data':
+          setRawData(prevData => [...prevData, data.data]);
+          setExperimentData(prevData => [...prevData, data.data]);
           break;
           
         case 'device_connected':
@@ -193,12 +195,20 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
   }, [lastMessage, setExperimentData, setExperimentStatus]); // Removed toast functions from dependencies
   
   // Handle experiment completion
-  const handleExperimentComplete = useCallback(({ device, experimentType, token }) => {
+  const handleExperimentComplete = useCallback(({ device, experimentType, token, subExperiment }) => {
     try {
       localStorage.setItem('selectedDevice', JSON.stringify(device));
       localStorage.setItem('experimentType', experimentType);
       setSelectedDevice(device);
       setExperimentType(experimentType);
+      
+      if (subExperiment) {
+        setSelectedSubExperiment(subExperiment);
+        if (subExperiment.defaultConfig) {
+          setConfig(subExperiment.defaultConfig);
+        }
+      }
+
       setShowConfigModal(false);
       showSuccess('Experiment configured successfully');
       
@@ -398,11 +408,36 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
             </div>
           </ResponsiveCard>
           
+          {/* Oscillation Counter Display for Experiment 2 */}
+          {experimentConfig?.id === '2' && (
+            <div className="bg-gradient-to-br from-white to-blue-50 rounded-3xl p-6 sm:p-10 shadow-xl border-2 border-blue-200">
+              <div className="text-center">
+                <div className="text-xs sm:text-sm font-bold text-slate-500 mb-2">Oscillation Count</div>
+                <div className="text-6xl sm:text-9xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent mb-4 animate-pulse">
+                  {rawData.length > 0 ? (rawData[rawData.length - 1].oscillation_count ?? rawData[rawData.length - 1].count ?? 0) : 0}
+                </div>
+                <div className="grid grid-cols-2 gap-4 max-w-md mx-auto">
+                  <div className="bg-white rounded-xl p-4 shadow-md">
+                    <div className="text-xs font-bold text-slate-500">MAX COUNT</div>
+                    <div className="text-2xl sm:text-3xl font-bold text-blue-600">
+                      {config.max_count || 50}
+                    </div>
+                  </div>
+                  <div className="bg-white rounded-xl p-4 shadow-md">
+                    <div className="text-xs font-bold text-slate-500">TIME</div>
+                    <div className="text-2xl sm:text-3xl font-bold text-cyan-600">
+                      {rawData.length > 0 
+                        ? (rawData[rawData.length - 1].time ?? rawData[rawData.length - 1].t ?? 0).toFixed(2)
+                        : '0.00'} s
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Main Content */}
-          {experimentConfig?.id === '2' ? (
-            <OSIInterface />
-          ) : (
-            <ResponsiveCard padding="xs">
+          <ResponsiveCard padding="xs">
               <div className="mb-1 md:mb-6">
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg md:text-2xl font-bold text-slate-800 flex items-center gap-2">
@@ -414,15 +449,50 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
                       <div className={`text-xs font-semibold mb-1 ${isDark ? 'text-slate-300 opacity-80' : 'text-slate-600 opacity-75'}`}>Status</div>
                       <div className={`text-lg font-bold ${isDark ? 'text-slate-100' : ''}`}>{tileState.status || 'Stopped'}</div>
                     </div>
-                    <div className={`rounded-xl border-2 p-3 ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-300 bg-blue-50'}`}>
-                      <div className={`text-xs font-semibold mb-1 ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Time Remaining</div>
-                      <div className={`text-2xl font-bold font-mono ${isDark ? 'text-blue-200' : 'text-blue-900'} flex items-center gap-2`}>{formatTime(tileState.timeRemaining || 0)}</div>
-                    </div>
+                    
+                    {experimentConfig?.id === '2' ? (
+                      <div className={`rounded-xl border-2 p-3 ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-300 bg-blue-50'}`}>
+                        <div className={`text-xs font-semibold mb-1 ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Running Time</div>
+                        <div className={`text-2xl font-bold font-mono ${isDark ? 'text-blue-200' : 'text-blue-900'} flex items-center gap-2`}>
+                          {formatTime(tileState.runningTime || 0)}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className={`rounded-xl border-2 p-3 ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-300 bg-blue-50'}`}>
+                        <div className={`text-xs font-semibold mb-1 ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Time Remaining</div>
+                        <div className={`text-2xl font-bold font-mono ${isDark ? 'text-blue-200' : 'text-blue-900'} flex items-center gap-2`}>
+                          {formatTime(tileState.timeRemaining || 0)}
+                        </div>
+                      </div>
+                    )}
+
                     <div className={`rounded-xl border-2 p-3 ${isDark ? 'border-purple-700 bg-purple-900/20' : 'border-purple-300 bg-purple-50'}`}>
                       <div className={`text-xs font-semibold mb-1 ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>Configuration</div>
                       <div className={`text-sm ${isDark ? 'text-purple-200' : 'text-purple-900'}`}>
-                        <div>Duration: {(tileState?.config?.duration_s) || 10}s</div>
-                        <div className={`text-xs ${isDark ? 'opacity-80' : 'opacity-75'}`}>Samples: {tileState.samples || 0}</div>
+                        {experimentConfig?.id === '2' ? (
+                          <div className="flex flex-col gap-1">
+                            {selectedSubExperiment?.id === '2.1' && (
+                                <>
+                                  <div>Max Count: {config?.max_count || 50}</div>
+                                  <div>Length: {config?.pendulum_length_cm || 100} cm</div>
+                                </>
+                            )}
+                            {selectedSubExperiment?.id === '2.2' && (
+                                <>
+                                  <div>Max Count: {config?.max_count || 50}</div>
+                                  <div>Dist: {config?.pivot_to_com_distance_cm || 50} cm</div>
+                                </>
+                            )}
+                            {!['2.1', '2.2'].includes(selectedSubExperiment?.id) && (
+                                <div>Freq: {config?.frequency_hz || 10} Hz</div>
+                            )}
+                          </div>
+                        ) : (
+                          <>
+                            <div>Duration: {(tileState?.config?.duration_s) || 10}s</div>
+                            <div className={`text-xs ${isDark ? 'opacity-80' : 'opacity-75'}`}>Samples: {tileState.samples || 0}</div>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -432,15 +502,50 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
                     <div className={`text-[11px] font-semibold mb-1 ${isDark ? 'text-slate-300 opacity-80' : 'opacity-75'}`}>Status</div>
                     <div className={`text-base font-bold ${isDark ? 'text-slate-100' : ''}`}>{tileState.status || 'Stopped'}</div>
                   </div>
-                  <div className={`rounded-lg border p-2 ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-300 bg-blue-50'}`}>
-                    <div className={`text-[11px] font-semibold mb-1 ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Time Remaining</div>
-                    <div className={`text-lg font-bold font-mono ${isDark ? 'text-blue-200' : 'text-blue-900'}`}>{formatTime(tileState.timeRemaining || 0)}</div>
-                  </div>
+                  
+                  {experimentConfig?.id === '2' ? (
+                    <div className={`rounded-lg border p-2 ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-300 bg-blue-50'}`}>
+                      <div className={`text-[11px] font-semibold mb-1 ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Running Time</div>
+                      <div className={`text-lg font-bold font-mono ${isDark ? 'text-blue-200' : 'text-blue-900'}`}>
+                        {formatTime(tileState.runningTime || 0)}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className={`rounded-lg border p-2 ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-300 bg-blue-50'}`}>
+                      <div className={`text-[11px] font-semibold mb-1 ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Time Remaining</div>
+                      <div className={`text-lg font-bold font-mono ${isDark ? 'text-blue-200' : 'text-blue-900'}`}>
+                        {formatTime(tileState.timeRemaining || 0)}
+                      </div>
+                    </div>
+                  )}
+
                   <div className={`rounded-lg border p-2 ${isDark ? 'border-purple-700 bg-purple-900/20' : 'border-purple-300 bg-purple-50'} col-span-2`}>
                     <div className={`text-[11px] font-semibold mb-1 ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>Configuration</div>
                     <div className={`text-xs ${isDark ? 'text-purple-200' : 'text-purple-900'} flex justify-between`}>
-                      <span>Duration: {(tileState?.config?.duration_s) || 10}s</span>
-                      <span>Samples: {tileState.samples || 0}</span>
+                      {experimentConfig?.id === '2' ? (
+                        <div className="flex justify-between w-full">
+                          {selectedSubExperiment?.id === '2.1' && (
+                              <>
+                                <span>Max: {config?.max_count || 50}</span>
+                                <span>L: {config?.pendulum_length_cm || 100}cm</span>
+                              </>
+                          )}
+                          {selectedSubExperiment?.id === '2.2' && (
+                              <>
+                                <span>Max: {config?.max_count || 50}</span>
+                                <span>D: {config?.pivot_to_com_distance_cm || 50}cm</span>
+                              </>
+                          )}
+                          {!['2.1', '2.2'].includes(selectedSubExperiment?.id) && (
+                              <span>Freq: {config?.frequency_hz || 10} Hz</span>
+                          )}
+                        </div>
+                      ) : (
+                        <>
+                          <span>Duration: {(tileState?.config?.duration_s) || 10}s</span>
+                          <span>Samples: {tileState.samples || 0}</span>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -455,9 +560,11 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
                 config={config}
                 subExperiment={selectedSubExperiment}
                 externalControls={false}
+                onNextAttempt={() => setShowConfigPanel(true)}
+                experimentResults={experimentResults}
+                setExperimentResults={setExperimentResults}
               />
             </ResponsiveCard>
-          )}
           
         </div>
       )}
@@ -470,6 +577,7 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
           selectedDevice={selectedDevice}
           userToken={userToken}
           sharedExperimentManager={sharedExperimentManager}
+          selectedSubExperiment={selectedSubExperiment}
         />
       )}
       

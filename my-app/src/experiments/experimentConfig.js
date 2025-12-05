@@ -137,30 +137,31 @@ export const experimentRegistry = {
         name: 'Simple Pendulum',
         icon: '⚖️',
         description: 'Measure oscillation period and frequency of a simple pendulum',
-        firmware: 'PEND_SIMPLE.bin',
+        firmware: 'OSISIM.bin',
         firmwareType: 'pendulum_simple',
 
-        dataFields: ['time', 'angle', 'angular_velocity', 'period'],
+        dataFields: ['time', 'period', 'frequency', 'oscillation_count'],
         units: {
           time: 's',
-          angle: '°',
-          angular_velocity: '°/s',
-          period: 's'
+          period: 's',
+          frequency: 'Hz',
+          oscillation_count: '',
+          t2_vs_l: 's²'
         },
 
         graphConfig: {
           xAxis: 'time',
-          yAxes: ['angle', 'angular_velocity'],
-          colors: ['#EF4444', '#F97316'],
-          yAxisLabels: ['Angle (°)', 'Angular Velocity (°/s)']
+          yAxes: ['t2_vs_l'],
+          colors: ['#EF4444'],
+          yAxisLabels: ['The Graph Of T²  vs  L']
         },
 
         tableConfig: {
           columns: [
             { key: 'time', label: 'Time (s)', format: 'float', precision: 2 },
-            { key: 'angle', label: 'Angle (°)', format: 'float', precision: 1 },
-            { key: 'angular_velocity', label: 'Angular Velocity (°/s)', format: 'float', precision: 2 },
-            { key: 'period', label: 'Period (s)', format: 'float', precision: 3 }
+            { key: 'period', label: 'Period (s)', format: 'float', precision: 3 },
+            { key: 'frequency', label: 'Frequency (Hz)', format: 'float', precision: 2 },
+            { key: 'oscillation_count', label: 'Count', format: 'int' }
           ]
         },
 
@@ -170,7 +171,8 @@ export const experimentRegistry = {
           frequency_hz: 10,
           max_angle_degrees: 30,
           duration_s: 30,
-          pendulum_length_cm: 100
+          pendulum_length_cm: 100,
+          max_count: 50
         }
       },
 
@@ -179,7 +181,7 @@ export const experimentRegistry = {
         name: 'Compound Pendulum',
         icon: '🔨',
         description: 'Analyze complex pendulum motion with damping effects',
-        firmware: 'PEND_COMPOUND.bin',
+        firmware: 'OSICOM.bin',
         firmwareType: 'pendulum_compound',
 
         dataFields: ['time', 'angle', 'angular_velocity', 'damping_coefficient'],
@@ -212,7 +214,9 @@ export const experimentRegistry = {
           frequency_hz: 15,
           max_angle_degrees: 45,
           duration_s: 45,
-          damping_factor: 0.1
+          damping_factor: 0.1,
+          max_count: 50,
+          pivot_to_com_distance_cm: 50
         }
       }
     }

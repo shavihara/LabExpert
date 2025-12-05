@@ -10,6 +10,7 @@ import {
 } from 'react-icons/fi';
 
 import { useFullscreen } from '../context/FullscreenContext';
+import { useTheme } from '../context/ThemeContext';
 
 const PlotlyGraph = ({ 
   experimentType, 
@@ -32,7 +33,9 @@ const PlotlyGraph = ({
   axis = { x: { label: 'Time', unit: 's' }, y: { distance:{label:'Displacement',unit:'cm'}, velocity:{label:'Velocity',unit:'cm/s'}, acceleration:{label:'Acceleration',unit:'cm/s²'}, intensity:{label:'Intensity',unit:'lux'} } },
   onModeChange,
   onAnalysisData,
-  externalMode
+  externalMode,
+  analysisResults,
+  bestFitData
 }) => {
   const { theme } = useTheme?.() || { theme: 'light' };
   const isDark = theme === 'dark';
@@ -182,6 +185,37 @@ const PlotlyGraph = ({
 
   // Prepare data for Plotly
   const preparePlotData = useCallback(() => {
+    // Special Handling for Pendulum Analysis
+    if (analysisResults && analysisResults.length > 0) {
+      const traces = [
+        {
+          x: analysisResults.map(r => r.length_cm),
+          y: analysisResults.map(r => r.period_squared),
+          type: 'scatter',
+          mode: 'markers',
+          name: 'Data Points',
+          marker: { color: '#3B82F6', size: 10, symbol: 'circle' }
+        }
+      ];
+
+      if (bestFitData) {
+        const minL = Math.min(...analysisResults.map(r => r.length_cm));
+        const maxL = Math.max(...analysisResults.map(r => r.length_cm));
+        const xLine = [minL, maxL];
+        const yLine = [bestFitData.slope * minL + bestFitData.intercept, bestFitData.slope * maxL + bestFitData.intercept];
+        
+        traces.push({
+          x: xLine,
+          y: yLine,
+          type: 'scatter',
+          mode: 'lines',
+          name: 'Best Fit',
+          line: { color: '#EF4444', width: 2, dash: 'dash' }
+        });
+      }
+      return traces;
+    }
+
     const data = mode === 'analysis' ? analysisDataRef.current : chartData;
     // Filter out neglected points entirely from graph rendering
     const effectiveData = (neglectedData && neglectedData.size > 0)
@@ -283,7 +317,35 @@ const PlotlyGraph = ({
     }
 
     return traces;
-  }, [chartData, mode, visibleTraces, neglectedData]);
+  }, [chartData, visibleTraces, mode, neglectedData, analysisResults, bestFitData]);
+
+  const layout = useMemo(() => {
+    if (analysisResults && analysisResults.length > 0) {
+      return {
+        autosize: true,
+        margin: { l: 50, r: 20, t: 30, b: 40 },
+        showlegend: true,
+        legend: { orientation: 'h', y: 1.1 },
+        xaxis: { 
+          title: 'Length (cm)', 
+          fixedrange: false,
+          gridcolor: isDark ? '#334155' : '#e2e8f0',
+          zerolinecolor: isDark ? '#475569' : '#94a3b8'
+        },
+        yaxis: { 
+          title: 'Period Squared (s²)', 
+          fixedrange: false,
+          gridcolor: isDark ? '#334155' : '#e2e8f0',
+          zerolinecolor: isDark ? '#475569' : '#94a3b8'
+        },
+        paper_bgcolor: 'transparent',
+        plot_bgcolor: 'transparent',
+        font: { color: isDark ? '#e2e8f0' : '#475569' }
+      };
+    }
+
+    return null;
+  }, [analysisResults, isDark, axis, dragMode, selectedRegion, isNeglectMode]);
 
   // Backend provides energy values for experiments 1.1/1.2, so analysis uses raw chartData
   const calculateEnergyValues = useCallback((data) => data, []);
@@ -541,15 +603,25 @@ const PlotlyGraph = ({
   };
 
   const TraceVisibilityControls = () => {
-    const getTraceLabel = (trace) => ({
-      'i-t': axis?.y?.intensity?.label || 'Intensity',
-      's-t': axis?.y?.distance?.label || 'Displacement',
-      'v-t': axis?.y?.velocity?.label || 'Velocity', 
-      'a-t': axis?.y?.acceleration?.label || 'Acceleration',
-      'ke': 'Kinetic Energy',
-      'pe': 'Potential Energy',
-      'te': 'Total Energy'
-    }[trace]);
+    const getTraceLabel = (trace) => {
+      const predefined = {
+        'i-t': axis?.y?.intensity?.label || 'Intensity',
+        's-t': axis?.y?.distance?.label || 'Displacement',
+        'v-t': axis?.y?.velocity?.label || 'Velocity', 
+        'a-t': axis?.y?.acceleration?.label || 'Acceleration',
+        'ke': 'Kinetic Energy',
+        'pe': 'Potential Energy',
+        'te': 'Total Energy'
+      }[trace];
+      
+      if (predefined) return predefined;
+      
+      // Fallback for custom traces like t2_vs_l
+      // Try to find matching key in axis.y
+      // mapKey(k) = k + '-t' (usually)
+      const rawKey = trace.endsWith('-t') ? trace.slice(0, -2) : trace;
+      return axis?.y?.[rawKey]?.label || trace;
+    };
 
     const getTraceColor = (trace) => ({
       'i-t': 'bg-yellow-500 hover:bg-yellow-600',
@@ -559,7 +631,7 @@ const PlotlyGraph = ({
       'ke': 'bg-orange-500 hover:bg-orange-600',
       'pe': 'bg-purple-500 hover:bg-purple-600',
       'te': 'bg-cyan-500 hover:bg-cyan-600'
-    }[trace]);
+    }[trace] || 'bg-slate-500 hover:bg-slate-600');
 
     const tone = (t) => ({
       's-t': { ring: 'ring-blue-200', text: 'text-blue-700', bar: 'bg-blue-500' },
@@ -695,7 +767,7 @@ const PlotlyGraph = ({
             ref={plotRef}
             plotly={plotlyLib}
             data={preparePlotData()}
-            layout={{
+            layout={layout || {
               uirevision: 'keep-zoom',
               font: { color: isDark ? '#e5e7eb' : undefined },
               // Title and icon are rendered in the header above the plot for consistent alignment
@@ -800,4 +872,3 @@ const PlotlyGraph = ({
 };
 
 export default PlotlyGraph;
-import { useTheme } from '../context/ThemeContext';

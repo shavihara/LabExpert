@@ -17,18 +17,57 @@ class OscillationProcessor(SensorProcessor):
         self.cut_times = []  # Times when beam is cut
         self.periods = []    # Calculated periods
         self.last_cut_time = None
+        self.last_osc_time_ms = None
         self.oscillation_count = 0
         self.measurement_setup = {}
         
     def get_experiment_type(self) -> str:
         return self.experiment_type
         
+    def configure(self, config: dict):
+        """Configure processor with experiment parameters"""
+        super().configure(config)
+        # Update measurement setup with new config
+        # This ensures parameters like max_count and pendulum_length_cm are available
+        self.measurement_setup.update(config)
+        logger.info(f"Oscillation processor configured: {config}")
+
     async def process_data(self, raw_data: dict) -> dict:
         """Process oscillation sensor data to calculate periods and frequencies"""
         try:
-            # Expected format: {"cut_time": float} or {"t": float, "beam_broken": bool}
+            # Check for OSI Firmware completion/result packet
+            # Expected format: {"status": "experiment_completed", "total_time": float, "count": int}
+            if raw_data.get("status") == "experiment_completed" and "total_time" in raw_data:
+                total_time = float(raw_data["total_time"])
+                count = int(raw_data.get("count", self.measurement_setup.get("max_count", 1)))
+                length_cm = float(self.measurement_setup.get("pendulum_length_cm", 0))
+                
+                # Calculate Period (T) and T^2
+                period = total_time / count if count > 0 else 0
+                period_sq = period ** 2
+                
+                processed_data = {
+                    "type": "experiment_result",
+                    "status": "experiment_completed",
+                    "total_time": total_time,
+                    "count": count,
+                    "length_cm": length_cm,
+                    "period": period,
+                    "period_squared": period_sq,
+                    "g_calculated": (4 * (np.pi**2) * (length_cm/100)) / period_sq if period_sq > 0 else 0
+                }
+                
+                # Log the result
+                logger.info(f"Experiment Result Calculated: {processed_data}")
+                return processed_data
+
+            # Standard beam-break or oscillation event processing
+            # Supported formats:
+            # 1) {"cut_time": float} or {"t": float, "beam_broken": bool}
+            # 2) {"count": int, "oscillation_time_ms": int}
             current_time = raw_data.get("cut_time") or raw_data.get("t", 0.0)
-            beam_broken = raw_data.get("beam_broken", True)
+            # Default to False so we only treat explicit cut events as beam breaks
+            beam_broken = raw_data.get("beam_broken", False)
             
             processed_data = {
                 "t": current_time,
@@ -36,33 +75,75 @@ class OscillationProcessor(SensorProcessor):
                 "total_cuts": len(self.cut_times)
             }
             
+            # Handle firmware-side oscillation event packets
+            if raw_data.get("count") is not None:
+                try:
+                    event_count = int(raw_data.get("count"))
+                except Exception:
+                    event_count = self.oscillation_count
+                t_ms = raw_data.get("oscillation_time_ms")
+                if t_ms is not None:
+                    try:
+                        t_ms = float(t_ms)
+                    except Exception:
+                        t_ms = None
+                # Map firmware time to processed 't' (seconds) when available
+                if t_ms is not None:
+                    processed_data["t"] = t_ms / 1000.0
+                    processed_data["timestamp_ms"] = t_ms
+                # Update oscillation_count directly from firmware
+                self.oscillation_count = event_count
+                processed_data["oscillation_count"] = self.oscillation_count
+                if t_ms is not None:
+                    if self.last_osc_time_ms is not None:
+                        period_s = (t_ms - self.last_osc_time_ms) / 1000.0
+                        if period_s > 0:
+                            self.periods.append(period_s)
+                            processed_data.update({
+                                "latest_period": period_s,
+                                "period": period_s,
+                                "frequency": 1.0 / period_s
+                            })
+                            if len(self.periods) >= 2:
+                                processed_data.update(self._calculate_oscillation_analysis())
+                    self.last_osc_time_ms = t_ms
+                # Add to buffer and return
+                if self.is_active:
+                    self.add_to_buffer(processed_data)
+                return processed_data
+
             if beam_broken or "cut_time" in raw_data:
                 # Record beam cut event
                 self.cut_times.append(current_time)
-                self.oscillation_count += 1
-                
-                # Calculate period if we have previous cut
-                if self.last_cut_time is not None:
-                    period = current_time - self.last_cut_time
+                processed_data["beam_cut"] = True
+
+                # Compute full oscillation only when we have 3 or more cuts and the latest cut index is odd
+                # Example (matching firmware logs):
+                #  cut 1 -> start timer, cut 3 -> oscillation 1 completed, cut 5 -> oscillation 2, ...
+                if len(self.cut_times) >= 3 and (len(self.cut_times) % 2 == 1):
+                    period = self.cut_times[-1] - self.cut_times[-3]
                     self.periods.append(period)
-                    
-                    # Update processed data with period info
+                    self.oscillation_count += 1
+                    processed_data["oscillation_count"] = self.oscillation_count
+
                     processed_data.update({
                         "latest_period": period,
-                        "frequency": 1.0 / period if period > 0 else 0,
-                        "beam_cut": True
+                        "period": period,
+                        "frequency": 1.0 / period if period > 0 else 0
                     })
-                    
+
                     # Calculate running statistics
                     if len(self.periods) >= 2:
                         processed_data.update(self._calculate_oscillation_analysis())
-                        
+
+                # Track the last cut time (for potential auxiliary calculations)
                 self.last_cut_time = current_time
                 
             else:
                 processed_data["beam_cut"] = False
                 if self.periods:
                     processed_data["latest_period"] = self.periods[-1]
+                    processed_data["period"] = self.periods[-1]
                     processed_data["frequency"] = 1.0 / self.periods[-1] if self.periods[-1] > 0 else 0
             
             # Add to buffer
