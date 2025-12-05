@@ -99,7 +99,7 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
   }, [experimentId, setSelectedExperimentId, setActiveExperiment]); // Removed showInfo and showError from dependencies
 
   useEffect(() => {
-    window.dispatchEvent(new CustomEvent('labex:header:collapse'))
+    window.dispatchEvent(new CustomEvent('labex:header:expand'))
   }, [])
 
   useEffect(() => {

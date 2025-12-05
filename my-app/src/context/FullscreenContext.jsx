@@ -19,7 +19,10 @@ export function FullscreenProvider({ children }) {
       setIsFullscreen(!!el)
       setScope(!el ? 'none' : (el === document.documentElement ? 'app' : 'component'))
       try {
-        document.body.style.overflow = el ? 'hidden' : ''
+        // Only hide overflow if we are in component-specific fullscreen
+        // If we are in app-wide fullscreen (document.documentElement), we generally still want scrolling
+        const isAppFullscreen = el === document.documentElement;
+        document.body.style.overflow = (el && !isAppFullscreen) ? 'hidden' : '';
       } catch {}
     }
     document.addEventListener('fullscreenchange', onFsChange)
