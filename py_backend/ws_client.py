@@ -300,9 +300,10 @@ class ClientWebSocketManager:
         try:
             logger.info(f"Received start_experiment command from user {user_id} for device {device_id}, type: {experiment_type}")
             
-            # Set experiment type for the device
-            processor_manager.set_device_experiment(device_id, experiment_type)
+            # Start experiment in processor manager (resets state) and set type
+            processor_manager.start_experiment(device_id, experiment_type)
             
+            # Extract pendulum config if applicable and configure processor
             pendulum_types = {"pendulum_simple", "pendulum_compound", "oscillation"}
             if experiment_type in pendulum_types:
                 start_cfg = {}
@@ -328,10 +329,15 @@ class ClientWebSocketManager:
                     start_cfg["pendulum_length_cm"] = pl
                     start_cfg["pendulumLengthCm"] = pl
 
+                # Ensure processor is configured with these parameters
+                processor_manager.configure_processor(device_id, experiment_type, start_cfg)
+                
                 logger.info(f"Publishing start command with pendulum config to device {device_id}: {start_cfg}")
                 mqtt_service.publish_start_command(device_id, start_cfg)
             else:
+                # For other types, also ensure config is passed to processor if available
                 if config:
+                    processor_manager.configure_processor(device_id, experiment_type, config)
                     logger.info(f"Publishing configuration to device {device_id}: {config}")
                     mqtt_service.publish_config(device_id, config)
                 logger.info(f"Publishing start command to device {device_id}")

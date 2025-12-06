@@ -158,10 +158,11 @@ export const experimentRegistry = {
 
         tableConfig: {
           columns: [
-            { key: 'time', label: 'Time (s)', format: 'float', precision: 2 },
-            { key: 'period', label: 'Period (s)', format: 'float', precision: 3 },
-            { key: 'frequency', label: 'Frequency (Hz)', format: 'float', precision: 2 },
-            { key: 'oscillation_count', label: 'Count', format: 'int' }
+            { key: 'time', label: 'Total Time (s)', format: 'float', precision: 3 },
+            { key: 'oscillation_count', label: 'Count', format: 'int' },
+            { key: 'period', label: 'Period T (s)', format: 'float', precision: 4 },
+            { key: 'period_squared', label: 'T² (s²)', format: 'float', precision: 4 },
+            { key: 'length_cm', label: 'Length (cm)', format: 'float', precision: 1 }
           ]
         },
 

@@ -32,6 +32,12 @@ class OscillationProcessor(SensorProcessor):
         self.measurement_setup.update(config)
         logger.info(f"Oscillation processor configured: {config}")
 
+    def start_experiment(self):
+        """Start oscillation experiment and reset counters"""
+        super().start_experiment()
+        self.reset_count()
+        logger.info(f"Oscillation experiment started and reset for device {self.device_id}")
+
     async def process_data(self, raw_data: dict) -> dict:
         """Process oscillation sensor data to calculate periods and frequencies"""
         try:
@@ -50,7 +56,9 @@ class OscillationProcessor(SensorProcessor):
                     "type": "experiment_result",
                     "status": "experiment_completed",
                     "total_time": total_time,
+                    "time": total_time,  # Add time field for table
                     "count": count,
+                    "oscillation_count": count, # Add oscillation_count for table
                     "length_cm": length_cm,
                     "period": period,
                     "period_squared": period_sq,
@@ -94,22 +102,40 @@ class OscillationProcessor(SensorProcessor):
                 # Update oscillation_count directly from firmware
                 self.oscillation_count = event_count
                 processed_data["oscillation_count"] = self.oscillation_count
+                
                 if t_ms is not None:
-                    if self.last_osc_time_ms is not None:
-                        period_s = (t_ms - self.last_osc_time_ms) / 1000.0
-                        if period_s > 0:
-                            self.periods.append(period_s)
-                            processed_data.update({
-                                "latest_period": period_s,
-                                "period": period_s,
-                                "frequency": 1.0 / period_s
-                            })
-                            if len(self.periods) >= 2:
-                                processed_data.update(self._calculate_oscillation_analysis())
+                    # Calculate period using previous time (or 0 if this is first event)
+                    prev_time = self.last_osc_time_ms if self.last_osc_time_ms is not None else 0
+                    
+                    # Only calculate period if time has advanced
+                    if t_ms > prev_time:
+                        period_s = (t_ms - prev_time) / 1000.0
+                        self.periods.append(period_s)
+                        processed_data.update({
+                            "latest_period": period_s,
+                            "period": period_s,
+                            "frequency": 1.0 / period_s
+                        })
+                        if len(self.periods) >= 2:
+                            processed_data.update(self._calculate_oscillation_analysis())
+                    
                     self.last_osc_time_ms = t_ms
+                
                 # Add to buffer and return
                 if self.is_active:
                     self.add_to_buffer(processed_data)
+                    
+                # Check for completion
+                max_count = int(self.measurement_setup.get("max_count", 0))
+                
+                # Log status for debugging
+                # logger.info(f"Check completion: count={self.oscillation_count}, max={max_count}")
+                
+                if max_count > 0 and self.oscillation_count >= max_count:
+                    completion_data = self._create_completion_data()
+                    logger.info(f"Auto-completing experiment: {completion_data}")
+                    return completion_data
+                    
                 return processed_data
 
             if beam_broken or "cut_time" in raw_data:
@@ -150,12 +176,51 @@ class OscillationProcessor(SensorProcessor):
             if self.is_active:
                 self.add_to_buffer(processed_data)
                 
+            # Check for completion
+            max_count = int(self.measurement_setup.get("max_count", 0))
+            if max_count > 0 and self.oscillation_count >= max_count:
+                completion_data = self._create_completion_data()
+                logger.info(f"Auto-completing experiment: {completion_data}")
+                return completion_data
+                
             return processed_data
             
         except Exception as e:
             logger.error(f"Error processing oscillation data for {self.device_id}: {e}")
             return {"error": str(e)}
             
+    def _create_completion_data(self) -> dict:
+        """Create experiment completion data packet"""
+        total_time = 0
+        if self.last_osc_time_ms is not None:
+             # Use last known oscillation time as total duration (assuming start at 0)
+             total_time = self.last_osc_time_ms / 1000.0
+        elif self.cut_times and len(self.cut_times) >= 2:
+             total_time = self.cut_times[-1] - self.cut_times[0]
+        elif self.periods:
+             total_time = sum(self.periods)
+        
+        count = self.oscillation_count
+        length_cm = float(self.measurement_setup.get("pendulum_length_cm", 0))
+        
+        # Calculate Period (T) and T^2 based on average
+        # Use simple average: Total Time / Total Count
+        period = total_time / count if count > 0 else 0
+        period_sq = period ** 2
+        
+        return {
+            "type": "experiment_result",
+            "status": "experiment_completed",
+            "total_time": total_time,
+            "time": total_time, # For table compatibility
+            "count": count,
+            "oscillation_count": count, # For table compatibility
+            "length_cm": length_cm,
+            "period": period,
+            "period_squared": period_sq,
+            "g_calculated": (4 * (np.pi**2) * (length_cm/100)) / period_sq if period_sq > 0 else 0
+        }
+
     def _calculate_oscillation_analysis(self) -> dict:
         """Calculate oscillation analysis metrics"""
         try:
@@ -165,122 +230,15 @@ class OscillationProcessor(SensorProcessor):
                 return analysis
                 
             # Recent periods for analysis (last 20)
-            recent_periods = self.periods[-20:] if len(self.periods) > 20 else self.periods
+            # recent_periods = self.periods[-20:] if len(self.periods) > 20 else self.periods
             
-            # Period statistics
-            analysis["period_stats"] = self.calculate_statistics(recent_periods)
-            
-            # Frequency statistics
-            frequencies = [1.0/p if p > 0 else 0 for p in recent_periods]
-            analysis["frequency_stats"] = self.calculate_statistics(frequencies)
-            
-            # Average period and frequency
-            analysis["average_period"] = np.mean(recent_periods)
-            analysis["average_frequency"] = np.mean(frequencies)
-            
-            # Period stability (coefficient of variation)
-            if analysis["period_stats"]["mean"] > 0:
-                analysis["period_stability"] = analysis["period_stats"]["std"] / analysis["period_stats"]["mean"]
-            else:
-                analysis["period_stability"] = float('inf')
-                
-            # Damping analysis (if enough data)
-            if len(recent_periods) >= 10:
-                analysis["damping_analysis"] = self._analyze_damping(recent_periods)
-                
-            # Energy loss estimation (if setup parameters provided)
-            if self.measurement_setup:
-                analysis["energy_analysis"] = self._calculate_energy_loss()
-                
             return analysis
             
         except Exception as e:
             logger.error(f"Error in oscillation analysis for {self.device_id}: {e}")
             return {"analysis_error": str(e)}
             
-    def _analyze_damping(self, periods: List[float]) -> dict:
-        """Analyze damping characteristics from period data"""
-        try:
-            # Simple damping analysis - look for trend in periods
-            if len(periods) < 5:
-                return {"status": "insufficient_data"}
-                
-            # Linear fit to detect period drift
-            x = np.arange(len(periods))
-            coeffs = np.polyfit(x, periods, 1)
-            slope = coeffs[0]
-            
-            # Classify damping
-            damping_type = "undamped"
-            if slope > 0.001:
-                damping_type = "increasing_period"  # Possible underdamped with energy loss
-            elif slope < -0.001:
-                damping_type = "decreasing_period"  # Unusual, might indicate measurement error
-            else:
-                damping_type = "stable"
-                
-            # Calculate R-squared for fit quality
-            y_pred = np.polyval(coeffs, x)
-            ss_res = np.sum((periods - y_pred) ** 2)
-            ss_tot = np.sum((periods - np.mean(periods)) ** 2)
-            r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
-            
-            return {
-                "damping_type": damping_type,
-                "period_slope": slope,
-                "fit_quality": r_squared,
-                "trend_significance": abs(slope) / np.std(periods) if np.std(periods) > 0 else 0
-            }
-            
-        except Exception as e:
-            logger.error(f"Error in damping analysis: {e}")
-            return {"error": str(e)}
-            
-    def _calculate_energy_loss(self) -> dict:
-        """Calculate energy loss based on measurement setup"""
-        try:
-            # Get setup parameters
-            length = self.measurement_setup.get("pendulum_length", 1.0)  # meters
-            mass = self.measurement_setup.get("mass", 0.1)  # kg
-            initial_angle = self.measurement_setup.get("initial_angle", 0.1)  # radians
-            
-            if not self.periods or len(self.periods) < 2:
-                return {"status": "insufficient_data"}
-                
-            # Theoretical period for simple pendulum
-            g = 9.81  # m/s^2
-            theoretical_period = 2 * np.pi * np.sqrt(length / g)
-            
-            # Current average period
-            current_period = np.mean(self.periods[-5:]) if len(self.periods) >= 5 else self.periods[-1]
-            
-            # Energy calculations (simplified)
-            # Initial potential energy (assuming small angle approximation)
-            initial_energy = mass * g * length * (initial_angle ** 2) / 2
-            
-            # Current energy estimate (very rough approximation)
-            # This would need more sophisticated analysis in practice
-            period_ratio = current_period / theoretical_period
-            energy_ratio = 1.0 / (period_ratio ** 2) if period_ratio > 0 else 0
-            current_energy = initial_energy * energy_ratio
-            
-            energy_loss = initial_energy - current_energy
-            energy_loss_percent = (energy_loss / initial_energy * 100) if initial_energy > 0 else 0
-            
-            return {
-                "theoretical_period": theoretical_period,
-                "current_period": current_period,
-                "period_deviation": abs(current_period - theoretical_period),
-                "initial_energy": initial_energy,
-                "current_energy": current_energy,
-                "energy_loss": energy_loss,
-                "energy_loss_percent": energy_loss_percent
-            }
-            
-        except Exception as e:
-            logger.error(f"Error in energy loss calculation: {e}")
-            return {"error": str(e)}
-            
+
     def configure_measurement(self, setup: dict):
         """Configure measurement setup parameters"""
         self.measurement_setup.update(setup)
@@ -291,6 +249,7 @@ class OscillationProcessor(SensorProcessor):
         self.cut_times.clear()
         self.periods.clear()
         self.last_cut_time = None
+        self.last_osc_time_ms = None
         self.oscillation_count = 0
         self.data_buffer.clear()
         logger.info(f"Oscillation count reset for device {self.device_id}")

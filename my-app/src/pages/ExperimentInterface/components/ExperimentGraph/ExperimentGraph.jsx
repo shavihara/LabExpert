@@ -4,6 +4,7 @@ import {
   FiClock, FiLoader, FiSkipForward, FiBarChart2
 } from 'react-icons/fi';
 import PlotlyGraph from '../../../../components/PlotlyGraph';
+import ConfirmDialog from '../../../../components/common/ConfirmDialog';
 import { useTheme } from '../../../../context/ThemeContext';
 import LiveDataTable from './LiveDataTable';
 
@@ -48,6 +49,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   const [isLg, setIsLg] = useState(() => typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : false);
   const [notif, setNotif] = useState(null);
   const [bestFitData, setBestFitData] = useState(null);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
   
   const chartDataRef = useRef([]);
   const timerRef = useRef(null);
@@ -160,7 +162,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         setTimeRemaining(0);
         if (timerRef.current) clearInterval(timerRef.current);
         
-        alert(`Attempt Completed!\nPeriod: ${result.period?.toFixed(4)}s\nT²: ${result.period_squared?.toFixed(4)}s²`);
+        // alert(`Attempt Completed!\nPeriod: ${result.period?.toFixed(4)}s\nT²: ${result.period_squared?.toFixed(4)}s²`);
         return;
       }
 
@@ -331,7 +333,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
             dataHandlerCleanupRef.current = null;
           }
           
-          alert('✓ Experiment completed successfully by the ESP32 firmware!');
+          // alert('✓ Experiment completed successfully by the ESP32 firmware!');
         }
       }
     };
@@ -467,10 +469,20 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   };
 
   const handleReset = () => {
+    setShowResetConfirm(true);
+  };
+
+  const executeReset = (keepResults = false) => {
     clearData();
     chartDataRef.current = [];
     setChartData([]);
     setNeglectedData(new Set());
+    setAnalysisData([]);
+    if (setExperimentResults && !keepResults) {
+      setExperimentResults([]);
+    }
+    setBestFitData(null);
+    setPositionStats(null);
     
     setIsRunning(false);
     setIsPaused(false);
@@ -489,6 +501,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
       try { dataHandlerCleanupRef.current(); } catch {}
       dataHandlerCleanupRef.current = null;
     }
+    setShowResetConfirm(false);
   };
 
   const handleFinish = () => {
@@ -523,7 +536,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     const g_cal = slope !== 0 ? ((4 * Math.PI * Math.PI) / slope) / 100 : 0; 
     
     setBestFitData({ slope, intercept, g_cal });
-    alert(`Analysis Complete!\nSlope: ${slope.toFixed(6)} s²/cm\nCalculated g: ${g_cal.toFixed(3)} m/s²`);
+    // alert(`Analysis Complete!\nSlope: ${slope.toFixed(6)} s²/cm\nCalculated g: ${g_cal.toFixed(3)} m/s²`);
   };
 
   // Keep full data for display; analysis tools can choose to ignore neglected points if needed
@@ -641,7 +654,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   }, []);
 
   // ===== METADATA-DERIVED TRACES AND AXIS =====
-  const showResultsTable = !isRunning && experimentResults && experimentResults.length > 0;
+  const showResultsTable = experimentResults && experimentResults.length > 0;
 
   const availableTraces = React.useMemo(() => {
     if (!subExperiment || !subExperiment.graphConfig) {
@@ -667,8 +680,10 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
       if (subExperiment?.id === '2.1') {
         return [
           { key: 'length_cm', label: 'Length (cm)', format: 'float', precision: 1 },
-          { key: 'count', label: 'Total Oscillations', format: 'int' },
-          { key: 'total_time', label: 'Total Time (s)', format: 'float', precision: 3 }
+          { key: 'count', label: 'osci Count', format: 'int' },
+          { key: 'total_time', label: 'Total Time (s)', format: 'float', precision: 3 },
+          { key: 'period', label: 'Period T (s)', format: 'float', precision: 4 },
+          { key: 'period_squared', label: 'T² (s²)', format: 'float', precision: 4 }
         ];
       }
       return [
@@ -767,7 +782,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
               </button>
               <button
                 onClick={() => {
-                  handleReset();
+                  executeReset(true);
                   if (onNextAttempt) onNextAttempt();
                 }}
                 disabled={isRunning}
@@ -940,6 +955,15 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
           <span className="text-sm font-semibold">{notif.message}</span>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={showResetConfirm}
+        onClose={() => setShowResetConfirm(false)}
+        onConfirm={() => executeReset(false)}
+        title="Reset Experiment Data"
+        message="Are you sure you want to reset all data? This action cannot be undone and all current measurements will be lost."
+        type="warning"
+      />
     </div>
   );
 };
