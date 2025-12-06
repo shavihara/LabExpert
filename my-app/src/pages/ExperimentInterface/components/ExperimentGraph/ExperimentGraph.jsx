@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   FiPlay, FiPause, FiStopCircle, FiRefreshCw, FiSave, 
-  FiClock, FiLoader, FiSkipForward, FiBarChart2
+  FiClock, FiLoader, FiSkipForward, FiBarChart2, FiTarget
 } from 'react-icons/fi';
 import PlotlyGraph from '../../../../components/PlotlyGraph';
 import ConfirmDialog from '../../../../components/common/ConfirmDialog';
@@ -526,6 +526,18 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     const slope = (n * sumXY - sumX * sumY) / denominator;
     const intercept = (sumY - slope * sumX) / n;
     
+    // Calculate Standard Error of Slope
+    const meanX = sumX / n;
+    const residuals = experimentResults.map(r => r.period_squared - (slope * r.length_cm + intercept));
+    const rss = residuals.reduce((acc, r) => acc + r * r, 0);
+    const s_squared = n > 2 ? rss / (n - 2) : 0; // Variance of residuals
+    const sumSqDiffX = experimentResults.reduce((acc, r) => acc + (r.length_cm - meanX) ** 2, 0);
+    const seSlope = sumSqDiffX > 0 ? Math.sqrt(s_squared / sumSqDiffX) : 0;
+
+    // Upper and Lower Error Slopes
+    const slopeMax = slope + seSlope;
+    const slopeMin = slope - seSlope;
+
     // Calculate g
     // T^2 = (4*pi^2/g) * L
     // Slope m = 4*pi^2 / g  => g = 4*pi^2 / m
@@ -533,9 +545,35 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     // g (cm/s^2) = 4*pi^2 / slope
     // g (m/s^2) = (4*pi^2 / slope) / 100
     
-    const g_cal = slope !== 0 ? ((4 * Math.PI * Math.PI) / slope) / 100 : 0; 
+    const calculateG = (m) => m !== 0 ? ((4 * Math.PI * Math.PI) / m) / 100 : 0;
     
-    setBestFitData({ slope, intercept, g_cal });
+    const g_cal = calculateG(slope);
+    const g_min = calculateG(slopeMax); // steeper slope -> smaller g
+    const g_max = calculateG(slopeMin); // shallower slope -> larger g
+
+    // Prepare data with error bars
+    const dataWithErrors = experimentResults.map(r => {
+      const T = Math.sqrt(r.period_squared);
+      // Estimate errors: L +/- 0.1cm, T +/- 0.1s (per oscillation count)
+      const deltaL = 0.1;
+      const deltaT = 0.1 / (r.count || 1); 
+      // Error propagation for T^2: delta(T^2) = 2 * T * deltaT
+      const deltaTSq = 2 * T * deltaT;
+      
+      return {
+        ...r,
+        error_x: deltaL,
+        error_y: deltaTSq
+      };
+    });
+    
+    setBestFitData({ 
+      slope, intercept, g_cal,
+      slopeMax, slopeMin,
+      g_min, g_max,
+      seSlope,
+      dataWithErrors
+    });
     // alert(`Analysis Complete!\nSlope: ${slope.toFixed(6)} s²/cm\nCalculated g: ${g_cal.toFixed(3)} m/s²`);
   };
 
@@ -795,7 +833,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
                 disabled={isRunning || !experimentResults || experimentResults.length < 2}
                 className="flex-1 min-w-[90px] flex items-center justify-center gap-1.5 px-3 py-2.5 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md text-sm"
               >
-                <FiBarChart2 size={16} /> Finish
+                <FiTarget size={16} /> Find G
               </button>
             </div>
           ) : (
@@ -838,6 +876,34 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
       )}
 
       
+
+      {bestFitData && (
+        <div className="bg-white rounded-xl shadow-md border border-slate-200 p-3">
+          <h3 className="font-bold text-slate-700 mb-2">Analysis Results (Find G)</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+             <div>
+                <div className="text-xs text-slate-500">Calculated g</div>
+                <div className="text-lg font-mono font-bold text-indigo-600">{bestFitData.g_cal.toFixed(3)} m/s²</div>
+             </div>
+             <div>
+                <div className="text-xs text-slate-500">Slope</div>
+                <div className="text-lg font-mono font-bold text-slate-700">{bestFitData.slope.toFixed(4)} s²/cm</div>
+             </div>
+             <div>
+                <div className="text-xs text-slate-500">g Range (Uncertainty)</div>
+                <div className="text-sm font-mono text-slate-600">
+                    {bestFitData.g_min.toFixed(3)} - {bestFitData.g_max.toFixed(3)} m/s²
+                </div>
+             </div>
+              <div>
+                <div className="text-xs text-slate-500">Percentage Error</div>
+                <div className="text-lg font-mono font-bold text-slate-700">
+                    {Math.abs((9.81 - bestFitData.g_cal)/9.81 * 100).toFixed(2)}%
+                </div>
+             </div>
+          </div>
+        </div>
+      )}
 
       {/* ===== UNIFIED GRAPH AND TABLE LAYOUT ===== */}
       <div className={`grid grid-cols-1 ${isAnalysisMode ? 'gap-4' : 'lg:grid-cols-10 gap-4'}`}>

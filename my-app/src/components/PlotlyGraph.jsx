@@ -187,10 +187,28 @@ const PlotlyGraph = ({
   const preparePlotData = useCallback(() => {
     // Special Handling for Pendulum Analysis
     if (analysisResults && analysisResults.length > 0) {
+      const sourceData = (bestFitData && bestFitData.dataWithErrors) ? bestFitData.dataWithErrors : analysisResults;
+      
       const traces = [
         {
-          x: analysisResults.map(r => r.length_cm),
-          y: analysisResults.map(r => r.period_squared),
+          x: sourceData.map(r => r.length_cm),
+          y: sourceData.map(r => r.period_squared),
+          error_y: bestFitData && bestFitData.dataWithErrors ? {
+            type: 'data',
+            array: sourceData.map(r => r.error_y),
+            visible: true,
+            color: '#3B82F6',
+            thickness: 1.5,
+            width: 3
+          } : undefined,
+          error_x: bestFitData && bestFitData.dataWithErrors ? {
+             type: 'data',
+             array: sourceData.map(r => r.error_x),
+             visible: true,
+             color: '#3B82F6',
+             thickness: 1.5,
+             width: 3
+          } : undefined,
           type: 'scatter',
           mode: 'markers',
           name: 'Data Points',
@@ -199,19 +217,53 @@ const PlotlyGraph = ({
       ];
 
       if (bestFitData) {
-        const minL = Math.min(...analysisResults.map(r => r.length_cm));
-        const maxL = Math.max(...analysisResults.map(r => r.length_cm));
-        const xLine = [minL, maxL];
-        const yLine = [bestFitData.slope * minL + bestFitData.intercept, bestFitData.slope * maxL + bestFitData.intercept];
+        const lengths = analysisResults.map(r => r.length_cm);
+        const periods = analysisResults.map(r => r.period_squared);
+        const minL = Math.min(...lengths);
+        const maxL = Math.max(...lengths);
         
+        // Best Fit
         traces.push({
-          x: xLine,
-          y: yLine,
+          x: [minL, maxL],
+          y: [bestFitData.slope * minL + bestFitData.intercept, bestFitData.slope * maxL + bestFitData.intercept],
           type: 'scatter',
           mode: 'lines',
           name: 'Best Fit',
-          line: { color: '#EF4444', width: 2, dash: 'dash' }
+          line: { color: '#EF4444', width: 2, dash: 'solid' }
         });
+        
+        // Error Bars (Min/Max Slopes)
+        if (bestFitData.slopeMax !== undefined && bestFitData.slopeMin !== undefined) {
+            const meanX = lengths.reduce((a, b) => a + b, 0) / lengths.length;
+            const meanY = periods.reduce((a, b) => a + b, 0) / periods.length;
+            
+            // Max Slope (Steepest)
+            // y = m(x - x_bar) + y_bar
+            const yMinMax = bestFitData.slopeMax * (minL - meanX) + meanY;
+            const yMaxMax = bestFitData.slopeMax * (maxL - meanX) + meanY;
+            
+            traces.push({
+                x: [minL, maxL],
+                y: [yMinMax, yMaxMax],
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Max Slope (Steepest)',
+                line: { color: '#FCA5A5', width: 1.5, dash: 'dash' }, // Light red
+            });
+
+            // Min Slope (Shallowest)
+            const yMinMin = bestFitData.slopeMin * (minL - meanX) + meanY;
+            const yMaxMin = bestFitData.slopeMin * (maxL - meanX) + meanY;
+            
+            traces.push({
+                x: [minL, maxL],
+                y: [yMinMin, yMaxMin],
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Min Slope (Shallowest)',
+                line: { color: '#FCA5A5', width: 1.5, dash: 'dash' }, // Light red
+            });
+        }
       }
       return traces;
     }
@@ -448,14 +500,33 @@ const PlotlyGraph = ({
     );
     
     if (filteredData.length > 1) {
+      const xValues = filteredData.map(d => d.time);
+      
+      // Helper for linear regression
+      const getSlope = (yValues) => {
+        const n = xValues.length;
+        if (n < 2) return 0;
+        
+        let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+        for (let i = 0; i < n; i++) {
+          sumX += xValues[i];
+          sumY += yValues[i];
+          sumXY += xValues[i] * yValues[i];
+          sumXX += xValues[i] * xValues[i];
+        }
+        
+        const denominator = (n * sumXX - sumX * sumX);
+        return denominator !== 0 ? (n * sumXY - sumX * sumY) / denominator : 0;
+      };
+
+      // Calculate slopes using linear regression for better accuracy
+      const distanceSlope = getSlope(filteredData.map(d => d.distance || 0));
+      const velocitySlope = getSlope(filteredData.map(d => d.velocity || 0));
+      const accelerationSlope = getSlope(filteredData.map(d => d.acceleration || 0));
+      
       const first = filteredData[0];
       const last = filteredData[filteredData.length - 1];
-      
-      // Calculate slopes for different measurements
       const timeDelta = last.time - first.time;
-      const distanceSlope = timeDelta !== 0 ? (last.distance - first.distance) / timeDelta : 0;
-      const velocitySlope = timeDelta !== 0 ? (last.velocity - first.velocity) / timeDelta : 0;
-      const accelerationSlope = timeDelta !== 0 ? (last.acceleration - first.acceleration) / timeDelta : 0;
       
       setMeasurements({
         deltaTime: timeDelta,
