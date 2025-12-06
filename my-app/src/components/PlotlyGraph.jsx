@@ -551,7 +551,7 @@ const PlotlyGraph = ({
     
     const { x: [x0, x1] } = range;
     const filteredData = analysisDataRef.current.filter(
-      d => (d.time != null ? d.time : 0) >= x0 && (d.time != null ? d.time : 0) <= x1
+      d => (d.time != null ? d.time / 1000 : 0) >= x0 && (d.time != null ? d.time / 1000 : 0) <= x1
     );
     
     if (filteredData.length > 1) {
@@ -559,7 +559,7 @@ const PlotlyGraph = ({
       const last = filteredData[filteredData.length - 1];
       
       setMeasurements({
-        deltaTime: last.time - first.time,
+        deltaTime: (last.time - first.time) / 1000,
         deltaDistance: last.distance - first.distance,
         deltaVelocity: last.velocity - first.velocity,
         deltaAcceleration: last.acceleration - first.acceleration,
@@ -574,11 +574,11 @@ const PlotlyGraph = ({
     
     const { x: [x0, x1] } = range;
     const filteredData = analysisDataRef.current.filter(
-      d => (d.time != null ? d.time : 0) >= x0 && (d.time != null ? d.time : 0) <= x1
+      d => (d.time != null ? d.time / 1000 : 0) >= x0 && (d.time != null ? d.time / 1000 : 0) <= x1
     );
     
     if (filteredData.length > 1) {
-      const xValues = filteredData.map(d => d.time);
+      const xValues = filteredData.map(d => d.time / 1000);
       
       // Helper for linear regression
       const getSlope = (yValues) => {
@@ -604,7 +604,7 @@ const PlotlyGraph = ({
       
       const first = filteredData[0];
       const last = filteredData[filteredData.length - 1];
-      const timeDelta = last.time - first.time;
+      const timeDelta = (last.time - first.time) / 1000;
       
       setMeasurements({
         deltaTime: timeDelta,
