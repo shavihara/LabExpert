@@ -275,13 +275,20 @@ const PlotlyGraph = ({
     }
 
     const data = mode === 'analysis' ? analysisDataRef.current : chartData;
+    
+    // Create indexed data to preserve original indices through filtering
+    const indexedData = data.map((d, i) => ({ ...d, __originalIndex: d.__originalIndex != null ? d.__originalIndex : i }));
+    
     const limitMs = (displayRangeSeconds && displayRangeSeconds > 0) ? displayRangeSeconds * 1000 + 250 : Infinity;
     const afterRangeFiltered = (displayRangeSeconds && displayRangeSeconds > 0)
-      ? data.filter(d => (d.time || 0) <= limitMs)
-      : data;
+      ? indexedData.filter(d => (d.time || 0) <= limitMs)
+      : indexedData;
+      
+    // Filter out neglected data using the original indices
     const effectiveData = (neglectedData && neglectedData.size > 0)
-      ? afterRangeFiltered.filter((_, i) => !neglectedData.has(i))
+      ? afterRangeFiltered.filter(d => !neglectedData.has(d.__originalIndex))
       : afterRangeFiltered;
+      
     const maxPoints = 5000;
     const step = effectiveData.length > maxPoints ? Math.ceil(effectiveData.length / maxPoints) : 1;
     const decimated = step > 1 ? effectiveData.filter((_, i) => i % step === 0) : effectiveData;
@@ -455,12 +462,18 @@ const PlotlyGraph = ({
       paper_bgcolor: isDark ? '#111827' : '#ffffff',
       autosize: true,
       dragmode: dragMode,
+      selections: [], // Explicitly reset selections to avoid console warnings about unrecognized GUI edits
       ...(mode === 'analysis' && { selectdirection: 'h' })
     };
   }, [analysisResults, isDark, axis, dragMode, selectedRegion, isNeglectMode, displayRangeSeconds, availableTraces, visibleTraces, mapKey, isFullscreen, fullscreenElement]);
 
-  // Backend provides energy values for experiments 1.1/1.2, so analysis uses raw chartData
-  const calculateEnergyValues = useCallback((data) => data, []);
+  // Prepare analysis data: convert time to seconds for consistent tool ranges
+  const calculateEnergyValues = useCallback((data) => {
+    return (data || []).map(d => ({
+      ...d,
+      time: (d.time != null ? d.time : 0) / 1000
+    }));
+  }, []);
 
   // Handle mode switching
   useEffect(() => {
@@ -484,6 +497,7 @@ const PlotlyGraph = ({
       const next = !prev;
       if (next) {
         setMode('analysis');
+        if (onModeChange) onModeChange('analysis');
         setActiveTool(null);
         setSelectedRegion(null);
         setMeasurements({});
@@ -502,12 +516,20 @@ const PlotlyGraph = ({
         const { x: [x0, x1] } = event.range;
         const neglectedIndices = [];
         
+        console.log(`Neglect Selection: Range [${x0.toFixed(3)}, ${x1.toFixed(3)}], Data Points: ${fullChartData.length}`);
+        
         // Find indices of data points within the selected range using full data
         fullChartData.forEach((dataPoint, index) => {
-          if (dataPoint.time >= x0 && dataPoint.time <= x1) {
-            neglectedIndices.push(index);
+          const tSec = (dataPoint.time != null ? dataPoint.time : 0) / 1000;
+          if (tSec >= x0 && tSec <= x1) {
+            // Use __originalIndex if available, otherwise fallback to array index
+            // This ensures we reference the correct original data point even if fullChartData is filtered/sorted
+            const idx = dataPoint.__originalIndex != null ? dataPoint.__originalIndex : index;
+            neglectedIndices.push(idx);
           }
         });
+        
+        console.log(`Found ${neglectedIndices.length} points to neglect.`);
         
         // Call the onNeglectedDataRange callback with neglected indices
         if (neglectedIndices.length > 0 && onNeglectedDataRange) {
@@ -533,7 +555,7 @@ const PlotlyGraph = ({
     
     const { x: [x0, x1] } = range;
     const filteredData = analysisDataRef.current.filter(
-      d => d.time >= x0 && d.time <= x1
+      d => (d.time != null ? d.time : 0) >= x0 && (d.time != null ? d.time : 0) <= x1
     );
     
     if (filteredData.length > 1) {
@@ -556,7 +578,7 @@ const PlotlyGraph = ({
     
     const { x: [x0, x1] } = range;
     const filteredData = analysisDataRef.current.filter(
-      d => d.time >= x0 && d.time <= x1
+      d => (d.time != null ? d.time : 0) >= x0 && (d.time != null ? d.time : 0) <= x1
     );
     
     if (filteredData.length > 1) {

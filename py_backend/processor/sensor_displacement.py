@@ -111,6 +111,7 @@ class DisplacementProcessor(SensorProcessor):
         self._last_timestamp = None  # For calculating dt
         self._ignore_initial_seconds = 3.0
         self._last_effective_timestamp = None
+        self._initial_sample = None  # Track initial sample number for normalization
         
     def get_experiment_type(self) -> str:
         return self.experiment_type
@@ -218,7 +219,13 @@ class DisplacementProcessor(SensorProcessor):
             
             # Include original sample information for tracking
             if "sample" in raw_data:
-                processed_data["sample"] = raw_data["sample"]
+                sample_val = int(raw_data["sample"])
+                if self._initial_sample is None:
+                    self._initial_sample = sample_val
+                
+                # Normalize sample number to start from 1
+                processed_data["sample"] = sample_val - self._initial_sample + 1
+                
             if "packet_id" in raw_data:
                 processed_data["packet_id"] = raw_data["packet_id"]
             
@@ -364,6 +371,7 @@ class DisplacementProcessor(SensorProcessor):
         self._last_t_rel = None
         self._dt_history.clear()
         self._last_timestamp = None
+        self._initial_sample = None
         logger.info(f"Analysis data and Kalman filter reset for device {self.device_id}")
 
     def start_experiment(self):
@@ -374,6 +382,7 @@ class DisplacementProcessor(SensorProcessor):
         self._last_t_rel = None
         self._dt_history.clear()
         self._last_timestamp = None
+        self._initial_sample = None
         
     def get_motion_summary(self) -> dict:
         """Get summary of motion analysis"""
