@@ -467,13 +467,9 @@ const PlotlyGraph = ({
     };
   }, [analysisResults, isDark, axis, dragMode, selectedRegion, isNeglectMode, displayRangeSeconds, availableTraces, visibleTraces, mapKey, isFullscreen, fullscreenElement]);
 
-  // Prepare analysis data: convert time to seconds for consistent tool ranges
-  const calculateEnergyValues = useCallback((data) => {
-    return (data || []).map(d => ({
-      ...d,
-      time: (d.time != null ? d.time : 0) / 1000
-    }));
-  }, []);
+  // Prepare analysis data: keep time in ms to avoid double conversion in preparePlotData
+  // Backend provides energy values for experiments 1.1/1.2, so analysis uses raw chartData
+  const calculateEnergyValues = useCallback((data) => data, []);
 
   // Handle mode switching
   useEffect(() => {
