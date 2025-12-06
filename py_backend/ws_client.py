@@ -300,10 +300,8 @@ class ClientWebSocketManager:
         try:
             logger.info(f"Received start_experiment command from user {user_id} for device {device_id}, type: {experiment_type}")
             
-            # Start experiment in processor manager (resets state) and set type
             processor_manager.start_experiment(device_id, experiment_type)
             
-            # Extract pendulum config if applicable and configure processor
             pendulum_types = {"pendulum_simple", "pendulum_compound", "oscillation"}
             if experiment_type in pendulum_types:
                 start_cfg = {}
@@ -317,7 +315,7 @@ class ClientWebSocketManager:
                         pass
                     start_cfg["max_count"] = mc
                     start_cfg["maxCount"] = mc
-
+                
                 pl = config.get("pendulum_length_cm") if isinstance(config, dict) else None
                 if pl is None and isinstance(config, dict):
                     pl = config.get("pendulumLengthCm")
@@ -328,18 +326,28 @@ class ClientWebSocketManager:
                         pass
                     start_cfg["pendulum_length_cm"] = pl
                     start_cfg["pendulumLengthCm"] = pl
-
-                # Ensure processor is configured with these parameters
+                
                 processor_manager.configure_processor(device_id, experiment_type, start_cfg)
                 
                 logger.info(f"Publishing start command with pendulum config to device {device_id}: {start_cfg}")
                 mqtt_service.publish_start_command(device_id, start_cfg)
             else:
-                # For other types, also ensure config is passed to processor if available
-                if config:
-                    processor_manager.configure_processor(device_id, experiment_type, config)
-                    logger.info(f"Publishing configuration to device {device_id}: {config}")
-                    mqtt_service.publish_config(device_id, config)
+                cfg = dict(config or {})
+                dur = cfg.get("duration")
+                if dur is None:
+                    d2 = cfg.get("duration_s") or cfg.get("timeLimit")
+                else:
+                    d2 = dur
+                if d2 is not None:
+                    try:
+                        d2 = int(d2)
+                    except Exception:
+                        pass
+                    cfg["duration"] = d2 + 3
+                if cfg:
+                    processor_manager.configure_processor(device_id, experiment_type, cfg)
+                    logger.info(f"Publishing configuration to device {device_id}: {cfg}")
+                    mqtt_service.publish_config(device_id, cfg)
                 logger.info(f"Publishing start command to device {device_id}")
                 mqtt_service.publish_start_command(device_id)
             await self.send_to_user(user_id, {"type": "experiment_started", "device_id": device_id})
@@ -483,6 +491,12 @@ class ClientWebSocketManager:
                     "mode": config.get("mode") or "distance",
                     "averagingSamples": config.get("averagingSamples") if config.get("averagingSamples") is not None else 1,
                 }
+                if experiment_type in {"distance", "displacement", "inclined_plane"}:
+                    try:
+                        normalized_config["duration"] = int(normalized_config.get("duration", 60)) + 3
+                    except Exception:
+                        val = normalized_config.get("duration")
+                        normalized_config["duration"] = (val if isinstance(val, int) else 60) + 3
 
                 # Include maxRange only when explicitly provided
                 if config.get("maxRange") is not None:

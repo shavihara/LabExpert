@@ -35,7 +35,8 @@ const PlotlyGraph = ({
   onAnalysisData,
   externalMode,
   analysisResults,
-  bestFitData
+  bestFitData,
+  displayRangeSeconds
 }) => {
   const { theme } = useTheme?.() || { theme: 'light' };
   const isDark = theme === 'dark';
@@ -84,6 +85,11 @@ const PlotlyGraph = ({
   const [isMobile, setIsMobile] = useState(false);
   const axisLockRef = useRef(null);
   const axisRangeRef = useRef({ x: null, y: null });
+  useEffect(() => {
+    if (displayRangeSeconds && displayRangeSeconds > 0) {
+      axisRangeRef.current.x = [0, displayRangeSeconds];
+    }
+  }, [displayRangeSeconds]);
 
   useEffect(() => {}, []);
 
@@ -269,10 +275,13 @@ const PlotlyGraph = ({
     }
 
     const data = mode === 'analysis' ? analysisDataRef.current : chartData;
-    // Filter out neglected points entirely from graph rendering
-    const effectiveData = (neglectedData && neglectedData.size > 0)
-      ? data.filter((_, i) => !neglectedData.has(i))
+    const limitMs = (displayRangeSeconds && displayRangeSeconds > 0) ? displayRangeSeconds * 1000 + 250 : Infinity;
+    const afterRangeFiltered = (displayRangeSeconds && displayRangeSeconds > 0)
+      ? data.filter(d => (d.time || 0) <= limitMs)
       : data;
+    const effectiveData = (neglectedData && neglectedData.size > 0)
+      ? afterRangeFiltered.filter((_, i) => !neglectedData.has(i))
+      : afterRangeFiltered;
     const maxPoints = 5000;
     const step = effectiveData.length > maxPoints ? Math.ceil(effectiveData.length / maxPoints) : 1;
     const decimated = step > 1 ? effectiveData.filter((_, i) => i % step === 0) : effectiveData;
@@ -282,7 +291,7 @@ const PlotlyGraph = ({
     
     if (visibleTraces['s-t'] && decimated.some(d => d.distance != null)) {
       traces.push({
-        x: decimated.map(d => d.time || d.timeDisplay),
+        x: decimated.map(d => (d.time || 0) / 1000),
         y: decimated.map(d => d.distance || 0),
         type: useGL ? 'scattergl' : 'scatter',
         mode: 'lines',
@@ -295,7 +304,7 @@ const PlotlyGraph = ({
     // Intensity trace (for light intensity experiments)
     if (visibleTraces['i-t'] && decimated.some(d => d.intensity != null)) {
       traces.push({
-        x: decimated.map(d => d.time || d.timeDisplay),
+        x: decimated.map(d => (d.time || 0) / 1000),
         y: decimated.map(d => d.intensity || 0),
         type: useGL ? 'scattergl' : 'scatter',
         mode: 'lines',
@@ -307,7 +316,7 @@ const PlotlyGraph = ({
     
     if (visibleTraces['v-t'] && decimated.some(d => d.velocity != null)) {
       traces.push({
-        x: decimated.map(d => d.time || d.timeDisplay),
+        x: decimated.map(d => (d.time || 0) / 1000),
         y: decimated.map(d => d.velocity || 0),
         type: useGL ? 'scattergl' : 'scatter',
         mode: 'lines',
@@ -319,7 +328,7 @@ const PlotlyGraph = ({
     
     if (visibleTraces['a-t'] && decimated.some(d => d.acceleration != null)) {
       traces.push({
-        x: decimated.map(d => d.time || d.timeDisplay),
+        x: decimated.map(d => (d.time || 0) / 1000),
         y: decimated.map(d => d.acceleration || 0),
         type: useGL ? 'scattergl' : 'scatter',
         mode: 'lines',
@@ -333,7 +342,7 @@ const PlotlyGraph = ({
     if (mode === 'analysis') {
       if (visibleTraces['ke'] && decimated.some(d => d.kineticEnergy != null)) {
         traces.push({
-          x: decimated.map(d => d.time || d.timeDisplay),
+          x: decimated.map(d => (d.time || 0) / 1000),
           y: decimated.map(d => d.kineticEnergy || 0),
           type: useGL ? 'scattergl' : 'scatter',
           mode: 'lines',
@@ -345,7 +354,7 @@ const PlotlyGraph = ({
       
       if (visibleTraces['pe'] && decimated.some(d => d.potentialEnergy != null)) {
         traces.push({
-          x: decimated.map(d => d.time || d.timeDisplay),
+          x: decimated.map(d => (d.time || 0) / 1000),
           y: decimated.map(d => d.potentialEnergy || 0),
           type: useGL ? 'scattergl' : 'scatter',
           mode: 'lines',
@@ -357,7 +366,7 @@ const PlotlyGraph = ({
       
       if (visibleTraces['te'] && decimated.some(d => d.totalEnergy != null)) {
         traces.push({
-          x: decimated.map(d => d.time || d.timeDisplay),
+          x: decimated.map(d => (d.time || 0) / 1000),
           y: decimated.map(d => d.totalEnergy || 0),
           type: useGL ? 'scattergl' : 'scatter',
           mode: 'lines',
@@ -369,7 +378,7 @@ const PlotlyGraph = ({
     }
 
     return traces;
-  }, [chartData, visibleTraces, mode, neglectedData, analysisResults, bestFitData]);
+  }, [chartData, visibleTraces, mode, neglectedData, analysisResults, bestFitData, displayRangeSeconds]);
 
   const layout = useMemo(() => {
     if (analysisResults && analysisResults.length > 0) {
@@ -396,8 +405,59 @@ const PlotlyGraph = ({
       };
     }
 
-    return null;
-  }, [analysisResults, isDark, axis, dragMode, selectedRegion, isNeglectMode]);
+    const xRange = (displayRangeSeconds && displayRangeSeconds > 0) ? [0, displayRangeSeconds] : undefined;
+    return {
+      uirevision: 'keep-zoom',
+      font: { color: isDark ? '#e5e7eb' : undefined },
+      xaxis: {
+        title: `${axis?.x?.label || 'Time'}${axis?.x?.unit ? ' ('+axis.x.unit+')' : ''}`,
+        showgrid: true,
+        gridcolor: isDark ? '#334155' : '#e2e8f0',
+        zeroline: false,
+        showticklabels: true,
+        tickfont: { size: fullscreenElement === plotContainerRef.current ? 14 : 12 },
+        titlefont: { size: fullscreenElement === plotContainerRef.current ? 16 : 14 },
+        tickangle: isFullscreen ? 0 : 0,
+        automargin: true,
+        nticks: fullscreenElement === plotContainerRef.current ? 15 : 10,
+        tickformat: fullscreenElement === plotContainerRef.current ? '.2f' : undefined,
+        range: xRange,
+        autorange: xRange ? false : true
+      },
+      yaxis: {
+        title: (() => {
+          const active = (availableTraces || []).find(k => visibleTraces[mapKey(k)]);
+          const meta = active ? axis?.y?.[active] : null;
+          return meta ? `${meta.label}${meta.unit ? ' ('+meta.unit+')' : ''}` : 'Value';
+        })(),
+        showgrid: true,
+        gridcolor: isDark ? '#334155' : '#e2e8f0',
+        zeroline: true,
+        zerolinecolor: isDark ? '#475569' : '#94a3b8',
+        zerolinewidth: 1,
+        range: axisRangeRef.current.y || getYAxisRange(),
+        autorange: axisRangeRef.current.y ? false : true,
+        showticklabels: true,
+        tickfont: { size: fullscreenElement === plotContainerRef.current ? 14 : 12 },
+        titlefont: { size: fullscreenElement === plotContainerRef.current ? 16 : 14 },
+        automargin: true,
+        nticks: isFullscreen ? 12 : 8
+      },
+      legend: {
+        x: 0,
+        y: 1.1,
+        orientation: 'h',
+        font: { size: fullscreenElement === plotContainerRef.current ? 14 : 12 }
+      },
+      margin: fullscreenElement === plotContainerRef.current ? { l: 50, r: 35, t: 40, b: 60 } : { l: 40, r: 20, t: 30, b: 45 },
+      hovermode: 'closest',
+      plot_bgcolor: isDark ? '#0b1220' : '#f8fafc',
+      paper_bgcolor: isDark ? '#111827' : '#ffffff',
+      autosize: true,
+      dragmode: dragMode,
+      ...(mode === 'analysis' && { selectdirection: 'h' })
+    };
+  }, [analysisResults, isDark, axis, dragMode, selectedRegion, isNeglectMode, displayRangeSeconds, availableTraces, visibleTraces, mapKey, isFullscreen, fullscreenElement]);
 
   // Backend provides energy values for experiments 1.1/1.2, so analysis uses raw chartData
   const calculateEnergyValues = useCallback((data) => data, []);

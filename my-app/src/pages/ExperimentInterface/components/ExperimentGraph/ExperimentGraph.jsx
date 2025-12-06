@@ -8,7 +8,7 @@ import ConfirmDialog from '../../../../components/common/ConfirmDialog';
 import { useTheme } from '../../../../context/ThemeContext';
 import LiveDataTable from './LiveDataTable';
 
-const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperimentManager, config = { max_distance_cm: 150 }, subExperiment, externalControls = false, onNextAttempt, experimentResults, setExperimentResults }) => {
+const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperimentManager, config = { max_distance_cm: 150 }, subExperiment, externalControls = false, onNextAttempt, experimentResults, setExperimentResults, onComplete }) => {
   const BACKEND_URL = `http://${window.location.hostname.replace(':3000', '')}:5000`;
   const { theme } = useTheme();
   const isDark = theme === 'dark';
@@ -21,6 +21,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   const [timeRemaining, setTimeRemaining] = useState(0);
   const [runningTime, setRunningTime] = useState(0);
   const [totalDuration, setTotalDuration] = useState(0);
+  const [displayRangeSeconds, setDisplayRangeSeconds] = useState(0);
   const [saveStatus, setSaveStatus] = useState(null);
   const [isAnalysisMode, setIsAnalysisMode] = useState(false);
   const [analysisData, setAnalysisData] = useState([]);
@@ -62,6 +63,27 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   const pendingResultRef = useRef(false);
   const configRef = useRef(config);
   const subExperimentRef = useRef(subExperiment);
+  const timeRemainingRef = useRef(0);
+  const rafPendingRef = useRef(false);
+  const lastFlushRef = useRef(0);
+  const FLUSH_INTERVAL_MS = 50;
+
+  const scheduleChartFlush = useCallback(() => {
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (rafPendingRef.current) return;
+    const due = now - lastFlushRef.current >= FLUSH_INTERVAL_MS;
+    if (due) {
+      lastFlushRef.current = now;
+      setChartData([...chartDataRef.current]);
+    } else {
+      rafPendingRef.current = true;
+      requestAnimationFrame(() => {
+        rafPendingRef.current = false;
+        lastFlushRef.current = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        setChartData([...chartDataRef.current]);
+      });
+    }
+  }, []);
 
   useEffect(() => { configRef.current = config; }, [config]);
   useEffect(() => { subExperimentRef.current = subExperiment; }, [subExperiment]);
@@ -73,12 +95,17 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   // Keep refs in sync with state
   useEffect(() => { isRunningRef.current = isRunning; }, [isRunning]);
   useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
+  useEffect(() => { timeRemainingRef.current = timeRemaining; }, [timeRemaining]);
+  const [startCountdown, setStartCountdown] = useState(false);
+  const [countdownValue, setCountdownValue] = useState(0);
+  const [isCountdownMode, setIsCountdownMode] = useState(false);
   useEffect(() => {
-    const d = Number(config?.duration_s);
-    if (Number.isFinite(d) && d > 0) {
-      setTotalDuration(d);
+    const base = Number(config?.duration_s);
+    if (Number.isFinite(base) && base > 0) {
+      setTotalDuration(base);
+      setDisplayRangeSeconds(base);
       if (!isRunning) {
-        setTimeRemaining(d);
+        setTimeRemaining(base);
       }
     }
   }, [config?.duration_s, isRunning]);
@@ -129,11 +156,12 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         timeRemaining,
         runningTime,
         config,
-        samples: chartData.length
+        samples: chartDataRef.current.length,
+        isCountdownMode
       };
       window.dispatchEvent(new CustomEvent('labex:tiles:update', { detail }));
     } catch {}
-  }, [isRunning, isPaused, timeRemaining, runningTime, config, chartData]);
+  }, [isRunning, isPaused, timeRemaining, runningTime, config, isCountdownMode]);
 
   const isCountUpMode = (subExperiment?.id === '2.1' || subExperiment?.id === '2.2' || ['pendulum_simple','pendulum_compound'].includes(experimentType));
 
@@ -166,8 +194,6 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         return;
       }
 
-      // Only check pause state, not running state - allow data processing even after timer stops
-      // to capture all data sent by backend until explicit stop
       if (isPausedRef.current) return;
 
       let d = null;
@@ -198,7 +224,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         console.log(`Processing sample ${point.sample || 'unknown'} (packet ${point.packet_id || 'unknown'}) - total samples: ${chartDataRef.current.length + 1}`);
         
         chartDataRef.current = [...chartDataRef.current, point];
-        setChartData([...chartDataRef.current]);
+        scheduleChartFlush();
 
         const countVal = Number(d.oscillation_count ?? d.count ?? 0);
         const currentConfig = configRef.current || {};
@@ -259,7 +285,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         __originalIndex: chartDataRef.current.length // Add original index for neglect tracking
       };
       chartDataRef.current = [...chartDataRef.current, point];
-      setChartData([...chartDataRef.current]);
+      scheduleChartFlush();
 
       const countVal2 = Number(d.oscillation_count ?? d.count ?? 0);
       const currentConfig2 = configRef.current || {};
@@ -288,28 +314,75 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     }
   }, []);
 
-  // ===== TIMER COUNTDOWN EFFECT =====
+  const isDelayModeRef = useRef(false);
+
+  // ===== SMOOTH TIMER COUNTDOWN EFFECT =====
   useEffect(() => {
-    if (isRunning && !isPaused) {
-      timerRef.current = setInterval(() => {
-        const elapsed = (Date.now() - startTimeRef.current) / 1000;
-        setRunningTime(elapsed);
-        if (!isCountUpMode) {
-          const remaining = Math.max(0, totalDuration - elapsed);
-          setTimeRemaining(remaining);
-          if (remaining <= 0) {
-            setIsRunning(false);
-            setIsPaused(false);
-            setTimeRemaining(0);
-            if (timerRef.current) clearInterval(timerRef.current);
+    let animationFrameId = null;
+    
+    const updateTimer = () => {
+      if (isRunning && !isPaused) {
+        const now = Date.now();
+        const elapsed = (now - startTimeRef.current) / 1000;
+        
+        const isDelayExp = isDelayModeRef.current;
+
+        if (isDelayExp && elapsed < 0) {
+          // Countdown phase
+          setRunningTime(0);
+          setIsCountdownMode(true);
+          // Show countdown: 3, 2, 1
+          const countdown = Math.ceil(Math.abs(elapsed));
+          setTimeRemaining(countdown > 0 ? countdown : totalDuration);
+        } else {
+          setIsCountdownMode(false);
+          // Normal phase
+          setRunningTime(elapsed);
+          
+          if (!isCountUpMode) {
+            const remaining = Math.max(0, totalDuration - elapsed);
+            setTimeRemaining(remaining);
+            
+            // Auto-stop when time is up
+            if (remaining <= 0) {
+              console.log('Timer finished, stopping experiment');
+              setIsRunning(false);
+              setIsPaused(false);
+              setTimeRemaining(0);
+              
+              if (sharedExperimentManager?.stopExperiment) {
+                sharedExperimentManager.stopExperiment();
+              } else {
+                sendMessage({ action: 'stop_experiment' });
+              }
+              
+              if (!completionTriggeredRef.current) {
+                completionTriggeredRef.current = true;
+                if (onComplete) onComplete(chartDataRef.current);
+              }
+              return; // Stop the animation loop
+            }
           }
         }
-      }, 100);
-      return () => clearInterval(timerRef.current);
-    } else {
-      if (timerRef.current) clearInterval(timerRef.current);
+        
+        // Continue the animation loop
+        animationFrameId = requestAnimationFrame(updateTimer);
+      }
+    };
+
+    if (isRunning && !isPaused) {
+      animationFrameId = requestAnimationFrame(updateTimer);
     }
-  }, [isRunning, isPaused, totalDuration, isCountUpMode]);
+
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+    };
+  }, [isRunning, isPaused, totalDuration, isCountUpMode, sharedExperimentManager, sendMessage, onComplete]);
 
   // ===== DEVICE STATUS MESSAGE HANDLER =====
   useEffect(() => {
@@ -376,7 +449,6 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     chartDataRef.current = [];
     setChartData([]);
     sensorStartTimeRef.current = null;
-    startTimeRef.current = null;
     
     setIsRunning(true);
     setIsPaused(false);
@@ -384,6 +456,10 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     completionTriggeredRef.current = false;
     pendingResultRef.current = false;
     
+    const subId = subExperiment?.id;
+    const isDelayExp = (subId === 'distance' || subId === 'inclined_plane' || subId === '1.1' || subId === '1.2');
+    isDelayModeRef.current = isDelayExp;
+
     let startConfig = { duration_s: 10 };
     try {
       startConfig = JSON.parse(localStorage.getItem('experimentConfig') || '{"duration_s": 10}');
@@ -391,16 +467,18 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         setTotalDuration(0);
         setTimeRemaining(0);
       } else {
-        setTotalDuration(startConfig.duration_s || 10);
-        setTimeRemaining(startConfig.duration_s || 10);
+        const uiDur = (startConfig.duration_s || 10);
+        setTotalDuration(uiDur);
+        setTimeRemaining(uiDur);
       }
     } catch (e) {
       if (isCountUpMode) {
         setTotalDuration(0);
         setTimeRemaining(0);
       } else {
-        setTotalDuration(10);
-        setTimeRemaining(10);
+        const uiDur = 10;
+        setTotalDuration(uiDur);
+        setTimeRemaining(uiDur);
       }
     }
     
@@ -410,7 +488,11 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     }
     dataHandlerCleanupRef.current = addMessageHandler(handleDataMessage);
     
-    startTimeRef.current = Date.now();
+    if (isDelayExp) {
+      startTimeRef.current = Date.now() + 3000;
+    } else {
+      startTimeRef.current = Date.now();
+    }
 
     // Build config for start based on sub-experiment
     let startCfg = {};
@@ -443,6 +525,13 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
       sharedExperimentManager.startExperiment(startCfg, experimentType);
     } else {
       sendMessage({ action: 'start_experiment', config: startCfg, experiment_type: experimentType });
+    }
+    if (isDelayExp) {
+      setStartCountdown(true);
+      setCountdownValue(1);
+      setTimeout(() => setCountdownValue(2), 1000);
+      setTimeout(() => setCountdownValue(3), 2000);
+      setTimeout(() => setStartCountdown(false), 3000);
     }
 
     console.log('Experiment started with clean state');
@@ -773,7 +862,9 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     if (showResultsTable) return experimentResults;
 
     const source = isAnalysisMode ? analysisData : chartData;
-    return source.map(row => {
+    const limitMs = (displayRangeSeconds || 0) * 1000 + 250;
+    const bounded = (displayRangeSeconds && displayRangeSeconds > 0) ? source.filter(row => (row.time || 0) <= limitMs) : source;
+    return bounded.map(row => {
       const obj = { time: Number((row.time / 1000).toFixed(2)), __originalIndex: row.__originalIndex };
       availableTraces.forEach(k => { obj[k] = row[k]; });
       const s = row.sample != null ? row.sample : (row.packet_id != null ? row.packet_id : (row.__originalIndex != null ? row.__originalIndex + 1 : null));
@@ -785,7 +876,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
       }
       return obj;
     });
-  }, [chartData, analysisData, availableTraces, isAnalysisMode, showResultsTable, experimentResults]);
+  }, [chartData, analysisData, availableTraces, isAnalysisMode, showResultsTable, experimentResults, displayRangeSeconds]);
 
   return (
     <div className="space-y-4">
@@ -802,7 +893,13 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
                 disabled={isRunning}
                 className="flex-1 min-w-[90px] flex items-center justify-center gap-1.5 px-3 py-2.5 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md text-sm"
               >
-                <FiPlay size={16} /> Start
+                {startCountdown && (subExperiment?.id === 'distance' || subExperiment?.id === 'inclined_plane') ? (
+                  <span className="font-mono text-lg">{countdownValue}</span>
+                ) : (
+                  <>
+                    <FiPlay size={16} /> Start
+                  </>
+                )}
               </button>
               <button
                 onClick={handleStop}
@@ -932,30 +1029,32 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
             </div>
           )}
           
-          <PlotlyGraph 
-            experimentType={experimentType}
-            token={token}
-            sharedWebSocket={sharedWebSocket}
-            sharedExperimentManager={sharedExperimentManager}
-            chartData={chartData}
-            fullChartData={chartData}
-            neglectedData={neglectedData}
-            isRunning={isRunning}
-            isPaused={isPaused}
-            onStart={handleStart}
-            onPause={handlePause}
-            onStop={handleStop}
-            onReset={handleReset}
-            onNeglectedDataRange={handleNeglectedDataRange}
-            config={config}
-            availableTraces={availableTraces}
-            axis={axisMeta}
-            onModeChange={(m) => setIsAnalysisMode(m === 'analysis')}
-            onAnalysisData={(data) => setAnalysisData(data)}
-            externalMode={isAnalysisMode ? 'analysis' : 'live'}
-            analysisResults={showResultsTable ? experimentResults : null}
-            bestFitData={bestFitData}
-          />
+        <PlotlyGraph 
+          experimentType={experimentType}
+          token={token}
+          sharedWebSocket={sharedWebSocket}
+          sharedExperimentManager={sharedExperimentManager}
+          chartData={chartData}
+          fullChartData={chartDataRef.current}
+          neglectedData={neglectedData}
+          graphType={subExperiment?.graphType || 'line'}
+          isRunning={isRunning}
+          isPaused={isPaused}
+          onStart={handleStart}
+          onPause={handlePause}
+          onStop={handleStop}
+          onReset={handleReset}
+          onNeglectedDataRange={handleNeglectedDataRange}
+          config={config}
+          availableTraces={availableTraces}
+          axis={axisMeta}
+          onModeChange={(m) => setIsAnalysisMode(m === 'analysis')}
+          onAnalysisData={(d) => setAnalysisData(d)}
+          externalMode={isAnalysisMode ? 'analysis' : 'live'}
+          analysisResults={showResultsTable ? experimentResults : null}
+          bestFitData={bestFitData}
+          displayRangeSeconds={displayRangeSeconds}
+        />
         </div>
 
         {/* TABLE CARD */}

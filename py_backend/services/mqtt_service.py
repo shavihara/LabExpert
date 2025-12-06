@@ -403,7 +403,7 @@ class MQTTService:
         }
         
         # Send to specific user
-        await self.client_ws_manager.send_to_user(user_id, json.dumps(message))
+        await self.client_ws_manager.send_to_user(user_id, message)
     
     async def _forward_processed_data_to_ws(self, device_id: str, processed_data: dict):
         """Forward processed sensor data to WebSocket clients"""
@@ -423,7 +423,7 @@ class MQTTService:
         }
         
         # Send to specific user
-        await self.client_ws_manager.send_to_user(user_id, json.dumps(message))
+        await self.client_ws_manager.send_to_user(user_id, message)
     
     def _find_last_user_for_device(self, device_id: str) -> Optional[str]:
         """
