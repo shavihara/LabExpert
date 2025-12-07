@@ -45,6 +45,7 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
   }, [configStatus, isSubmitting, onClose]);
 
   const isPendulumExperiment = selectedSubExperiment?.id === '2.1' || selectedSubExperiment?.id === '2.2';
+  const isTemperatureExperiment = selectedSubExperiment?.id === 'temperature_live';
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm p-4">
@@ -129,7 +130,27 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
             </>
           )}
 
-          {!isPendulumExperiment && (
+          {/* Temperature Experiment Specific Configs */}
+          {isTemperatureExperiment && (
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">
+                Resolution
+              </label>
+              <select
+                value={config.resolution || 10}
+                onChange={(e) => onChange({ ...config, resolution: parseInt(e.target.value) })}
+                className="w-full px-4 py-2 border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none transition-all"
+              >
+                <option value={9}>0.5°C (94ms)</option>
+                <option value={10}>0.25°C (188ms)</option>
+                <option value={11}>0.125°C (375ms)</option>
+                <option value={12}>0.0625°C (750ms)</option>
+              </select>
+              <p className="text-xs text-slate-500 mt-1">Select temperature resolution</p>
+            </div>
+          )}
+
+          {!isPendulumExperiment && !isTemperatureExperiment && (
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-2">
               Sampling Frequency (Hz)
@@ -161,7 +182,7 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
               />
               <p className="text-xs text-slate-500 mt-1">Maximum expected ambient intensity</p>
             </div>
-          ) : (!isPendulumExperiment && (
+          ) : (!isPendulumExperiment && !isTemperatureExperiment && (
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-2">
                 Max Distance (cm)

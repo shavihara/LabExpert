@@ -147,7 +147,7 @@ function UserDashboard() {
       name: 'Temperature Monitoring',
       description: 'Monitor temperature changes over the time',
       icon: <Thermometer className="w-8 h-8" />,
-      difficulty: 'Unavailable',
+      difficulty: 'Available',
       duration: '20+ min',
       category: 'Environmental',
       color: 'bg-red-500'
