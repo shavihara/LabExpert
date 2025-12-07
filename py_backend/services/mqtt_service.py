@@ -284,15 +284,22 @@ class MQTTService:
     def publish_config(self, device_id: str, config: dict):
         """Publish configuration to device"""
         try:
-            # Convert field names to match ESP32 firmware expectations
-            esp32_config = {
-                "freq": config.get("frequency", 50),  # ESP32 expects "freq" not "frequency"
-                "duration": config.get("duration", 60),
-                "averagingSamples": config.get("averagingSamples", 1)
-            }
-            # Only include maxRange if explicitly provided to avoid forcing unsupported range
-            if "maxRange" in config and config["maxRange"] is not None:
-                esp32_config["maxRange"] = config["maxRange"]
+            # Check if config contains oscillation-specific keys
+            is_oscillation = any(k in config for k in ["max_count", "maxCount", "pendulum_length_cm", "pendulumLengthCm", "pivot_to_com_distance_cm"])
+            
+            if is_oscillation:
+                # Pass oscillation config directly without transformation
+                esp32_config = config.copy()
+            else:
+                # Default behavior: Convert field names to match ESP32 firmware expectations
+                esp32_config = {
+                    "freq": config.get("frequency", 50),  # ESP32 expects "freq" not "frequency"
+                    "duration": config.get("duration", 60),
+                    "averagingSamples": config.get("averagingSamples", 1)
+                }
+                # Only include maxRange if explicitly provided to avoid forcing unsupported range
+                if "maxRange" in config and config["maxRange"] is not None:
+                    esp32_config["maxRange"] = config["maxRange"]
             
             topic = f"sensors/{device_id}/config"
             payload = json.dumps(esp32_config)
@@ -308,14 +315,17 @@ class MQTTService:
             logger.error(f"Error publishing config to {device_id}: {e}")
             raise
 
-    def publish_start_command(self, device_id: str):
+    def publish_start_command(self, device_id: str, start_payload: dict | None = None):
         """Publish start experiment command to device"""
         try:
             topic = f"sensors/{device_id}/command"
-            payload = json.dumps({"command": "start_experiment"})
+            payload_dict = {"command": "start_experiment"}
+            if isinstance(start_payload, dict) and start_payload:
+                payload_dict.update(start_payload)
+            payload = json.dumps(payload_dict)
             
             self.client.publish(topic, payload, qos=1)
-            logger.info(f"Published start command to {device_id}")
+            logger.info(f"Published start command to {device_id}: {payload_dict}")
             
         except Exception as e:
             logger.error(f"Error publishing start command to {device_id}: {e}")
@@ -393,7 +403,7 @@ class MQTTService:
         }
         
         # Send to specific user
-        await self.client_ws_manager.send_to_user(user_id, json.dumps(message))
+        await self.client_ws_manager.send_to_user(user_id, message)
     
     async def _forward_processed_data_to_ws(self, device_id: str, processed_data: dict):
         """Forward processed sensor data to WebSocket clients"""
@@ -413,7 +423,7 @@ class MQTTService:
         }
         
         # Send to specific user
-        await self.client_ws_manager.send_to_user(user_id, json.dumps(message))
+        await self.client_ws_manager.send_to_user(user_id, message)
     
     def _find_last_user_for_device(self, device_id: str) -> Optional[str]:
         """

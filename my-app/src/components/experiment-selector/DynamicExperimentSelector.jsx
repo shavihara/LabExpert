@@ -94,7 +94,8 @@ const DynamicExperimentSelector = ({
         onComplete({ 
           device: selectedDevice, 
           experimentType: expType, 
-          token: userToken 
+          token: userToken,
+          subExperiment: selectedSubExperiment
         });
       } else if (firmwareStatus.success === false) {
         console.error('Firmware flash failed:', firmwareStatus.message);
@@ -145,10 +146,10 @@ const DynamicExperimentSelector = ({
       setStep(2); // New step for sensor selection
     } else {
       setSelectedSensorOption(null);
-      setPendingFirmware(subExperiment.firmwareType);
+      setPendingFirmware(subExperiment.firmware);
       setFlashStatus(`${subExperiment.firmware} prepared.`);
       setAnimationDirection('forward');
-      setStep(3); // Auto-advance to device selection
+      setStep(3);
       handleSearch();
     }
   };

@@ -126,12 +126,12 @@ const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen, onNeglectedData
     setNeglectedData(allIndices);
   };
 
-  // Notify parent component when neglected data changes
+  // Notify parent component when neglected data changes (only in uncontrolled mode)
   useEffect(() => {
-    if (onNeglectedDataChange) {
+    if (onNeglectedDataChange && propNeglectedData === undefined) {
       onNeglectedDataChange(neglectedData);
     }
-  }, [neglectedData, onNeglectedDataChange]);
+  }, [neglectedData, onNeglectedDataChange, propNeglectedData]);
 
   if (!data.length) {
     return (

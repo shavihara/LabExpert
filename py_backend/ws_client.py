@@ -300,17 +300,56 @@ class ClientWebSocketManager:
         try:
             logger.info(f"Received start_experiment command from user {user_id} for device {device_id}, type: {experiment_type}")
             
-            # Set experiment type for the device
-            processor_manager.set_device_experiment(device_id, experiment_type)
+            processor_manager.start_experiment(device_id, experiment_type)
             
-            # Send configuration first if provided
-            if config:
-                logger.info(f"Publishing configuration to device {device_id}: {config}")
-                mqtt_service.publish_config(device_id, config)
+            pendulum_types = {"pendulum_simple", "pendulum_compound", "oscillation"}
+            if experiment_type in pendulum_types:
+                start_cfg = {}
+                mc = config.get("max_count") if isinstance(config, dict) else None
+                if mc is None and isinstance(config, dict):
+                    mc = config.get("maxCount")
+                if mc is not None:
+                    try:
+                        mc = int(mc)
+                    except Exception:
+                        pass
+                    start_cfg["max_count"] = mc
+                    start_cfg["maxCount"] = mc
                 
-            # Send start command
-            logger.info(f"Publishing start command to device {device_id}")
-            mqtt_service.publish_start_command(device_id)
+                pl = config.get("pendulum_length_cm") if isinstance(config, dict) else None
+                if pl is None and isinstance(config, dict):
+                    pl = config.get("pendulumLengthCm")
+                if pl is not None:
+                    try:
+                        pl = float(pl)
+                    except Exception:
+                        pass
+                    start_cfg["pendulum_length_cm"] = pl
+                    start_cfg["pendulumLengthCm"] = pl
+                
+                processor_manager.configure_processor(device_id, experiment_type, start_cfg)
+                
+                logger.info(f"Publishing start command with pendulum config to device {device_id}: {start_cfg}")
+                mqtt_service.publish_start_command(device_id, start_cfg)
+            else:
+                cfg = dict(config or {})
+                dur = cfg.get("duration")
+                if dur is None:
+                    d2 = cfg.get("duration_s") or cfg.get("timeLimit")
+                else:
+                    d2 = dur
+                if d2 is not None:
+                    try:
+                        d2 = int(d2)
+                    except Exception:
+                        pass
+                    cfg["duration"] = d2 + 3
+                if cfg:
+                    processor_manager.configure_processor(device_id, experiment_type, cfg)
+                    logger.info(f"Publishing configuration to device {device_id}: {cfg}")
+                    mqtt_service.publish_config(device_id, cfg)
+                logger.info(f"Publishing start command to device {device_id}")
+                mqtt_service.publish_start_command(device_id)
             await self.send_to_user(user_id, {"type": "experiment_started", "device_id": device_id})
             logger.info(f"Start command successfully sent to device {device_id}")
         except Exception as e:
@@ -382,61 +421,123 @@ class ClientWebSocketManager:
 
         # Normalize incoming config keys to backend expectations
         try:
-            freq = config.get("frequency")
-            if freq is None:
-                freq = config.get("frequency_hz") or config.get("samplingRate")
-            dur = config.get("duration")
-            if dur is None:
-                dur = config.get("duration_s") or config.get("timeLimit")
+            pendulum_types = {"pendulum_simple", "pendulum_compound", "oscillation"}
+            
+            # Heuristic detection if experiment_type is missing or default
+            # If config contains oscillation-specific keys, force oscillation mode
+            if not experiment_type or experiment_type not in pendulum_types:
+                if any(k in config for k in ["max_count", "maxCount", "pendulum_length_cm", "pendulumLengthCm", "pivot_to_com_distance_cm"]):
+                    logger.info("Detected oscillation config keys, forcing experiment_type to oscillation")
+                    experiment_type = "oscillation"
+            
+            if experiment_type in pendulum_types:
+                # Special handling for oscillation experiments
+                # Don't use default freq/duration normalization
+                device_config = {}
+                
+                # Extract Max Count
+                mc = config.get("max_count")
+                if mc is None:
+                    mc = config.get("maxCount")
+                if mc is not None:
+                    try:
+                        device_config["max_count"] = int(mc)
+                        device_config["maxCount"] = int(mc)
+                    except Exception:
+                        pass
 
-            # Coerce to integers when provided
-            if freq is not None:
-                try:
-                    freq = int(freq)
-                except Exception:
-                    pass
-            if dur is not None:
-                try:
-                    dur = int(dur)
-                except Exception:
-                    pass
+                # Extract Pendulum Length
+                pl = config.get("pendulum_length_cm")
+                if pl is None:
+                    pl = config.get("pendulumLengthCm")
+                if pl is not None:
+                    try:
+                        device_config["pendulum_length_cm"] = float(pl)
+                        device_config["pendulumLengthCm"] = float(pl)
+                    except Exception:
+                        pass
+                
+                # Pass through other potential keys if needed, but avoid default freq/dur
+                if config.get("mass") is not None:
+                    device_config["mass"] = config.get("mass")
+                
+                # Ensure we don't send empty config if keys are missing but provided in analysis
+                if not device_config and analysis:
+                     logger.info(f"No direct config keys found for oscillation, checking analysis: {analysis}")
+            else:
+                # Default normalization for other sensor types (distance, displacement, etc.)
+                freq = config.get("frequency")
+                if freq is None:
+                    freq = config.get("frequency_hz") or config.get("samplingRate")
+                dur = config.get("duration")
+                if dur is None:
+                    dur = config.get("duration_s") or config.get("timeLimit")
 
-            normalized_config = {
-                "frequency": freq if freq is not None else 50,
-                "duration": dur if dur is not None else 60,
-                "mode": config.get("mode") or "distance",
-                "averagingSamples": config.get("averagingSamples") if config.get("averagingSamples") is not None else 1,
-            }
+                # Coerce to integers when provided
+                if freq is not None:
+                    try:
+                        freq = int(freq)
+                    except Exception:
+                        pass
+                if dur is not None:
+                    try:
+                        dur = int(dur)
+                    except Exception:
+                        pass
 
-            # Include maxRange only when explicitly provided
-            if config.get("maxRange") is not None:
-                try:
-                    normalized_config["maxRange"] = int(config.get("maxRange"))
-                except Exception:
-                    normalized_config["maxRange"] = config.get("maxRange")
-            elif config.get("max_distance_cm") is not None:
-                try:
-                    normalized_config["maxRange"] = int(round(float(config.get("max_distance_cm")) * 10))
-                except Exception:
-                    pass
+                normalized_config = {
+                    "frequency": freq if freq is not None else 50,
+                    "duration": dur if dur is not None else 60,
+                    "mode": config.get("mode") or "distance",
+                    "averagingSamples": config.get("averagingSamples") if config.get("averagingSamples") is not None else 1,
+                }
+                if experiment_type in {"distance", "displacement", "inclined_plane"}:
+                    try:
+                        normalized_config["duration"] = int(normalized_config.get("duration", 60)) + 3
+                    except Exception:
+                        val = normalized_config.get("duration")
+                        normalized_config["duration"] = (val if isinstance(val, int) else 60) + 3
 
-            # Keep normalized device config separate from analysis config
-            device_config = normalized_config
+                # Include maxRange only when explicitly provided
+                if config.get("maxRange") is not None:
+                    try:
+                        normalized_config["maxRange"] = int(config.get("maxRange"))
+                    except Exception:
+                        normalized_config["maxRange"] = config.get("maxRange")
+                elif config.get("max_distance_cm") is not None:
+                    try:
+                        normalized_config["maxRange"] = int(round(float(config.get("max_distance_cm")) * 10))
+                    except Exception:
+                        pass
+
+                # Keep normalized device config separate from analysis config
+                device_config = normalized_config
         except Exception as e:
             # Fall back to the original config if normalization fails
             logger.warning(f"Config normalization failed: {e}. Using raw config: {config}")
             device_config = config
 
-        # Configure backend processor with analysis parameters (e.g., mass)
+        # Configure backend processor with analysis parameters (e.g., mass) and device parameters
         try:
             processor_manager = SensorProcessorManager.get_instance()
             # Determine experiment type context
             mapped_type = experiment_type or processor_manager.get_device_experiment(device_id) or "displacement"
-            # Prefer explicit analysis payload from client
-            analysis_cfg = analysis if isinstance(analysis, dict) else {}
-            # Configure processor if any analysis parameters provided
-            if analysis_cfg:
-                processor_manager.configure_processor(device_id, mapped_type, analysis_cfg)
+            
+            # Prepare processor config by merging analysis and device config
+            # This ensures processor knows about max_count, length, etc.
+            processor_config = {}
+            
+            # 1. Start with analysis config from client
+            if isinstance(analysis, dict):
+                processor_config.update(analysis)
+            
+            # 2. Merge device config (contains normalized max_count, length, etc.)
+            if isinstance(device_config, dict):
+                processor_config.update(device_config)
+                
+            # Configure processor if we have any config
+            if processor_config:
+                processor_manager.configure_processor(device_id, mapped_type, processor_config)
         except Exception as e:
             logger.warning(f"Failed to configure backend processor during configure_experiment: {e}")
 
@@ -495,6 +596,8 @@ class ClientWebSocketManager:
             if experiment_type == "distance" or experiment_type == "displacement":
                 ota_key = "displacement"
             elif experiment_type == "oscillation":
+                ota_key = "oscillation"
+            elif experiment_type == "pendulum_simple" or experiment_type == "pendulum_compound":
                 ota_key = "oscillation"
             elif experiment_type == "inclined_plane":
                 ota_key = "inclined_plane"

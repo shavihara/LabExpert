@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FiX } from 'react-icons/fi';
 
-const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sharedExperimentManager }) => {
+const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sharedExperimentManager, selectedSubExperiment }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   
@@ -21,7 +21,7 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
 
     try {
       localStorage.setItem('experimentConfig', JSON.stringify(config));
-      applyConfiguration(selectedDevice.id, config);
+      applyConfiguration(selectedDevice.id, config, selectedSubExperiment?.firmwareType);
     } catch (err) {
       console.error(err);
       setStatusMessage(`❌ Error: ${err.message}`);
@@ -44,6 +44,8 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
     }
   }, [configStatus, isSubmitting, onClose]);
 
+  const isPendulumExperiment = selectedSubExperiment?.id === '2.1' || selectedSubExperiment?.id === '2.2';
+
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden animate-fade-in">
@@ -62,6 +64,72 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
         </div>
 
         <div className="p-6 space-y-6">
+          
+          {/* Sub-experiment 2.1 Specific Configs */}
+          {selectedSubExperiment?.id === '2.1' && (
+            <>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  Max Count
+                </label>
+                <input
+                  type="number"
+                  value={config.max_count || 50}
+                  onChange={(e) => onChange({ ...config, max_count: parseInt(e.target.value) })}
+                  className="w-full px-4 py-2 border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none transition-all"
+                  min="1"
+                />
+                <p className="text-xs text-slate-500 mt-1">Number of oscillations to count</p>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  Length of String (cm)
+                </label>
+                <input
+                  type="number"
+                  value={config.pendulum_length_cm || 100}
+                  onChange={(e) => onChange({ ...config, pendulum_length_cm: parseFloat(e.target.value) })}
+                  className="w-full px-4 py-2 border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none transition-all"
+                  min="1"
+                />
+                <p className="text-xs text-slate-500 mt-1">Length of the pendulum string</p>
+              </div>
+            </>
+          )}
+
+          {/* Sub-experiment 2.2 Specific Configs */}
+          {selectedSubExperiment?.id === '2.2' && (
+            <>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  Max Count
+                </label>
+                <input
+                  type="number"
+                  value={config.max_count || 50}
+                  onChange={(e) => onChange({ ...config, max_count: parseInt(e.target.value) })}
+                  className="w-full px-4 py-2 border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none transition-all"
+                  min="1"
+                />
+                <p className="text-xs text-slate-500 mt-1">Number of oscillations to count</p>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  Pivot to Center of Mass (cm)
+                </label>
+                <input
+                  type="number"
+                  value={config.pivot_to_com_distance_cm || 50}
+                  onChange={(e) => onChange({ ...config, pivot_to_com_distance_cm: parseFloat(e.target.value) })}
+                  className="w-full px-4 py-2 border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none transition-all"
+                  min="1"
+                />
+                <p className="text-xs text-slate-500 mt-1">Distance between pivot and center of mass</p>
+              </div>
+            </>
+          )}
+
+          {!isPendulumExperiment && (
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-2">
               Sampling Frequency (Hz)
@@ -76,6 +144,7 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
             />
             <p className="text-xs text-slate-500 mt-1">Recommended: 20-50 Hz</p>
           </div>
+          )}
 
           {config.max_intensity_lux !== undefined ? (
             <div>
@@ -92,7 +161,7 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
               />
               <p className="text-xs text-slate-500 mt-1">Maximum expected ambient intensity</p>
             </div>
-          ) : (
+          ) : (!isPendulumExperiment && (
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-2">
                 Max Distance (cm)
@@ -107,8 +176,9 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
               />
               <p className="text-xs text-slate-500 mt-1">Maximum measurable distance</p>
             </div>
-          )}
+          ))}
 
+          {!isPendulumExperiment && (
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-2">
               Duration (seconds)
@@ -123,6 +193,7 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
             />
             <p className="text-xs text-slate-500 mt-1">Total experiment duration</p>
           </div>
+          )}
 
           {config.mass !== undefined && (
             <div>

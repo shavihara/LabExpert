@@ -109,6 +109,9 @@ class DisplacementProcessor(SensorProcessor):
         self._min_dt_default = 0.02  # fallback step (s) when sensor time is non-monotonic
         self._last_sample = None  # track sample counter to detect run restarts
         self._last_timestamp = None  # For calculating dt
+        self._ignore_initial_seconds = 3.0
+        self._last_effective_timestamp = None
+        self._initial_sample = None  # Track initial sample number for normalization
         
     def get_experiment_type(self) -> str:
         return self.experiment_type
@@ -152,11 +155,17 @@ class DisplacementProcessor(SensorProcessor):
                         dt_est = self._min_dt_default
                     rel = self._last_t_rel + max(dt_est, self._min_dt_default)
                 time_val = rel
+
+            eff_time = time_val - self._ignore_initial_seconds
+            if eff_time < 0.0:
+                self._last_t_rel = time_val
+                self._last_timestamp = time_val
+                return None
             
             # Calculate time difference for Kalman filter
-            dt = 0.05  # Use a more realistic default for your 20Hz data
-            if self._last_timestamp is not None:
-                dt = time_val - self._last_timestamp
+            dt = 0.05
+            if self._last_effective_timestamp is not None:
+                dt = eff_time - self._last_effective_timestamp
                 # Ensure reasonable dt values
                 dt = max(0.001, min(dt, 1.0))
         
@@ -170,7 +179,7 @@ class DisplacementProcessor(SensorProcessor):
             acceleration = filtered_state[2]
             
             # Update histories
-            self.time_history.append(time_val)
+            self.time_history.append(eff_time)
             self.raw_position_history.append(raw_position)
             self.position_history.append(smoothed_position)
             self.velocity_history.append(velocity)
@@ -186,6 +195,7 @@ class DisplacementProcessor(SensorProcessor):
                         self._dt_history = self._dt_history[-50:]
             self._last_t_rel = time_val
             self._last_timestamp = time_val
+            self._last_effective_timestamp = eff_time
             
             # Keep history manageable
             max_history = 1000
@@ -197,7 +207,7 @@ class DisplacementProcessor(SensorProcessor):
                 self.raw_position_history = self.raw_position_history[-max_history:]
             
             # Create processed data with values rounded to 2 decimal places
-            t_display = round(time_val, 2)
+            t_display = round(eff_time, 2)
             processed_data = {
                 "t": t_display,
                 "s": round(smoothed_position, 2),  # Kalman filtered position
@@ -209,7 +219,13 @@ class DisplacementProcessor(SensorProcessor):
             
             # Include original sample information for tracking
             if "sample" in raw_data:
-                processed_data["sample"] = raw_data["sample"]
+                sample_val = int(raw_data["sample"])
+                if self._initial_sample is None:
+                    self._initial_sample = sample_val
+                
+                # Normalize sample number to start from 1
+                processed_data["sample"] = sample_val - self._initial_sample + 1
+                
             if "packet_id" in raw_data:
                 processed_data["packet_id"] = raw_data["packet_id"]
             
@@ -355,6 +371,7 @@ class DisplacementProcessor(SensorProcessor):
         self._last_t_rel = None
         self._dt_history.clear()
         self._last_timestamp = None
+        self._initial_sample = None
         logger.info(f"Analysis data and Kalman filter reset for device {self.device_id}")
 
     def start_experiment(self):
@@ -365,6 +382,7 @@ class DisplacementProcessor(SensorProcessor):
         self._last_t_rel = None
         self._dt_history.clear()
         self._last_timestamp = None
+        self._initial_sample = None
         
     def get_motion_summary(self) -> dict:
         """Get summary of motion analysis"""

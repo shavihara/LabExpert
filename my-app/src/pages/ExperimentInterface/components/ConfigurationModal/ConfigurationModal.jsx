@@ -13,6 +13,7 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
   const [flashStatus, setFlashStatus] = useState('Select a sensor to begin');
   const [isFlashing, setIsFlashing] = useState(false);
   const [pendingFirmware, setPendingFirmware] = useState(null);
+  const [pendingFirmwareFile, setPendingFirmwareFile] = useState(null);
   const [selectedDevice, setSelectedDevice] = useState(null);
 
   // Experiment configuration mapping based on experimentId
@@ -46,7 +47,7 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
           name: 'Simple Pendulum',
           description: 'Measure oscillation period and frequency.',
           icon: '🔄',
-          firmware: 'PEND_SIMPLE.bin',
+          firmware: 'OSISIM.bin',
           firmwareType: 'pendulum_simple'
         },
         {
@@ -54,7 +55,7 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
           name: 'Compound Pendulum',
           description: 'Analyze complex pendulum motion with damping.',
           icon: '⚖️',
-          firmware: 'PEND_COMPOUND.bin',
+          firmware: 'OSICOM.bin',
           firmwareType: 'pendulum_compound'
         }
       ]
@@ -125,7 +126,11 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
         console.log('Firmware flash successful, transitioning to experiment...');
         setFlashStatus('✓ Firmware flashed successfully');
         
-        const expType = experimentType === 'distance' ? 'tof' : experimentType;
+        const expType = (() => {
+          if (experimentType === 'distance') return 'tof';
+          if (experimentType === 'pendulum_simple' || experimentType === 'pendulum_compound') return 'oscillation';
+          return experimentType;
+        })();
         console.log('Calling onComplete with:', { device: selectedDevice, experimentType: expType, token: userToken });
         
         try {
@@ -158,6 +163,7 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
     const selectedSubExp = currentConfig.subExperiments.find(sub => sub.id === type);
     if (selectedSubExp) {
       setPendingFirmware(selectedSubExp.firmwareType);
+      setPendingFirmwareFile(selectedSubExp.firmware);
       setFlashStatus(`${selectedSubExp.firmware} prepared. Select a sensor to flash firmware.`);
     }
   };
@@ -182,8 +188,9 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
 
       setFlashStatus('Flashing firmware via OTA...');
       
-      console.log('Flashing firmware for device:', device.id, 'with firmware type:', pendingFirmware);
-      flashFirmware(device.id, pendingFirmware);
+      const normalizedType = (pendingFirmware === 'pendulum_simple' || pendingFirmware === 'pendulum_compound') ? 'oscillation' : pendingFirmware;
+      console.log('Flashing firmware for device:', device.id, 'with type:', normalizedType, 'file:', pendingFirmwareFile);
+      flashFirmware(device.id, normalizedType, pendingFirmwareFile);
 
     } catch (err) {
       console.error(err);
