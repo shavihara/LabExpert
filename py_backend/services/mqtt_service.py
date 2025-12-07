@@ -308,12 +308,18 @@ class MQTTService:
             topic = f"sensors/{device_id}/config"
             payload = json.dumps(esp32_config)
             
-            result = self.client.publish(topic, payload, qos=1)
+            result = self.client.publish(topic, payload, qos=1, retain=True)
             if result.rc != mqtt.MQTT_ERR_SUCCESS:
                 logger.error(f"Failed to publish config to {device_id}: RC {result.rc}")
                 raise ValueError(f"MQTT publish failed with RC {result.rc}")
             
             logger.info(f"Successfully published config to {device_id}: {esp32_config}")
+            
+            try:
+                alt_topic = f"sensor/{device_id}/config"
+                self.client.publish(alt_topic, payload, qos=1, retain=True)
+            except Exception:
+                pass
             
         except Exception as e:
             logger.error(f"Error publishing config to {device_id}: {e}")

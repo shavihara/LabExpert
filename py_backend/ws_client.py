@@ -491,6 +491,11 @@ class ClientWebSocketManager:
                     "mode": config.get("mode") or "distance",
                     "averagingSamples": config.get("averagingSamples") if config.get("averagingSamples") is not None else 1,
                 }
+                if config.get("resolution") is not None:
+                    try:
+                        normalized_config["resolution"] = int(config.get("resolution"))
+                    except Exception:
+                        normalized_config["resolution"] = config.get("resolution")
                 if experiment_type in {"distance", "displacement", "inclined_plane"}:
                     try:
                         normalized_config["duration"] = int(normalized_config.get("duration", 60)) + 3
