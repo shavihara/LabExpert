@@ -201,6 +201,17 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
 
           {!isPendulumExperiment && (
           <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-semibold text-slate-700">
+                Set Coustom duration
+              </label>
+              <input
+                type="checkbox"
+                checked={!(config.run_indefinite === true)}
+                onChange={(e) => onChange({ ...config, run_indefinite: !e.target.checked })}
+                className="w-4 h-4 accent-blue-600"
+              />
+            </div>
             <label className="block text-sm font-semibold text-slate-700 mb-2">
               Duration (seconds)
             </label>
@@ -208,7 +219,10 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
               type="number"
               value={config.duration_s}
               onChange={(e) => onChange({ ...config, duration_s: parseInt(e.target.value) })}
-              className="w-full px-4 py-2 border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none transition-all"
+              disabled={config.run_indefinite === true}
+              className={`w-full px-4 py-2 border-2 rounded-lg focus:border-blue-500 focus:outline-none transition-all ${
+                config.run_indefinite === true ? 'border-slate-200 bg-slate-100 cursor-not-allowed opacity-70' : 'border-slate-200'
+              }`}
               min="1"
               max="300"
             />

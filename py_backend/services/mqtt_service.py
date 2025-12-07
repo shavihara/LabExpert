@@ -293,7 +293,7 @@ class MQTTService:
             else:
                 # Default behavior: Convert field names to match ESP32 firmware expectations
                 esp32_config = {
-                    "freq": config.get("frequency", 50),  # ESP32 expects "freq" not "frequency"
+                    "freq": config.get("frequency", 50),
                     "duration": config.get("duration", 60),
                     "averagingSamples": config.get("averagingSamples", 1)
                 }
@@ -304,6 +304,9 @@ class MQTTService:
                 # Include resolution for temperature experiments
                 if "resolution" in config and config["resolution"] is not None:
                     esp32_config["resolution"] = config["resolution"]
+                if config.get("run_indefinite") or config.get("indefinite"):
+                    esp32_config.pop("duration", None)
+                    esp32_config["run_indefinite"] = True
             
             topic = f"sensors/{device_id}/config"
             payload = json.dumps(esp32_config)

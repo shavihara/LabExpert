@@ -70,15 +70,30 @@ const PlotlyGraph = ({
 
   const [visibleTraces, setVisibleTraces] = useState(() => {
     const initial = { 'ke': false, 'pe': false, 'te': false };
-    (availableTraces || []).forEach(k => { initial[mapKey(k)] = true; });
+    const tempSet = new Set(['celsius','fahrenheit','kelvin']);
+    (availableTraces || []).forEach(k => {
+      const mk = mapKey(k);
+      if (tempSet.has(k)) {
+        initial[mk] = (k === 'celsius');
+      } else {
+        initial[mk] = true;
+      }
+    });
     return initial;
   });
   useEffect(() => {
     setVisibleTraces(prev => {
       const next = {};
+      const tempSet = new Set(['celsius','fahrenheit','kelvin']);
       (availableTraces || []).forEach(k => {
         const key = mapKey(k);
-        next[key] = prev[key] !== undefined ? prev[key] : true;
+        if (prev[key] !== undefined) {
+          next[key] = prev[key];
+        } else if (tempSet.has(k)) {
+          next[key] = (k === 'celsius');
+        } else {
+          next[key] = true;
+        }
       });
       next['ke'] = prev['ke'] || false;
       next['pe'] = prev['pe'] || false;

@@ -101,14 +101,20 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   const [isCountdownMode, setIsCountdownMode] = useState(false);
   useEffect(() => {
     const base = Number(config?.duration_s);
-    if (Number.isFinite(base) && base > 0) {
+    const indef = !!config?.run_indefinite;
+    if (!indef && Number.isFinite(base) && base > 0) {
       setTotalDuration(base);
       setDisplayRangeSeconds(base);
       if (!isRunning) {
         setTimeRemaining(base);
       }
+    } else {
+      setTotalDuration(0);
+      if (!isRunning) {
+        setTimeRemaining(0);
+      }
     }
-  }, [config?.duration_s, isRunning]);
+  }, [config?.duration_s, config?.run_indefinite, isRunning]);
 
   useEffect(() => {
     const mq = typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)') : null;
@@ -357,29 +363,26 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
           // Normal phase
           setRunningTime(elapsed);
           
-          if (!isCountUpMode) {
+          if (!isCountUpMode && totalDuration > 0) {
             const remaining = Math.max(0, totalDuration - elapsed);
             setTimeRemaining(remaining);
-            
-            // Auto-stop when time is up
             if (remaining <= 0) {
-              console.log('Timer finished, stopping experiment');
               setIsRunning(false);
               setIsPaused(false);
               setTimeRemaining(0);
-              
               if (sharedExperimentManager?.stopExperiment) {
                 sharedExperimentManager.stopExperiment();
               } else {
                 sendMessage({ action: 'stop_experiment' });
               }
-              
               if (!completionTriggeredRef.current) {
                 completionTriggeredRef.current = true;
                 if (onComplete) onComplete(chartDataRef.current);
               }
-              return; // Stop the animation loop
+              return;
             }
+          } else if (!isCountUpMode && totalDuration === 0) {
+            setTimeRemaining(0);
           }
         }
         
@@ -481,7 +484,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     let startConfig = { duration_s: 10 };
     try {
       startConfig = JSON.parse(localStorage.getItem('experimentConfig') || '{"duration_s": 10}');
-      if (isCountUpMode) {
+      if (isCountUpMode || startConfig.run_indefinite === true) {
         setTotalDuration(0);
         setTimeRemaining(0);
       } else {
@@ -530,9 +533,13 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     } else {
       startCfg = {
         frequency: config?.frequency_hz || 50,
-        duration: config?.duration_s || 60,
         mode: 'distance'
       };
+      if (!(config?.run_indefinite === true)) {
+        startCfg.duration = config?.duration_s || 60;
+      } else {
+        startCfg.run_indefinite = true;
+      }
       if (config?.max_distance_cm != null) {
         startCfg.maxRange = Math.round(config.max_distance_cm * 10);
       }
