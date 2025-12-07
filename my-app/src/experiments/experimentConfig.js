@@ -250,9 +250,9 @@ export const experimentRegistry = {
 
         graphConfig: {
           xAxis: 'time',
-          yAxes: ['celsius', 'fahrenheit'],
-          colors: ['#EF4444', '#F97316'],
-          yAxisLabels: ['Temperature (°C)', 'Temperature (°F)']
+          yAxes: ['celsius', 'fahrenheit', 'kelvin'],
+          colors: ['#EF4444', '#F97316', '#3B82F6'],
+          yAxisLabels: ['Temperature (°C)', 'Temperature (°F)', 'Temperature (K)']
         },
 
         tableConfig: {

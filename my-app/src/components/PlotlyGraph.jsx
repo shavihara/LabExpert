@@ -62,11 +62,30 @@ const PlotlyGraph = ({
     intensity: 'i-t', distance: 's-t', velocity: 'v-t', acceleration: 'a-t'
   })[k] || `${k}-t`, []);
 
+  const getCustomTraceColor = useCallback((k) => ({
+    celsius: '#ef4444',
+    fahrenheit: '#3cf916ff',
+    kelvin: '#3b82f6'
+  })[k], []);
+
   const [visibleTraces, setVisibleTraces] = useState(() => {
     const initial = { 'ke': false, 'pe': false, 'te': false };
     (availableTraces || []).forEach(k => { initial[mapKey(k)] = true; });
     return initial;
   });
+  useEffect(() => {
+    setVisibleTraces(prev => {
+      const next = {};
+      (availableTraces || []).forEach(k => {
+        const key = mapKey(k);
+        next[key] = prev[key] !== undefined ? prev[key] : true;
+      });
+      next['ke'] = prev['ke'] || false;
+      next['pe'] = prev['pe'] || false;
+      next['te'] = prev['te'] || false;
+      return next;
+    });
+  }, [availableTraces, mapKey, mode]);
   const [selectedRegion, setSelectedRegion] = useState(null);
   const [measurements, setMeasurements] = useState({});
   const [isNeglectMode, setIsNeglectMode] = useState(false);
@@ -296,7 +315,7 @@ const PlotlyGraph = ({
     
     const traces = [];
     
-    if (visibleTraces['s-t'] && decimated.some(d => d.distance != null)) {
+    if ((availableTraces || []).includes('distance') && visibleTraces['s-t'] && decimated.some(d => d.distance != null)) {
       traces.push({
         x: decimated.map(d => (d.time || 0) / 1000),
         y: decimated.map(d => d.distance || 0),
@@ -309,7 +328,7 @@ const PlotlyGraph = ({
     }
     
     // Intensity trace (for light intensity experiments)
-    if (visibleTraces['i-t'] && decimated.some(d => d.intensity != null)) {
+    if ((availableTraces || []).includes('intensity') && visibleTraces['i-t'] && decimated.some(d => d.intensity != null)) {
       traces.push({
         x: decimated.map(d => (d.time || 0) / 1000),
         y: decimated.map(d => d.intensity || 0),
@@ -321,7 +340,7 @@ const PlotlyGraph = ({
       });
     }
     
-    if (visibleTraces['v-t'] && decimated.some(d => d.velocity != null)) {
+    if ((availableTraces || []).includes('velocity') && visibleTraces['v-t'] && decimated.some(d => d.velocity != null)) {
       traces.push({
         x: decimated.map(d => (d.time || 0) / 1000),
         y: decimated.map(d => d.velocity || 0),
@@ -333,7 +352,7 @@ const PlotlyGraph = ({
       });
     }
     
-    if (visibleTraces['a-t'] && decimated.some(d => d.acceleration != null)) {
+    if ((availableTraces || []).includes('acceleration') && visibleTraces['a-t'] && decimated.some(d => d.acceleration != null)) {
       traces.push({
         x: decimated.map(d => (d.time || 0) / 1000),
         y: decimated.map(d => d.acceleration || 0),
@@ -344,6 +363,24 @@ const PlotlyGraph = ({
         visible: visibleTraces['a-t'] ? true : 'legendonly'
       });
     }
+
+    // Generic traces for additional series provided via availableTraces (e.g., celsius/fahrenheit)
+    (availableTraces || []).forEach(k => {
+      if (['distance','velocity','acceleration','intensity'].includes(k)) return;
+      const key = mapKey(k);
+      if (visibleTraces[key] && decimated.some(d => d[k] != null)) {
+        const meta = axis?.y?.[k];
+        traces.push({
+          x: decimated.map(d => (d.time || 0) / 1000),
+          y: decimated.map(d => d[k] || 0),
+          type: useGL ? 'scattergl' : 'scatter',
+          mode: 'lines',
+          name: meta ? `${meta.label}${meta.unit ? ' ('+meta.unit+')' : ''}` : k,
+          line: { color: (meta && meta.color) || getCustomTraceColor(k) || '#64748b', width: 2.5 },
+          visible: true
+        });
+      }
+    });
 
     // Energy traces (only in analysis mode)
     if (mode === 'analysis') {
@@ -386,6 +423,13 @@ const PlotlyGraph = ({
 
     return traces;
   }, [chartData, visibleTraces, mode, neglectedData, analysisResults, bestFitData, displayRangeSeconds]);
+
+  useEffect(() => {
+    const activeCount = (availableTraces || []).filter(k => visibleTraces[mapKey(k)]).length;
+    if (activeCount >= 1) {
+      axisRangeRef.current.y = null;
+    }
+  }, [visibleTraces, availableTraces, mapKey]);
 
   const layout = useMemo(() => {
     if (analysisResults && analysisResults.length > 0) {
@@ -787,6 +831,9 @@ const PlotlyGraph = ({
       'v-t': { ring: 'ring-green-200', text: 'text-green-700', bar: 'bg-green-500' },
       'a-t': { ring: 'ring-red-200', text: 'text-red-700', bar: 'bg-red-500' },
       'i-t': { ring: 'ring-yellow-200', text: 'text-yellow-700', bar: 'bg-yellow-500' },
+      'celsius-t': { ring: 'ring-red-200', text: 'text-red-700', bar: 'bg-red-500' },
+      'fahrenheit-t': { ring: 'ring-orange-200', text: 'text-orange-700', bar: 'bg-orange-500' },
+      'kelvin-t': { ring: 'ring-blue-200', text: 'text-blue-700', bar: 'bg-blue-500' },
       'ke':  { ring: 'ring-orange-200', text: 'text-orange-700', bar: 'bg-orange-500' },
       'pe':  { ring: 'ring-purple-200', text: 'text-purple-700', bar: 'bg-purple-500' },
       'te':  { ring: 'ring-cyan-200', text: 'text-cyan-700', bar: 'bg-cyan-500' }
