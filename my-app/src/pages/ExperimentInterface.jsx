@@ -16,7 +16,7 @@ import ExperimentGraph from './ExperimentInterface/components/ExperimentGraph/Ex
 // =================================================================================
 const ExperimentInterface = ({ experimentId = 4 }) => {
   const [showConfigModal, setShowConfigModal] = useState(false);
-  const [config, setConfig] = useState({ frequency_hz: 20, max_distance_cm: 150, duration_s: 10 });
+  const [config, setConfig] = useState({ frequency_hz: 20, max_distance_cm: 150, duration_s: 10, run_indefinite: true });
   const [experimentType, setExperimentType] = useState('tof');
   const [tileState, setTileState] = useState({ status: 'Stopped', timeRemaining: 0, samples: 0, config });
   const [showConfigPanel, setShowConfigPanel] = useState(false);

@@ -68,6 +68,15 @@ const PlotlyGraph = ({
     kelvin: '#3b82f6'
   })[k], []);
 
+  const withUnit = useCallback((label, unit) => {
+    const l = (label || '').trim();
+    const u = (unit || '').trim();
+    if (!u) return l;
+    if (l.includes(`(${u})`)) return l;
+    if (/\([^)]*\)/.test(l)) return l;
+    return `${l} (${u})`;
+  }, []);
+
   const [visibleTraces, setVisibleTraces] = useState(() => {
     const initial = { 'ke': false, 'pe': false, 'te': false };
     const tempSet = new Set(['celsius','fahrenheit','kelvin']);
@@ -336,7 +345,7 @@ const PlotlyGraph = ({
         y: decimated.map(d => d.distance || 0),
         type: useGL ? 'scattergl' : 'scatter',
         mode: 'lines',
-        name: `${axis?.y?.distance?.label || 'Displacement'}${axis?.y?.distance?.unit ? ' ('+axis.y.distance.unit+')' : ''}`,
+        name: withUnit(axis?.y?.distance?.label || 'Displacement', axis?.y?.distance?.unit),
         line: { color: '#6366f1', width: 2.5 },
         visible: visibleTraces['s-t'] ? true : 'legendonly'
       });
@@ -349,7 +358,7 @@ const PlotlyGraph = ({
         y: decimated.map(d => d.intensity || 0),
         type: useGL ? 'scattergl' : 'scatter',
         mode: 'lines',
-        name: `${axis?.y?.intensity?.label || 'Intensity'}${axis?.y?.intensity?.unit ? ' ('+axis.y.intensity.unit+')' : ''}`,
+        name: withUnit(axis?.y?.intensity?.label || 'Intensity', axis?.y?.intensity?.unit),
         line: { color: '#f59e0b', width: 2.5 },
         visible: visibleTraces['i-t'] ? true : 'legendonly'
       });
@@ -361,7 +370,7 @@ const PlotlyGraph = ({
         y: decimated.map(d => d.velocity || 0),
         type: useGL ? 'scattergl' : 'scatter',
         mode: 'lines',
-        name: `${axis?.y?.velocity?.label || 'Velocity'}${axis?.y?.velocity?.unit ? ' ('+axis.y.velocity.unit+')' : ''}`,
+        name: withUnit(axis?.y?.velocity?.label || 'Velocity', axis?.y?.velocity?.unit),
         line: { color: '#10b981', width: 2.5 },
         visible: visibleTraces['v-t'] ? true : 'legendonly'
       });
@@ -373,7 +382,7 @@ const PlotlyGraph = ({
         y: decimated.map(d => d.acceleration || 0),
         type: useGL ? 'scattergl' : 'scatter',
         mode: 'lines',
-        name: `${axis?.y?.acceleration?.label || 'Acceleration'}${axis?.y?.acceleration?.unit ? ' ('+axis.y.acceleration.unit+')' : ''}`,
+        name: withUnit(axis?.y?.acceleration?.label || 'Acceleration', axis?.y?.acceleration?.unit),
         line: { color: '#ef4444', width: 2.5 },
         visible: visibleTraces['a-t'] ? true : 'legendonly'
       });
@@ -390,7 +399,7 @@ const PlotlyGraph = ({
           y: decimated.map(d => d[k] || 0),
           type: useGL ? 'scattergl' : 'scatter',
           mode: 'lines',
-          name: meta ? `${meta.label}${meta.unit ? ' ('+meta.unit+')' : ''}` : k,
+          name: meta ? withUnit(meta.label, meta.unit) : k,
           line: { color: (meta && meta.color) || getCustomTraceColor(k) || '#64748b', width: 2.5 },
           visible: true
         });
@@ -476,7 +485,7 @@ const PlotlyGraph = ({
       uirevision: 'keep-zoom',
       font: { color: isDark ? '#e5e7eb' : undefined },
       xaxis: {
-        title: `${axis?.x?.label || 'Time'}${axis?.x?.unit ? ' ('+axis.x.unit+')' : ''}`,
+        title: withUnit(axis?.x?.label || 'Time', axis?.x?.unit),
         showgrid: true,
         gridcolor: isDark ? '#334155' : '#e2e8f0',
         zeroline: false,
@@ -494,7 +503,7 @@ const PlotlyGraph = ({
         title: (() => {
           const active = (availableTraces || []).find(k => visibleTraces[mapKey(k)]);
           const meta = active ? axis?.y?.[active] : null;
-          return meta ? `${meta.label}${meta.unit ? ' ('+meta.unit+')' : ''}` : 'Value';
+          return meta ? withUnit(meta.label, meta.unit) : 'Value';
         })(),
         showgrid: true,
         gridcolor: isDark ? '#334155' : '#e2e8f0',

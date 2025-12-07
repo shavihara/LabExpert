@@ -203,11 +203,11 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-sm font-semibold text-slate-700">
-                Set Coustom duration
+                Set Custom duration
               </label>
               <input
                 type="checkbox"
-                checked={!(config.run_indefinite === true)}
+                checked={config.run_indefinite === false}
                 onChange={(e) => onChange({ ...config, run_indefinite: !e.target.checked })}
                 className="w-4 h-4 accent-blue-600"
               />
@@ -217,8 +217,25 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
             </label>
             <input
               type="number"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              step="1"
               value={config.duration_s}
-              onChange={(e) => onChange({ ...config, duration_s: parseInt(e.target.value) })}
+              onChange={(e) => {
+                const raw = String(e.target.value || '').replace(/[^0-9]/g, '');
+                const num = Math.max(1, Math.min(300, parseInt(raw || '0')));
+                onChange({ ...config, duration_s: num });
+              }}
+              onKeyDown={(e) => {
+                const allowed = ['Backspace','Delete','ArrowLeft','ArrowRight','Tab'];
+                if (allowed.includes(e.key)) return;
+                if (!/^[0-9]$/.test(e.key)) e.preventDefault();
+              }}
+              onBlur={(e) => {
+                const v = parseInt(e.target.value || '0');
+                const num = Math.max(1, Math.min(300, Number.isFinite(v) ? v : 1));
+                if (num !== config.duration_s) onChange({ ...config, duration_s: num });
+              }}
               disabled={config.run_indefinite === true}
               className={`w-full px-4 py-2 border-2 rounded-lg focus:border-blue-500 focus:outline-none transition-all ${
                 config.run_indefinite === true ? 'border-slate-200 bg-slate-100 cursor-not-allowed opacity-70' : 'border-slate-200'

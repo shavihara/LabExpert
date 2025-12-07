@@ -31,7 +31,7 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
   const [isConnected, setIsConnected] = useState(false);
   const [loadingError, setLoadingError] = useState(null);
   const [showConfigPanel, setShowConfigPanel] = useState(false);
-  const [config, setConfig] = useState({ frequency_hz: 20, max_distance_cm: 150, duration_s: 10 });
+  const [config, setConfig] = useState({ frequency_hz: 20, max_distance_cm: 150, duration_s: 10, run_indefinite: true });
   const [experimentType, setExperimentType] = useState(localStorage.getItem('experimentType') || 'displacement');
   const [tileState, setTileState] = useState({ status: 'Stopped', timeRemaining: 0, samples: 0, config });
   const [experimentResults, setExperimentResults] = useState([]);
@@ -75,7 +75,7 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
       setExperimentConfig(cfg.mainExperiment);
       setSelectedSubExperiment(cfg.subExperiment);
       if (cfg.subExperiment?.defaultConfig) {
-        setConfig(cfg.subExperiment.defaultConfig);
+        setConfig({ ...cfg.subExperiment.defaultConfig, run_indefinite: true });
       }
       setSelectedExperimentId(experimentId);
       setActiveExperiment(cfg.mainExperiment);

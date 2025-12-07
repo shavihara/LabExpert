@@ -305,7 +305,11 @@ class MQTTService:
                 if "resolution" in config and config["resolution"] is not None:
                     esp32_config["resolution"] = config["resolution"]
                 if config.get("run_indefinite") or config.get("indefinite"):
-                    esp32_config.pop("duration", None)
+                    # Many firmware builds default to 60s when duration is missing.
+                    # Force a very large duration to emulate "run until stop".
+                    # Use 86400 seconds (24 hours) which is safe for 32-bit int.
+                    esp32_config["duration"] = 86400
+                    # Include hint flag for newer firmware builds (ignored by older ones).
                     esp32_config["run_indefinite"] = True
             
             topic = f"sensors/{device_id}/config"

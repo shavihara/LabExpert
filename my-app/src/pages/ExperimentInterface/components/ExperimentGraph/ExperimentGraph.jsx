@@ -483,7 +483,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
 
     let startConfig = { duration_s: 10 };
     try {
-      startConfig = JSON.parse(localStorage.getItem('experimentConfig') || '{"duration_s": 10}');
+      startConfig = JSON.parse(localStorage.getItem('experimentConfig') || '{"duration_s": 10, "run_indefinite": true}');
       if (isCountUpMode || startConfig.run_indefinite === true) {
         setTotalDuration(0);
         setTimeRemaining(0);
@@ -493,14 +493,8 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         setTimeRemaining(uiDur);
       }
     } catch (e) {
-      if (isCountUpMode) {
-        setTotalDuration(0);
-        setTimeRemaining(0);
-      } else {
-        const uiDur = 10;
-        setTotalDuration(uiDur);
-        setTimeRemaining(uiDur);
-      }
+      setTotalDuration(0);
+      setTimeRemaining(0);
     }
     
     if (dataHandlerCleanupRef.current) {
