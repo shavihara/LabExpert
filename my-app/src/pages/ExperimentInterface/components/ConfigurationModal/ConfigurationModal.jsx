@@ -60,6 +60,19 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
         }
       ]
     },
+    3: {
+      name: 'Temperature Monitoring',
+      subExperiments: [
+        {
+          id: 'temperature_live',
+          name: 'Live Temperature Monitor',
+          description: 'Monitor live temperature with configurable resolution.',
+          icon: '🌡️',
+          firmware: 'THRMON.bin',
+          firmwareType: 'temperature'
+        }
+      ]
+    },
     5: {
       name: 'Motion Detection',
       subExperiments: [
@@ -212,7 +225,9 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
         'distance': ['tof', 'displacement', 'distance'],
         'displacement': ['tof', 'displacement', 'distance'],
         'inclined_plane': ['inclined_plane', 'angle', 'incline'],
-        'angle': ['inclined_plane', 'angle', 'incline']
+        'angle': ['inclined_plane', 'angle', 'incline'],
+        'temperature_live': ['temperature', 'thermometer', 'sensor'],
+        'temperature': ['temperature', 'thermometer', 'sensor']
       };
       
       const compatibleTypes = experimentToDeviceType[experimentType] || [];

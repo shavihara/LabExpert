@@ -293,13 +293,17 @@ class MQTTService:
             else:
                 # Default behavior: Convert field names to match ESP32 firmware expectations
                 esp32_config = {
-                    "freq": config.get("frequency", 50),  # ESP32 expects "freq" not "frequency"
-                    "duration": config.get("duration", 60),
-                    "averagingSamples": config.get("averagingSamples", 1)
-                }
-                # Only include maxRange if explicitly provided to avoid forcing unsupported range
-                if "maxRange" in config and config["maxRange"] is not None:
-                    esp32_config["maxRange"] = config["maxRange"]
+                        "freq": config.get("frequency", 50),  # ESP32 expects "freq" not "frequency"
+                        "duration": config.get("duration", 60),
+                        "averagingSamples": config.get("averagingSamples", 1)
+                    }
+                    # Only include maxRange if explicitly provided to avoid forcing unsupported range
+                    if "maxRange" in config and config["maxRange"] is not None:
+                        esp32_config["maxRange"] = config["maxRange"]
+                    
+                    # Include resolution for temperature experiments
+                    if "resolution" in config and config["resolution"] is not None:
+                        esp32_config["resolution"] = config["resolution"]
             
             topic = f"sensors/{device_id}/config"
             payload = json.dumps(esp32_config)

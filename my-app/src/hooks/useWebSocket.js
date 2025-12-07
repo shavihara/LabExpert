@@ -624,6 +624,9 @@ export const useExperimentManager = (webSocketInstance, externalExperimentData =
       if (config.max_distance_cm != null && !Number.isNaN(config.max_distance_cm)) {
         backendConfig.maxRange = Math.round(config.max_distance_cm * 10);
       }
+      if (config.resolution != null) {
+        backendConfig.resolution = parseInt(config.resolution);
+      }
     }
     const analysis = {};
     if (config.mass !== undefined && !Number.isNaN(config.mass)) {

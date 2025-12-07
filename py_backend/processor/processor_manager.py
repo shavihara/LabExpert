@@ -7,6 +7,7 @@ from .sensor_displacement import DisplacementProcessor
 from .sensor_oscillation import OscillationProcessor
 from .sensor_angle import AngleProcessor
 from .sensor_disp_angle import DispAngleProcessor
+from .sensor_temperature import TemperatureProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,8 @@ class SensorProcessorManager:
             mapped_experiment_type = "displacement"
         elif experiment_type == "pendulum_simple" or experiment_type == "pendulum_compound":
             mapped_experiment_type = "oscillation"
+        elif experiment_type == "temperature_live":
+            mapped_experiment_type = "temperature"
         
         if mapped_experiment_type not in self.processors[device_id]:
             # Create appropriate processor based on experiment type
@@ -54,6 +57,8 @@ class SensorProcessorManager:
                 self.processors[device_id][mapped_experiment_type] = AngleProcessor(device_id)
             elif mapped_experiment_type == "displacement_angle":
                 self.processors[device_id][mapped_experiment_type] = DispAngleProcessor(device_id)
+            elif mapped_experiment_type == "temperature":
+                self.processors[device_id][mapped_experiment_type] = TemperatureProcessor(device_id)
             else:
                 logger.warning(f"Unknown experiment type: {experiment_type} (mapped to: {mapped_experiment_type})")
                 return None
@@ -74,6 +79,8 @@ class SensorProcessorManager:
             mapped_experiment_type = "displacement"
         elif experiment_type == "pendulum_simple" or experiment_type == "pendulum_compound":
             mapped_experiment_type = "oscillation"
+        elif experiment_type == "temperature_live":
+            mapped_experiment_type = "temperature"
         
         self.device_experiments[device_id] = mapped_experiment_type
         logger.info(f"Device {device_id} set to experiment type: {mapped_experiment_type} (original: {experiment_type})")
