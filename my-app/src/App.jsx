@@ -18,7 +18,11 @@ import ExperimentRouter from './ExperimentRouter';
 import PrivateRoute from './components/PrivateRoute';
 import { getCurrentUser, bootstrapDevAuth } from './utils/api';
 import { ThemeProvider } from './context/ThemeContext';
+import { FullscreenProvider } from './context/FullscreenContext';
 import './App.css';
+import SensorProvisioning from './pages/SensorProvisioning';
+import ProgramSensor from './pages/ProgramSensor';
+import About from './pages/About';
 
 function AppContent() {
   const [currentUser, setCurrentUser] = useState(null);
@@ -81,6 +85,8 @@ function AppContent() {
     );
   }
 
+  const isDashboard = location.pathname === '/dashboard';
+
   return (
     <div className="app">
       <Header />
@@ -89,12 +95,13 @@ function AppContent() {
         It uses 'pt-20' (80px) for auth pages and 'pt-[70px]' (70px) for all other pages,
         matching the heights defined in your Header.jsx.
       */}
-      <main className={`${isAuthPage ? 'pt-20' : (isHeaderCollapsed ? 'pt-2' : 'pt-[70px]')} transition-all duration-300`}>
+      <main className={`${isAuthPage ? 'pt-[var(--header-height)]' : 'pt-[var(--header-height)]'} transition-all duration-300`}>
         <Routes>
           <Route path="/" element={<Navigate to="/login" />} />
           <Route path="/login" element={<Login setCurrentUser={setCurrentUser} />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/about" element={<About />} />
           <Route
             path="/home"
             element={
@@ -142,6 +149,22 @@ function AppContent() {
               </AdminPrivateRoute>
             }
           />
+          <Route
+            path="/sensor"
+            element={
+              <PrivateRoute>
+                <SensorProvisioning token={localStorage.getItem('token')} />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/sensor/program"
+            element={
+              <PrivateRoute>
+                <ProgramSensor token={localStorage.getItem('token')} />
+              </PrivateRoute>
+            }
+          />
         </Routes>
       </main>
       <ToastContainer />
@@ -152,7 +175,9 @@ function AppContent() {
 function App() {
   return (
     <ThemeProvider>
-      <AppContent />
+      <FullscreenProvider>
+        <AppContent />
+      </FullscreenProvider>
     </ThemeProvider>
   );
 }

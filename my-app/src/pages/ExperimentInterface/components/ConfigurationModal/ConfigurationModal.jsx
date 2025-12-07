@@ -1,15 +1,19 @@
 import React, { useState, useEffect } from 'react';
+import { useTheme } from '../../../../context/ThemeContext';
 import { 
   FiSettings, FiCheckCircle, FiAlertTriangle, FiLoader, 
   FiWifiOff, FiZap, FiX, FiArrowLeft
 } from 'react-icons/fi';
 
 const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sharedDeviceManager, sharedExperimentManager }) => {
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
   const userToken = localStorage.getItem('token');
   const [experimentType, setExperimentType] = useState('');
   const [flashStatus, setFlashStatus] = useState('Select a sensor to begin');
   const [isFlashing, setIsFlashing] = useState(false);
   const [pendingFirmware, setPendingFirmware] = useState(null);
+  const [pendingFirmwareFile, setPendingFirmwareFile] = useState(null);
   const [selectedDevice, setSelectedDevice] = useState(null);
 
   // Experiment configuration mapping based on experimentId
@@ -27,10 +31,10 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
         },
         {
           id: 'inclined_plane', 
-          name: 'Inclined Plane',
+          name: 'Modern Galileo Experiment',
           description: 'Analyze motion on an inclined plane.',
           icon: '📐',
-          firmware: 'INC.bin',
+          firmware: 'ULTINC.bin',
           firmwareType: 'inclined_plane'
         }
       ]
@@ -43,7 +47,7 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
           name: 'Simple Pendulum',
           description: 'Measure oscillation period and frequency.',
           icon: '🔄',
-          firmware: 'PEND_SIMPLE.bin',
+          firmware: 'OSISIM.bin',
           firmwareType: 'pendulum_simple'
         },
         {
@@ -51,8 +55,21 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
           name: 'Compound Pendulum',
           description: 'Analyze complex pendulum motion with damping.',
           icon: '⚖️',
-          firmware: 'PEND_COMPOUND.bin',
+          firmware: 'OSICOM.bin',
           firmwareType: 'pendulum_compound'
+        }
+      ]
+    },
+    3: {
+      name: 'Temperature Monitoring',
+      subExperiments: [
+        {
+          id: 'temperature_live',
+          name: 'Live Temperature Monitor',
+          description: 'Monitor live temperature with configurable resolution.',
+          icon: '🌡️',
+          firmware: 'THRMON.bin',
+          firmwareType: 'temperature'
         }
       ]
     },
@@ -122,7 +139,11 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
         console.log('Firmware flash successful, transitioning to experiment...');
         setFlashStatus('✓ Firmware flashed successfully');
         
-        const expType = experimentType === 'distance' ? 'tof' : experimentType;
+        const expType = (() => {
+          if (experimentType === 'distance') return 'tof';
+          if (experimentType === 'pendulum_simple' || experimentType === 'pendulum_compound') return 'oscillation';
+          return experimentType;
+        })();
         console.log('Calling onComplete with:', { device: selectedDevice, experimentType: expType, token: userToken });
         
         try {
@@ -148,11 +169,14 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
 
   const handleExperimentTypeSelection = (type) => {
     setExperimentType(type);
+    try { localStorage.setItem('experimentType', type); } catch {}
+    try { window.dispatchEvent(new CustomEvent('labex:experiment-type:changed', { detail: type })); } catch {}
     
     // Find the selected sub-experiment configuration
     const selectedSubExp = currentConfig.subExperiments.find(sub => sub.id === type);
     if (selectedSubExp) {
       setPendingFirmware(selectedSubExp.firmwareType);
+      setPendingFirmwareFile(selectedSubExp.firmware);
       setFlashStatus(`${selectedSubExp.firmware} prepared. Select a sensor to flash firmware.`);
     }
   };
@@ -177,8 +201,9 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
 
       setFlashStatus('Flashing firmware via OTA...');
       
-      console.log('Flashing firmware for device:', device.id, 'with firmware type:', pendingFirmware);
-      flashFirmware(device.id, pendingFirmware);
+      const normalizedType = (pendingFirmware === 'pendulum_simple' || pendingFirmware === 'pendulum_compound') ? 'oscillation' : pendingFirmware;
+      console.log('Flashing firmware for device:', device.id, 'with type:', normalizedType, 'file:', pendingFirmwareFile);
+      flashFirmware(device.id, normalizedType, pendingFirmwareFile);
 
     } catch (err) {
       console.error(err);
@@ -200,7 +225,9 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
         'distance': ['tof', 'displacement', 'distance'],
         'displacement': ['tof', 'displacement', 'distance'],
         'inclined_plane': ['inclined_plane', 'angle', 'incline'],
-        'angle': ['inclined_plane', 'angle', 'incline']
+        'angle': ['inclined_plane', 'angle', 'incline'],
+        'temperature_live': ['temperature', 'thermometer', 'sensor'],
+        'temperature': ['temperature', 'thermometer', 'sensor']
       };
       
       const compatibleTypes = experimentToDeviceType[experimentType] || [];
@@ -214,15 +241,15 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
 
   const getFlashStatusDisplay = () => {
     if (flashStatus.includes('✓')) {
-      return { icon: <FiCheckCircle className="text-green-500" />, color: 'text-green-600' };
+      return { icon: <FiCheckCircle className={isDark ? "text-green-400" : "text-green-500"} />, color: isDark ? 'text-green-400' : 'text-green-600' };
     }
     if (flashStatus.includes('✗')) {
-      return { icon: <FiAlertTriangle className="text-red-500" />, color: 'text-red-600' };
+      return { icon: <FiAlertTriangle className={isDark ? "text-red-400" : "text-red-500"} />, color: isDark ? 'text-red-400' : 'text-red-600' };
     }
     if (isFlashing) {
-      return { icon: <FiLoader className="animate-spin text-purple-600" />, color: 'text-purple-600' };
+      return { icon: <FiLoader className={`animate-spin ${isDark ? "text-blue-200" : "text-purple-600"}`} />, color: isDark ? 'text-blue-100' : 'text-purple-600' };
     }
-    return { icon: <FiSettings className="text-gray-500" />, color: 'text-gray-600' };
+    return { icon: <FiSettings className={isDark ? "text-slate-400" : "text-gray-500"} />, color: isDark ? 'text-slate-400' : 'text-gray-600' };
   };
   const flashStatusDisplay = getFlashStatusDisplay();
 
@@ -260,14 +287,14 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
                   onClick={() => handleExperimentTypeSelection(subExp.id)}
                   className={`p-4 sm:p-6 rounded-xl border-2 transition-all duration-300 group ${
                     experimentType === subExp.id
-                      ? 'border-purple-600 bg-purple-50 shadow-lg scale-105'
-                      : 'border-slate-200 hover:border-purple-300 hover:shadow-md'
+                      ? (isDark ? 'border-purple-500 bg-slate-800 shadow-lg scale-105' : 'border-purple-600 bg-purple-50 shadow-lg scale-105')
+                      : (isDark ? 'border-slate-700 hover:border-slate-500' : 'border-slate-200 hover:border-purple-300 hover:shadow-md')
                   }`}
                 >
                   <div className="text-2xl sm:text-3xl mb-1">{subExp.icon}</div>
-                  <div className="font-semibold text-slate-800 text-base sm:text-lg">{subExp.name}</div>
-                  <p className="text-xs sm:text-sm text-slate-500 mt-1">{subExp.description}</p>
-                  <p className="text-xs text-purple-600 mt-1 font-medium">→ {subExp.firmware}</p>
+                  <div className={`font-semibold text-base sm:text-lg ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>{subExp.name}</div>
+                  <p className={`text-xs sm:text-sm mt-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{subExp.description}</p>
+                  <p className={`text-xs mt-1 font-medium ${isDark ? 'text-indigo-300' : 'text-purple-600'}`}>→ {subExp.firmware}</p>
                 </button>
               ))}
             </div>
@@ -297,10 +324,10 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
                     }
                   }
                 }}
-                className="px-3 sm:px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm sm:text-base"
-              >
-                Manual Scan (WS + REST)
-              </button>
+              className="px-3 sm:px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm sm:text-base"
+            >
+                Scan Devices
+            </button>
               <span className="text-xs sm:text-sm text-gray-600">
                 Connected: {isConnected ? 'Yes' : 'No'} | Scanning: {isScanning ? 'Yes' : 'No'} | Devices: {devices.length}
               </span>
@@ -320,30 +347,67 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  {tofDevices.map(device => (
+                  {tofDevices
+                    .slice()
+                    .sort((a, b) => {
+                        const getRank = (d) => {
+                            // Rank 0: Online (online_status == 1)
+                            if (d.online_status === 1) return 0;
+                            // Rank 1: In Use (online_status == 0 && availability == 0)
+                            if (d.online_status === 0 && d.availability === 0) return 1;
+                            // Rank 2: Offline (online_status == 0 && availability == 1)
+                            return 2;
+                        };
+                        return getRank(a) - getRank(b);
+                    })
+                    .map(device => {
+                    const getStatus = (d) => {
+                      const online = d.online_status === 1;
+                      const available = d.availability === 1;
+                      
+                      if (online) return { label: 'Online', color: 'text-green-600', bg: 'bg-green-100', border: 'border-green-200', dot: 'bg-green-500' };
+                      if (!online && !available) return { label: 'In Use', color: 'text-yellow-600', bg: 'bg-yellow-100', border: 'border-yellow-200', dot: 'bg-yellow-500' };
+                      return { label: 'Offline', color: 'text-red-600', bg: 'bg-red-100', border: 'border-red-200', dot: 'bg-red-500' };
+                    };
+                    const status = getStatus(device);
+                    const isDisabled = status.label === 'Offline' || status.label === 'In Use';
+
+                    return (
                     <button
                       key={device.id}
-                      onClick={() => handleFlash(device)}
-                      disabled={isFlashing}
-                      className="p-4 rounded-lg border-2 border-slate-200 bg-white text-left hover:border-purple-600 hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
+                      onClick={() => !isDisabled && handleFlash(device)}
+                      disabled={isFlashing || isDisabled}
+                      className={`p-0 rounded-lg border-2 border-slate-200 bg-white text-left transition-all disabled:opacity-50 disabled:cursor-not-allowed group overflow-hidden ${(!isFlashing && !isDisabled) ? 'hover:border-purple-600 hover:shadow-lg' : ''}`}
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-bold text-slate-800 group-hover:text-purple-600">{device.id}</span>
-                        <FiZap className="h-4 w-4 text-slate-400 group-hover:text-purple-600" />
+                      {device.sensor_type && (
+                        <div className={`w-full px-3 py-1 rounded-t-lg text-xs font-semibold border-b ${isDark ? 'bg-indigo-900/50 text-indigo-200 border-indigo-700' : 'bg-blue-100 text-blue-700 border-blue-200'}`}>
+                          Sensor: {device.sensor_type}
+                        </div>
+                      )}
+                      <div className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-slate-800 group-hover:text-purple-600">{device.id}</span>
+                            <div className={`flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${status.bg} ${status.color} ${status.border}`}>
+                               <div className={`w-1.5 h-1.5 rounded-full mr-1 ${status.dot}`}></div>
+                               {status.label}
+                            </div>
+                          </div>
+                          <FiZap className="h-4 w-4 text-slate-400 group-hover:text-purple-600" />
+                        </div>
+                        <div className="text-xs text-slate-500 mt-1">{device.ip_address || 'Unknown IP'}</div>
                       </div>
-                      <div className="text-xs text-slate-500 mt-1">{device.ip_address || 'Unknown IP'}</div>
                     </button>
-                  ))}
+                  )})}
                 </div>
               )}
             </div>
           </div>
 
           {/* Detailed Status Display with Progress Background */}
-          <div className="relative bg-slate-50 rounded-lg border border-slate-200 overflow-hidden">
-            {/* Progress Bar Background */}
+          <div className={`relative rounded-lg border overflow-hidden ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
             <div 
-              className="absolute inset-0 bg-gradient-to-r from-green-300 to-green-400 transition-all duration-500 ease-out"
+              className={`absolute inset-0 transition-all duration-500 ease-out ${isDark ? 'bg-gradient-to-r from-blue-400 to-blue-500 border-r border-blue-300 shadow-[0_0_15px_rgba(59,130,246,0.5)]' : 'bg-gradient-to-r from-green-300 to-green-400'}`}
               style={{ width: `${getProgressPercentage()}%` }}
             />
             <div className="relative z-10 p-1 sm:p-2">
@@ -354,13 +418,13 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
                   {flashStatus}
                 </span>
               </div>
-              <span className="text-xs text-slate-500">
+              <span className={`text-xs ${isDark ? 'text-slate-300' : 'text-slate-500'}`}>
                 {getProgressPercentage()}%
               </span>
             </div>
             
             {/* Additional Status Details */}
-            <div className="text-xs text-slate-500">
+            <div className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
               {flashStatus === 'idle' && 'Ready to flash firmware to selected device'}
               {flashStatus === 'flashing' && 'Firmware is being uploaded to the device'}
               {flashStatus.includes('Allocating') && 'Connecting to device and preparing for firmware update'}

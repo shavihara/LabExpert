@@ -23,6 +23,15 @@ function Login({ setCurrentUser }) {
         console.log('Stored user:', user);
         console.log('Stored token:', localStorage.getItem('token'));
 
+        const isMobile = window.matchMedia('(max-width: 768px)').matches;
+        if (isMobile) {
+          const el = document.documentElement;
+          const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+          if (req) {
+            try { await req.call(el); localStorage.setItem('fullscreen', 'true'); } catch (e) {}
+          }
+        }
+
         const currentUser = await getCurrentUser();
         console.log('getCurrentUser response:', currentUser);
         if (currentUser) {
@@ -60,25 +69,25 @@ function Login({ setCurrentUser }) {
   };
 
   return (
-    <div className="auth-container min-h-[calc(100vh-var(--header-height))] pt-[var(--header-height)] px-8 sm:px-12 lg:px-20 xl:px-28 flex items-center justify-center bg-gradient-to-br from-purple-500 via-purple-600 to-purple-800 relative overflow-auto">
+    <div className="auth-container min-h-[calc(100vh-var(--header-height))] pt-[var(--header-height)] px-8 sm:px-12 lg:px-20 xl:px-28 flex items-center justify-center bg-gradient-to-br from-purple-500 via-purple-600 to-purple-800 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 relative overflow-auto">
 
-      <div className="auth-card bg-white/95 backdrop-blur-xl p-6 md:p-10 rounded-3xl shadow-2xl border border-white/20 w-full max-w-lg mx-4 animate-[fadeSlideUp_1s_ease-out_0.1s_forwards] opacity-0">
-        <h1 className="auth-heading text-center text-purple-600 text-3xl md:text-4xl mb-1 md:mb-2 font-extrabold">
+      <div className="auth-card bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl p-6 md:p-10 rounded-3xl shadow-2xl border border-white/20 dark:border-gray-700 w-full max-w-lg mx-4 animate-[fadeSlideUp_1s_ease-out_0.1s_forwards] opacity-0">
+        <h1 className="auth-heading text-center text-purple-600 dark:text-purple-400 text-3xl md:text-4xl mb-1 md:mb-2 font-extrabold">
           Lab Expert
         </h1>
-        <h2 className="auth-subheading text-center text-gray-600 text-base md:text-xl mb-6 md:mb-8 font-normal">
+        <h2 className="auth-subheading text-center text-gray-600 dark:text-gray-300 text-base md:text-xl mb-6 md:mb-8 font-normal">
           Welcome Back
         </h2>
 
         <form onSubmit={handleSubmit} className="auth-form flex flex-col gap-4 md:gap-6">
           {error && (
-            <div className="bg-red-50 text-red-600 px-4 py-3 rounded-lg border border-red-200 text-sm text-center">
+            <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-4 py-3 rounded-lg border border-red-200 dark:border-red-800 text-sm text-center">
               {error}
             </div>
           )}
 
           <div className="flex flex-col gap-2">
-            <label htmlFor="email" className="text-gray-700 font-semibold text-sm">
+            <label htmlFor="email" className="text-gray-700 dark:text-gray-300 font-semibold text-sm">
               Email
             </label>
             <input
@@ -87,14 +96,14 @@ function Login({ setCurrentUser }) {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="Enter your email"
-              className="auth-input w-full px-4 py-3 md:py-3.5 border-2 border-gray-200 rounded-lg text-base transition-all duration-300 bg-white focus:outline-none focus:border-purple-600 focus:ring-4 focus:ring-purple-100 placeholder:text-gray-400 disabled:opacity-60 disabled:cursor-not-allowed"
+              className="auth-input w-full px-4 py-3 md:py-3.5 border-2 border-gray-200 dark:border-gray-600 rounded-lg text-base transition-all duration-300 bg-white dark:bg-gray-700 dark:text-white focus:outline-none focus:border-purple-600 dark:focus:border-purple-400 focus:ring-4 focus:ring-purple-100 dark:focus:ring-purple-900/30 placeholder:text-gray-400 disabled:opacity-60 disabled:cursor-not-allowed"
               disabled={loading}
               aria-label="Email"
             />
           </div>
 
           <div className="flex flex-col gap-2">
-            <label htmlFor="password" className="text-gray-700 font-semibold text-sm">
+            <label htmlFor="password" className="text-gray-700 dark:text-gray-300 font-semibold text-sm">
               Password
             </label>
             <input
@@ -103,7 +112,7 @@ function Login({ setCurrentUser }) {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter your password"
-              className="auth-input w-full px-4 py-3 md:py-3.5 border-2 border-gray-200 rounded-lg text-base transition-all duration-300 bg-white focus:outline-none focus:border-purple-600 focus:ring-4 focus:ring-purple-100 placeholder:text-gray-400 disabled:opacity-60 disabled:cursor-not-allowed"
+              className="auth-input w-full px-4 py-3 md:py-3.5 border-2 border-gray-200 dark:border-gray-600 rounded-lg text-base transition-all duration-300 bg-white dark:bg-gray-700 dark:text-white focus:outline-none focus:border-purple-600 dark:focus:border-purple-400 focus:ring-4 focus:ring-purple-100 dark:focus:ring-purple-900/30 placeholder:text-gray-400 disabled:opacity-60 disabled:cursor-not-allowed"
               disabled={loading}
               aria-label="Password"
             />
@@ -119,18 +128,18 @@ function Login({ setCurrentUser }) {
           </button>
         </form>
 
-        <div className="mt-6 text-center pt-4 border-t border-gray-200">
+        <div className="mt-6 text-center pt-4 border-t border-gray-200 dark:border-gray-700">
           <Link
             to="/forgot-password"
-            className="text-purple-600 no-underline font-semibold transition-all duration-300 hover:text-purple-700 hover:underline"
+            className="text-purple-600 dark:text-purple-400 no-underline font-semibold transition-all duration-300 hover:text-purple-700 dark:hover:text-purple-300 hover:underline"
           >
             Forgot Password?
           </Link>
-          <p className="text-gray-500 mt-4">
+          <p className="text-gray-500 dark:text-gray-400 mt-4">
             Don't have an account?
             <Link
               to="/signup"
-              className="text-purple-600 no-underline font-semibold transition-all duration-300 hover:text-purple-700 hover:underline ml-1"
+              className="text-purple-600 dark:text-purple-400 no-underline font-semibold transition-all duration-300 hover:text-purple-700 dark:hover:text-purple-300 hover:underline ml-1"
             >
               Sign Up
             </Link>

@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { FiChevronUp, FiChevronDown } from 'react-icons/fi'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../utils/api';
+import { LogoutLoading } from './ui-system/ResponsiveUI';
 
 function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
@@ -9,6 +10,11 @@ function Header() {
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false)
   const location = useLocation()
   const isAuthPage = ['/login', '/signup', '/forgot-password'].includes(location.pathname)
+  const isExperimentPage = location.pathname.startsWith('/experiment')
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const navigate = useNavigate()
+
+  const isDashboard = location.pathname === '/dashboard'
 
   const lastScrollYRef = useRef(0)
   useEffect(() => {
@@ -19,7 +25,7 @@ function Header() {
         window.requestAnimationFrame(() => {
           const isScrollingDown = currentY > lastScrollYRef.current
           lastScrollYRef.current = currentY
-          if (!isAuthPage) {
+          if (!isAuthPage && !isDashboard) {
             if (isScrollingDown && currentY > 10) {
               setIsHeaderCollapsed(true)
             } else if (currentY <= 10) {
@@ -34,11 +40,16 @@ function Header() {
     }
     window.addEventListener('scroll', handleScroll, { passive: true })
     return () => window.removeEventListener('scroll', handleScroll)
-  }, [isAuthPage])
+  }, [isAuthPage, isDashboard])
 
   useEffect(() => {
     setIsMenuOpen(false)
+    if (location.pathname === '/dashboard') {
+      setIsHeaderCollapsed(false)
+    }
   }, [location])
+
+  useEffect(() => {}, [])
 
   useEffect(() => {
     const collapse = () => setIsHeaderCollapsed(true)
@@ -50,6 +61,14 @@ function Header() {
       window.removeEventListener('labex:header:expand', expand)
     }
   }, [])
+
+  useEffect(() => {
+    const root = document.documentElement
+    const hh = isAuthPage ? '80px' : '70px'
+    try {
+      root.style.setProperty('--header-offset-top', isHeaderCollapsed ? '12px' : hh)
+    } catch {}
+  }, [isHeaderCollapsed, isAuthPage])
 
   const toggleMenu = () => {
     setIsMenuOpen(!isMenuOpen)
@@ -65,6 +84,11 @@ function Header() {
   }, [isAuthPage])
 
   const handleLogout = async () => {
+    setIsLoggingOut(true);
+    
+    // Artificial delay for animation
+    await new Promise(resolve => setTimeout(resolve, 800));
+
     const token = localStorage.getItem('token');
     if (token) {
       try {
@@ -75,11 +99,13 @@ function Header() {
     }
     localStorage.removeItem('user');
     localStorage.removeItem('token');
-    window.location.href = '/login';
+    navigate('/login');
+    setIsLoggingOut(false);
   }
 
   return (
     <>
+      {isLoggingOut && <LogoutLoading />}
       <header className={`fixed top-0 left-0 right-0 z-[1000] transition-all duration-500 transform ${
         isScrolled ? 'shadow-2xl' : 'shadow-lg'
       } ${isAuthPage ? 'h-20' : 'h-[70px]'} ${isHeaderCollapsed ? '-translate-y-[calc(100%-12px)]' : 'translate-y-0'}`}
@@ -152,7 +178,7 @@ function Header() {
           </div>
         </Link>
 
-        {!isAuthPage && (
+        {!isAuthPage && !isExperimentPage && (
           <nav className="hidden lg:flex flex-1 justify-center">
             <ul className="flex items-center gap-4 m-0 p-0 list-none">
               {[
@@ -210,12 +236,11 @@ function Header() {
                 <span className="relative z-10">Logout</span>
               </button>
             )}
-            
           </div>
         )}
 
         {/* Modern Mobile Menu Button - Hide on auth pages */}
-        {!isAuthPage && (
+        {!isAuthPage && !isExperimentPage && (
           <button
             className="lg:hidden relative w-8 h-8 bg-white/10 backdrop-blur-sm rounded-lg border border-white/20 cursor-pointer transition-all duration-300 hover:bg-white/20 hover:scale-110 z-10"
             onClick={toggleMenu}
@@ -234,7 +259,7 @@ function Header() {
         )}
       </div>
 
-      {!isAuthPage && !isHeaderCollapsed && (
+      {!isAuthPage && !isExperimentPage && !isHeaderCollapsed && (
         <button
           onClick={() => setIsHeaderCollapsed(true)}
           className="absolute right-0 -bottom-5 bg-white/0 backdrop-blur-md text-white rounded-full border-1 border-white/30 p-2 hover:bg-white/50 transition-all duration-300 shadow-lg"
@@ -247,7 +272,7 @@ function Header() {
       )}
 
       {/* Modern Mobile Navigation - Hide on auth pages */}
-      {!isAuthPage && (
+      {!isAuthPage && !isExperimentPage && (
         <>
           <nav className={`lg:hidden fixed top-[var(--header-height)] left-0 w-full h-[calc(100vh-var(--header-height))] bg-white/98 backdrop-blur-xl transition-all duration-500 z-[1100] overflow-y-auto ${
             isMenuOpen ? 'translate-x-0 opacity-100' : '-translate-x-full opacity-0'

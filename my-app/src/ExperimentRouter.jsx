@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import ExperimentInterface from './pages/ExperimentInterface';
+import ExperimentInterface from './pages/ExperimentInterface/ExperimentInterface';
 import NewExperimentInterface from './pages/ExperimentInterface/ExperimentInterface.jsx';
 import OSIInterface from './components/OSIInterface';
 
@@ -18,7 +18,10 @@ function ExperimentRouter() {
       return <ExperimentInterface experimentId={'1'} goBack={goBack} />;
 
     case '2':
-      return <OSIInterface goBack={goBack} />;
+      return <ExperimentInterface experimentId={'2'} goBack={goBack} />;
+
+    case '3':
+      return <ExperimentInterface experimentId={'3'} goBack={goBack} />;
 
     case '5':
       return <ExperimentInterface experimentId={'5'} goBack={goBack} />;

@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTheme } from '../context/ThemeContext';
 
 function UserDashboard() {
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
   const [activeSection, setActiveSection] = useState('experiments')
   const [sliderStyle, setSliderStyle] = useState({});
   const [experiments, setExperiments] = useState([]);
@@ -171,7 +174,7 @@ function UserDashboard() {
       </div>
 
       {/* Navigation */}
-      <nav className="sticky top-[70px] z-50 bg-white border-b border-slate-200 shadow-sm">
+      <nav className={`sticky top-[var(--header-offset-top)] z-[900] shadow-sm ${isDark ? 'bg-gradient-to-br from-purple-700 to-purple-900 border-purple-700' : 'bg-white border-slate-200'}`}>
         <div className="max-w-7xl mx-auto relative px-4 md:px-8">
           <div className="flex overflow-x-auto">
             {[
@@ -183,8 +186,10 @@ function UserDashboard() {
             ].map((item) => (
               <button
                 key={item.id}
-                className={`flex-1 px-6 py-4 font-semibold whitespace-nowrap transition-all duration-300 ${
-                  activeSection === item.id ? 'text-purple-600' : 'text-slate-500 hover:text-purple-600'
+                className={`flex-1 px-6 py-4 font-semibold whitespace-nowrap transition-all duration-300 rounded-md ${
+                  activeSection === item.id
+                    ? (isDark ? 'bg-purple-700 text-white' : 'text-purple-600')
+                    : (isDark ? 'bg-transparent text-slate-100 hover:bg-purple-700/30 hover:text-white' : 'text-slate-500 hover:text-purple-600')
                 }`}
                 onClick={() => setActiveSection(item.id)}
               >

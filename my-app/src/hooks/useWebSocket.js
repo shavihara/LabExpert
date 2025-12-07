@@ -568,7 +568,7 @@ export const useExperimentManager = (webSocketInstance, externalExperimentData =
     sendMessage({ action: 'stop_experiment' });
   }, [isConnected, sendMessage]);
 
-  const flashFirmware = useCallback((deviceId, experimentType) => {
+  const flashFirmware = useCallback((deviceId, experimentType, firmwareFile = null) => {
     if (!isConnected) {
       setFirmwareStatus({ success: false, message: 'WebSocket not connected' });
       return;
@@ -578,11 +578,12 @@ export const useExperimentManager = (webSocketInstance, externalExperimentData =
     sendMessage({ 
       action: 'flash_firmware', 
       device_id: deviceId, 
-      experiment_type: experimentType 
+      experiment_type: experimentType,
+      firmware_file: firmwareFile
     });
   }, [isConnected, sendMessage]);
 
-  const applyConfiguration = useCallback((deviceId, config) => {
+  const applyConfiguration = useCallback((deviceId, config, experimentType = null) => {
     if (!isConnected) {
       setConfigStatus({ success: false, message: 'WebSocket not connected' });
       return;
@@ -590,27 +591,53 @@ export const useExperimentManager = (webSocketInstance, externalExperimentData =
 
     setConfigStatus({ success: null, message: 'Applying configuration...' });
     
-    // Map frontend field names to backend expected format (device-safe)
-    const backendConfig = {
-      frequency: config.frequency_hz || config.frequency || 50,
-      duration: config.duration_s || config.duration || 60,
-      mode: config.mode || 'distance'
-    };
-    // Only include maxRange if explicitly provided to avoid forcing unsupported range modes
-    if (config.max_distance_cm != null && !Number.isNaN(config.max_distance_cm)) {
-      backendConfig.maxRange = Math.round(config.max_distance_cm * 10); // Convert cm to mm
+    // Build configuration payload based on experiment type
+    // If pendulum/OSI-style fields are present, send ONLY those to device
+    let backendConfig;
+    const hasPendulumFields = (
+      config.max_count != null ||
+      config.pendulum_length_cm != null ||
+      config.pivot_to_com_distance_cm != null
+    );
+    if (hasPendulumFields) {
+      backendConfig = {};
+      if (config.max_count != null) {
+        backendConfig.max_count = parseInt(config.max_count);
+        backendConfig.maxCount = parseInt(config.max_count);
+      }
+      if (config.pendulum_length_cm != null) {
+        backendConfig.pendulum_length_cm = Number(config.pendulum_length_cm);
+        backendConfig.pendulumLengthCm = Number(config.pendulum_length_cm);
+      }
+      if (config.pivot_to_com_distance_cm != null) {
+        backendConfig.pivot_to_com_distance_cm = Number(config.pivot_to_com_distance_cm);
+        backendConfig.pivotToComDistanceCm = Number(config.pivot_to_com_distance_cm);
+      }
+      // Avoid sending frequency/duration/mode for OSI pendulum firmware
+    } else {
+      // Default distance/time-of-flight style configuration
+      backendConfig = {
+        frequency: config.frequency_hz || config.frequency || 50,
+        duration: config.duration_s || config.duration || 60,
+        mode: config.mode || 'distance'
+      };
+      if (config.max_distance_cm != null && !Number.isNaN(config.max_distance_cm)) {
+        backendConfig.maxRange = Math.round(config.max_distance_cm * 10);
+      }
+      if (config.resolution != null) {
+        backendConfig.resolution = parseInt(config.resolution);
+      }
     }
-    // Do not include mass in device configuration to avoid ESP32 failures
-    
     const analysis = {};
     if (config.mass !== undefined && !Number.isNaN(config.mass)) {
       analysis.mass = Number(config.mass);
     }
 
-    sendMessage({ 
-      action: 'configure_experiment', 
-      device_id: deviceId, 
+    sendMessage({
+      action: 'configure_experiment',
+      device_id: deviceId,
       config: backendConfig,
+      experiment_type: experimentType,
       analysis
     });
   }, [isConnected, sendMessage]);

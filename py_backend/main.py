@@ -39,6 +39,7 @@ from datetime import datetime
 import secrets
 import uuid
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Query, Request, Header, WebSocket, WebSocketDisconnect, Form
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse, FileResponse
@@ -92,6 +93,7 @@ from config.database import engine
 
 # Import MQTT service
 from services.mqtt_service import MQTTService
+from utils.network_utils import get_host_ip, get_candidate_local_ips
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -101,6 +103,11 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 app = FastAPI()
+
+# Mount uploads directory (project root uploads)
+UPLOADS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../uploads"))
+os.makedirs(UPLOADS_DIR, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
 # Initialize WebSocket/session managers
 session_manager = SessionManager()
@@ -243,6 +250,20 @@ class DynamicCORSMiddleware:
 # Remove DynamicCORSMiddleware since it's not working properly
 # app.add_middleware(DynamicCORSMiddleware)
 
+origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "http://localhost:5175",
+    "http://127.0.0.1:5175",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    f"http://{get_host_ip()}:3000",
+]
+# Add dynamic local IPs (WiFi + hotspot) at runtime for port 3000
+origins += [f"http://{ip}:3000" for ip in get_candidate_local_ips()]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -252,34 +273,12 @@ app.add_middleware(
         "http://127.0.0.1:5174",
         "http://localhost:5175",
         "http://127.0.0.1:5175",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
+        f"http://{get_host_ip()}:3000",
         f"http://{LOCAL_IP}:5173",
         f"http://{LOCAL_IP}:5174",
         f"http://{LOCAL_IP}:5175",
-        "http://192.168.137.1:3000",
-        "http://192.168.1.198:3000",
-        f"http://{LOCAL_IP}:3000",
         "http://192.168.1.198:5173",
-        # Allow all private IP ranges
-        "http://10.*.*.*:3000",
-        "http://172.16.*.*:3000", 
-        "http://172.17.*.*:3000",
-        "http://172.18.*.*:3000",
-        "http://172.19.*.*:3000",
-        "http://172.20.*.*:3000",
-        "http://172.21.*.*:3000",
-        "http://172.22.*.*:3000",
-        "http://172.23.*.*:3000",
-        "http://172.24.*.*:3000",
-        "http://172.25.*.*:3000",
-        "http://172.26.*.*:3000",
-        "http://172.27.*.*:3000",
-        "http://172.28.*.*:3000",
-        "http://172.29.*.*:3000",
-        "http://172.30.*.*:3000",
-        "http://172.31.*.*:3000",
-        "http://192.168.*.*:3000",
+        
         # Also allow these ranges on other ports
         "http://10.*.*.*:5173",
         "http://172.16.*.*:5173",
@@ -329,6 +328,15 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ProfileUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    institutionType: Optional[str] = None
+    userType: Optional[str] = None
+    studentNo: Optional[str] = None
+    academicLevel: Optional[str] = None
+    grade: Optional[str] = None
+
+
 class SignupRequest(BaseModel):
     name: str
     email: EmailStr
@@ -356,6 +364,7 @@ class ExperimentConfig(BaseModel):
     frequency: int
     duration: int
     mode: str = "distance"
+    resolution: Optional[int] = None
 
 
 class ExperimentData(BaseModel):
@@ -579,9 +588,39 @@ async def root():
     }
 
 
+def to_camel_case(data):
+    if not data:
+        return data
+    result = {}
+    for key, value in data.items():
+        # Convert snake_case to camelCase
+        parts = key.split('_')
+        camel_key = parts[0] + ''.join(x.title() for x in parts[1:])
+        result[camel_key] = value
+    return result
+
+
 @app.get("/api/user/me")
 async def get_me(current_user=Depends(get_current_user)):
-    return {"success": True, "user": current_user}
+    return {"success": True, "user": to_camel_case(current_user)}
+
+
+@app.put("/api/user/profile")
+async def update_profile(req: ProfileUpdateRequest, current_user=Depends(get_current_user)):
+    # Map camelCase to snake_case
+    data = {}
+    if req.name is not None: data['name'] = req.name
+    if req.institutionType is not None: data['institution_type'] = req.institutionType
+    if req.userType is not None: data['user_type'] = req.userType
+    if req.studentNo is not None: data['student_no'] = req.studentNo
+    if req.academicLevel is not None: data['academic_level'] = req.academicLevel
+    if req.grade is not None: data['grade'] = req.grade
+    
+    updated_user = UserService.update_profile(current_user['id'], data)
+    if not updated_user:
+        raise HTTPException(404, "User not found")
+        
+    return {"success": True, "user": to_camel_case(updated_user)}
 
 
 @app.post("/api/auth/login")
@@ -597,12 +636,7 @@ async def login(req: LoginRequest, request: Request):
     return {
         "success": True,
         "token": token,
-        "user": {
-            "id": user['id'],
-            "name": user['name'],
-            "email": user['email'],
-            "role": user['role'],
-        },
+        "user": to_camel_case(user),
     }
 
 
@@ -620,7 +654,7 @@ async def signup(req: SignupRequest):
     return {
         "success": True,
         "token": token,
-        "user": {"id": user['id'], "name": req.name, "email": req.email},
+        "user": to_camel_case(user),
     }
 
 
@@ -683,7 +717,30 @@ def health():
 @app.post("/api/files/profile-picture")
 async def upload_profile(file: UploadFile = File(...), current_user=Depends(get_current_user)):
     saved = FileService.save_profile_picture(file, current_user['id'])
-    return {"success": True, "file": saved}
+    # Return updated user so frontend can update state
+    updated_user = UserService.find_by_id(current_user['id'])
+    return {"success": True, "file": saved, "user": to_camel_case(updated_user)}
+
+@app.delete("/api/files/profile-picture")
+async def remove_profile_picture(current_user=Depends(get_current_user)):
+    try:
+        user_id = current_user['id']
+        with engine.begin() as conn:
+            result = conn.execute(text("""
+                SELECT id FROM files
+                WHERE user_id = :user_id AND file_type = 'profile_picture' AND is_active = 1
+                ORDER BY rowid DESC LIMIT 1
+            """), {"user_id": user_id})
+            row = result.fetchone()
+            if row:
+                FileService.delete_file(row[0])
+            # Clear user profile_picture
+            conn.execute(text("UPDATE users SET profile_picture = NULL WHERE id = :user_id"), {"user_id": user_id})
+        updated_user = UserService.find_by_id(user_id)
+        return {"success": True, "user": to_camel_case(updated_user)}
+    except Exception as e:
+        logger.error(f"Failed to remove profile picture: {e}")
+        raise HTTPException(500, "Failed to remove profile picture")
 
 
 # ------------------ Admin Routes ------------------
@@ -779,6 +836,9 @@ async def configure_sensor(
         "mode": config.mode,
         "averagingSamples": 1
     }
+
+    if config.resolution is not None:
+        mqtt_config["resolution"] = config.resolution
     
     # Use MQTT to send configuration to device
     mqtt_service = MQTTService.get_instance()
@@ -1112,6 +1172,8 @@ class ExperimentType(Enum):
     DISTANCE = "distance"
     OSCILLATION = "oscillation"
     DISPLACEMENT = "displacement"
+    PENDULUM_SIMPLE = "pendulum_simple"
+    PENDULUM_COMPOUND = "pendulum_compound"
 
 
 class ExperimentSelectRequest(BaseModel):
@@ -1156,6 +1218,8 @@ async def select_experiment(
             ota_key = "oscillation"
         elif exp == ExperimentType.DISPLACEMENT:
             ota_key = "displacement"
+        elif exp == ExperimentType.PENDULUM_SIMPLE or exp == ExperimentType.PENDULUM_COMPOUND:
+            ota_key = "oscillation"
         else:
             raise HTTPException(400, f"Unknown experiment type: {exp}")
 
@@ -1259,7 +1323,9 @@ async def get_available_experiments(
     experiments = [
         {"type": "distance", "file": f"{device_id}.bin", "name": "Distance Measurement"},
         {"type": "oscillation", "file": f"{device_id}_OSC.bin", "name": "Oscillation Timing"},
-        {"type": "displacement", "file": f"{device_id}.bin", "name": "Displacement Analysis"}
+        {"type": "displacement", "file": f"{device_id}.bin", "name": "Displacement Analysis"},
+        {"type": "pendulum_simple", "file": "OSISIM.bin", "name": "Simple Pendulum"},
+        {"type": "pendulum_compound", "file": "OSICOM.bin", "name": "Compound Pendulum"}
     ]
 
     for exp in experiments:

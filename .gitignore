@@ -5,6 +5,7 @@ venv/
 .venv/
 env/
 LabEx_V1.2.code-workspace
+uploads
 # -------------------------
 # Python cache and compiled files
 # -------------------------
@@ -31,7 +32,7 @@ Binn
 # -------------------------
 # Environment & secret files
 # -------------------------
-.env
+.back
 
 # -------------------------
 # Logs and system files
@@ -52,3 +53,5 @@ Binn/
 py_backend/bin/THEEEEETOF.bin
 py_backend/bin/TOF.bin
 py_backend/bin/TOF.bin
+
+LabExpert_Sensor_Communications/

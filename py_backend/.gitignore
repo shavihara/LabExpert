@@ -4,6 +4,7 @@
 venv/
 .venv/
 env/
+.back/
 
 # -------------------------
 # Python cache and compiled files

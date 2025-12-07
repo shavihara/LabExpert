@@ -21,7 +21,7 @@ export const responsive = {
   cardHover: "bg-white rounded-xl shadow-lg border border-slate-200 hover:shadow-xl transition-shadow duration-300",
   
   // Button styles
-  button: "px-4 py-2 rounded-lg font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2",
+  button: "inline-flex items-center whitespace-nowrap px-4 py-2 rounded-lg font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2",
   buttonPrimary: "px-4 py-2 rounded-lg font-medium transition-all duration-200 bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2",
   buttonSecondary: "px-4 py-2 rounded-lg font-medium transition-all duration-200 bg-gray-600 text-white hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2",
   buttonSuccess: "px-4 py-2 rounded-lg font-medium transition-all duration-200 bg-green-600 text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2",
@@ -192,6 +192,7 @@ export const ResponsiveCard = ({
                    responsive.card;
   
   const paddingClass = {
+    'none': 'p-0',
     'xs': responsive.spacing.xs,
     'sm': responsive.spacing.sm,
     'md': responsive.spacing.md,
@@ -356,33 +357,58 @@ export const ErrorFallback = ({ error, resetError, className = '' }) => {
 /**
  * Responsive Modal Component
  */
-export const ResponsiveModal = ({ isOpen, onClose, title, children, size = 'md' }) => {
+export const ResponsiveModal = ({ isOpen, onClose, title, children, size = 'md', className = '', noBodyScroll = false }) => {
   if (!isOpen) return null;
   
   const sizeClasses = {
     'sm': 'max-w-md',
     'md': 'max-w-lg',
     'lg': 'max-w-3xl',
-    'xl': 'max-w-5xl',
+    'xl': 'max-w-4xl',
+    '2xl': 'max-w-5xl',
+    '3xl': 'max-w-6xl',
     'full': 'max-w-[95vw]'
   }[size] || 'max-w-lg';
   
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[1000] p-4">
-      <div className={`bg-white rounded-xl shadow-2xl w-full ${sizeClasses} max-h-[90vh] overflow-hidden`}>
-        <div className="flex items-center justify-between p-6 border-b border-gray-200">
-          <h2 className="text-xl font-bold text-gray-800">{title}</h2>
+      <div className={`bg-white rounded-xl shadow-2xl w-full ${sizeClasses} max-h-[95vh] flex flex-col overflow-hidden ${className}`}>
+        <div className="relative flex items-center justify-between px-6 py-6 border-b border-black/10 bg-gradient-to-r from-purple-600 via-purple-700 to-purple-800 modal-header-gradient flex-none">
+          <h2 className="text-2xl font-bold text-white">{title}</h2>
           <button
             onClick={() => onClose && onClose()}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
+            className="text-white/80 hover:text-white transition-colors"
           >
             <FiX size={24} />
           </button>
+          <span className="absolute inset-0 pointer-events-none">
+            <span className="absolute top-0 -left-full w-full h-full bg-gradient-to-r from-transparent via-white/40 to-transparent animate-[shimmer_6s_ease-in-out_infinite] header-shimmer" style={{ animationDelay: '5s', filter: 'blur(1px)' }}></span>
+            <span className="absolute top-0 -left-full w-full h-full bg-gradient-to-r from-transparent via-purple-300/20 to-transparent animate-[shimmer_5s_ease-in-out_infinite] header-shimmer" style={{ animationDelay: '2s' }}></span>
+          </span>
         </div>
-        <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+        <div className={`px-4 pt-5 pb-4 flex-1 ${noBodyScroll ? 'overflow-hidden flex flex-col' : 'overflow-y-auto'}`}>
           {children}
         </div>
       </div>
+    </div>
+  );
+};
+
+/**
+ * Logout Loading Overlay
+ */
+export const LogoutLoading = () => {
+  return (
+    <div className="fixed inset-0 z-[9999] bg-white/80 dark:bg-gray-900/90 backdrop-blur-sm flex flex-col items-center justify-center animate-fade-in">
+      <div className="relative w-20 h-20 mb-4">
+        <div className="absolute inset-0 border-4 border-indigo-200 dark:border-indigo-900 rounded-full"></div>
+        <div className="absolute inset-0 border-4 border-indigo-600 dark:border-indigo-400 rounded-full border-t-transparent animate-spin"></div>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <FiStopCircle className="w-8 h-8 text-indigo-600 dark:text-indigo-400 animate-pulse" />
+        </div>
+      </div>
+      <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-2">Signing Out</h2>
+      <p className="text-gray-500 dark:text-gray-400">Securely clearing your session...</p>
     </div>
   );
 };

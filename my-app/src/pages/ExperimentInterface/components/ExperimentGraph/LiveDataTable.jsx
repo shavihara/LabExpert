@@ -1,13 +1,21 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { FiMaximize2, FiMinimize2, FiDownload, FiCopy, FiEye, FiEyeOff } from 'react-icons/fi';
+import { useFullscreen } from '../../../../context/FullscreenContext';
 
-const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen, onNeglectedDataChange, neglectedData: propNeglectedData, columns, hideNeglectColumn = false, hideSampleColumn = false, hideCopyButton = false, hideNeglectAllButton = false, hideCsvButton = false, containerClassName = '', visibleRowCount }) => {
+const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen, onNeglectedDataChange, neglectedData: propNeglectedData, columns, hideNeglectColumn = false, hideSampleColumn = false, hideCopyButton = false, hideNeglectAllButton = false, hideCsvButton = false, containerClassName = '', visibleRowCount, onContainerRef }) => {
   const [sortConfig, setSortConfig] = useState({ key: 'time', direction: 'ascending' });
   const [localNeglectedData, setLocalNeglectedData] = useState(new Set());
   const tableRef = useRef(null);
   const theadRef = useRef(null);
   const [rowHeight, setRowHeight] = useState(0);
   const [headerHeight, setHeaderHeight] = useState(0);
+  const containerRef = useRef(null);
+  const { fullscreenElement, requestFullscreenFor, exitFullscreen } = useFullscreen();
+  const activeFullscreen = fullscreenElement === containerRef.current || !!isFullscreen;
+
+  useEffect(() => {
+    if (onContainerRef) onContainerRef(containerRef.current);
+  }, [onContainerRef]);
   
   // Use propNeglectedData if provided, otherwise use local state
   const neglectedData = propNeglectedData !== undefined ? propNeglectedData : localNeglectedData;
@@ -118,29 +126,33 @@ const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen, onNeglectedData
     setNeglectedData(allIndices);
   };
 
-  // Notify parent component when neglected data changes
+  // Notify parent component when neglected data changes (only in uncontrolled mode)
   useEffect(() => {
-    if (onNeglectedDataChange) {
+    if (onNeglectedDataChange && propNeglectedData === undefined) {
       onNeglectedDataChange(neglectedData);
     }
-  }, [neglectedData, onNeglectedDataChange]);
+  }, [neglectedData, onNeglectedDataChange, propNeglectedData]);
 
   if (!data.length) {
     return (
-      <div className="bg-slate-50 rounded-xl p-8 text-center">
-        <div className="text-slate-400 mb-2">
-          <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
+      <div ref={containerRef} className={`${activeFullscreen ? 'fixed inset-0 z-50 bg-white p-4 overflow-auto' : ''} ${containerClassName} h-full`}>
+        <div className="flex items-center justify-center h-full min-h-[240px] p-6">
+          <div className="text-center">
+            <div className="text-slate-400 mb-2">
+              <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-semibold text-slate-600 mb-1">No Data Yet</h3>
+            <p className="text-slate-500 text-sm">Start the experiment to see live data here</p>
+          </div>
         </div>
-        <h3 className="text-lg font-semibold text-slate-600 mb-1">No Data Yet</h3>
-        <p className="text-slate-500 text-sm">Start the experiment to see live data here</p>
       </div>
     );
   }
 
   return (
-    <div className={`${isFullscreen ? 'fixed inset-0 z-50 bg-white p-4' : ''} ${containerClassName}`}>
+    <div ref={containerRef} className={`${activeFullscreen ? 'fixed inset-0 z-50 bg-white p-4 overflow-auto' : ''} ${containerClassName}`}>
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
@@ -199,19 +211,30 @@ const LiveDataTable = ({ data, isFullscreen, onToggleFullscreen, onNeglectedData
           )}
           
           <button
-            onClick={onToggleFullscreen}
+            onClick={async () => {
+              if (fullscreenElement === containerRef.current) {
+                await exitFullscreen();
+              } else {
+                await requestFullscreenFor(containerRef.current);
+              }
+              if (onToggleFullscreen) onToggleFullscreen();
+            }}
             aria-label={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
             className="flex items-center gap-1 p-2 sm:px-3 sm:py-1.5 bg-slate-600 text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-slate-700 transition-all"
           >
-            {isFullscreen ? <FiMinimize2 size={16} /> : <FiMaximize2 size={16} />}
-            <span className="hidden sm:inline">{isFullscreen ? 'Exit' : 'Fullscreen'}</span>
+            {activeFullscreen ? <FiMinimize2 size={16} /> : <FiMaximize2 size={16} />}
+            <span className="hidden sm:inline">{activeFullscreen ? 'Exit' : 'Fullscreen'}</span>
           </button>
         </div>
       </div>
 
       {/* Table */}
       <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto overflow-y-auto" style={visibleRowCount && !isFullscreen && rowHeight ? { maxHeight: headerHeight + rowHeight * visibleRowCount } : undefined}>
+        <div className="overflow-x-auto overflow-y-auto" style={
+          activeFullscreen
+            ? { maxHeight: 'calc(100vh - 200px)' }
+            : (visibleRowCount && rowHeight ? { maxHeight: headerHeight + rowHeight * visibleRowCount } : undefined)
+        }>
           <table ref={tableRef} className="w-full">
             <thead ref={theadRef} className="bg-slate-50">
               <tr>

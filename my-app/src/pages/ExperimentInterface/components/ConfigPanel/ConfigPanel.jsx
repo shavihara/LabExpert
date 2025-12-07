@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FiX } from 'react-icons/fi';
 
-const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sharedExperimentManager }) => {
+const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sharedExperimentManager, selectedSubExperiment }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   
@@ -21,7 +21,7 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
 
     try {
       localStorage.setItem('experimentConfig', JSON.stringify(config));
-      applyConfiguration(selectedDevice.id, config);
+      applyConfiguration(selectedDevice.id, config, selectedSubExperiment?.firmwareType);
     } catch (err) {
       console.error(err);
       setStatusMessage(`❌ Error: ${err.message}`);
@@ -44,14 +44,17 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
     }
   }, [configStatus, isSubmitting, onClose]);
 
+  const isPendulumExperiment = selectedSubExperiment?.id === '2.1' || selectedSubExperiment?.id === '2.2';
+  const isTemperatureExperiment = selectedSubExperiment?.id === 'temperature_live';
+
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden animate-fade-in">
         
-        <div className="bg-gradient-to-r from-blue-600 to-blue-800 p-6 flex justify-between items-center">
+        <div className="bg-gradient-to-r from-purple-600 via-purple-700 to-purple-800 p-6 flex justify-between items-center modal-header-gradient">
           <div>
             <h2 className="text-2xl font-bold text-white">Configuration</h2>
-            <p className="text-blue-100 text-sm mt-1">Adjust experiment parameters</p>
+            <p className="text-white/80 text-sm mt-1">Adjust experiment parameters</p>
           </div>
           <button
             onClick={onClose}
@@ -62,6 +65,92 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
         </div>
 
         <div className="p-6 space-y-6">
+          
+          {/* Sub-experiment 2.1 Specific Configs */}
+          {selectedSubExperiment?.id === '2.1' && (
+            <>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  Max Count
+                </label>
+                <input
+                  type="number"
+                  value={config.max_count || 50}
+                  onChange={(e) => onChange({ ...config, max_count: parseInt(e.target.value) })}
+                  className="w-full px-4 py-2 border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none transition-all"
+                  min="1"
+                />
+                <p className="text-xs text-slate-500 mt-1">Number of oscillations to count</p>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  Length of String (cm)
+                </label>
+                <input
+                  type="number"
+                  value={config.pendulum_length_cm || 100}
+                  onChange={(e) => onChange({ ...config, pendulum_length_cm: parseFloat(e.target.value) })}
+                  className="w-full px-4 py-2 border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none transition-all"
+                  min="1"
+                />
+                <p className="text-xs text-slate-500 mt-1">Length of the pendulum string</p>
+              </div>
+            </>
+          )}
+
+          {/* Sub-experiment 2.2 Specific Configs */}
+          {selectedSubExperiment?.id === '2.2' && (
+            <>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  Max Count
+                </label>
+                <input
+                  type="number"
+                  value={config.max_count || 50}
+                  onChange={(e) => onChange({ ...config, max_count: parseInt(e.target.value) })}
+                  className="w-full px-4 py-2 border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none transition-all"
+                  min="1"
+                />
+                <p className="text-xs text-slate-500 mt-1">Number of oscillations to count</p>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  Pivot to Center of Mass (cm)
+                </label>
+                <input
+                  type="number"
+                  value={config.pivot_to_com_distance_cm || 50}
+                  onChange={(e) => onChange({ ...config, pivot_to_com_distance_cm: parseFloat(e.target.value) })}
+                  className="w-full px-4 py-2 border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none transition-all"
+                  min="1"
+                />
+                <p className="text-xs text-slate-500 mt-1">Distance between pivot and center of mass</p>
+              </div>
+            </>
+          )}
+
+          {/* Temperature Experiment Specific Configs */}
+          {isTemperatureExperiment && (
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">
+                Resolution
+              </label>
+              <select
+                value={config.resolution || 10}
+                onChange={(e) => onChange({ ...config, resolution: parseInt(e.target.value) })}
+                className="w-full px-4 py-2 border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none transition-all"
+              >
+                <option value={9}>0.5°C (94ms)</option>
+                <option value={10}>0.25°C (188ms)</option>
+                <option value={11}>0.125°C (375ms)</option>
+                <option value={12}>0.0625°C (750ms)</option>
+              </select>
+              <p className="text-xs text-slate-500 mt-1">Select temperature resolution</p>
+            </div>
+          )}
+
+          {!isPendulumExperiment && !isTemperatureExperiment && (
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-2">
               Sampling Frequency (Hz)
@@ -76,6 +165,7 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
             />
             <p className="text-xs text-slate-500 mt-1">Recommended: 20-50 Hz</p>
           </div>
+          )}
 
           {config.max_intensity_lux !== undefined ? (
             <div>
@@ -92,7 +182,7 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
               />
               <p className="text-xs text-slate-500 mt-1">Maximum expected ambient intensity</p>
             </div>
-          ) : (
+          ) : (!isPendulumExperiment && !isTemperatureExperiment && (
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-2">
                 Max Distance (cm)
@@ -107,8 +197,9 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
               />
               <p className="text-xs text-slate-500 mt-1">Maximum measurable distance</p>
             </div>
-          )}
+          ))}
 
+          {!isPendulumExperiment && (
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-2">
               Duration (seconds)
@@ -123,6 +214,7 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
             />
             <p className="text-xs text-slate-500 mt-1">Total experiment duration</p>
           </div>
+          )}
 
           {config.mass !== undefined && (
             <div>

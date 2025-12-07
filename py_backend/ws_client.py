@@ -1,6 +1,7 @@
 # ws_client.py
 # WebSocket manager for frontend clients
 import asyncio
+import os
 import json
 import logging
 from typing import Dict
@@ -17,6 +18,7 @@ class ClientWebSocketManager:
         self.active_clients: Dict[str, WebSocket] = {}
         self._last_scan_time = {}
         self._scan_cooldown = 5  # seconds between scans
+        self._ble_selected: Dict[str, str] = {}
     
     @classmethod
     def get_instance(cls):
@@ -114,6 +116,16 @@ class ClientWebSocketManager:
             # Actions that don't require allocation
             if action == "scan_devices":
                 await self._handle_scan_devices(user_id)
+            elif action == "ble_scan":
+                await self._handle_ble_scan(user_id)
+            elif action == "ble_select":
+                addr = message.get("address")
+                await self._handle_ble_select(user_id, addr)
+            elif action == "ble_provision":
+                ssid = message.get("ssid")
+                password = message.get("pass") or message.get("password")
+                username = message.get("user") or message.get("username")
+                await self._handle_ble_provision(user_id, ssid, password, username)
             elif action == "select_device":
                 device_id = message.get("device_id")
                 await self._handle_select_device(user_id, device_id)
@@ -123,7 +135,9 @@ class ClientWebSocketManager:
                 await self.handle_dashboard_navigation(user_id)
             elif action == "flash_firmware":
                 # Flash firmware doesn't require device allocation - just needs device IP
-                await self._handle_flash_firmware(user_id, message.get("device_id"), message.get("experiment_type"))
+                await self._handle_flash_firmware(user_id, message.get("device_id"), message.get("experiment_type"), message.get("firmware_file"))
+            elif action == "repair_sensor":
+                await self._handle_repair_sensor(user_id, message.get("device_id"), message.get("sensor_type"))
             else:
                 # Verify allocation for device-specific actions
                 user_devices = await self.session_manager.get_user_devices(user_id)
@@ -183,6 +197,63 @@ class ClientWebSocketManager:
             logger.error(f"Error during manual device scan for user {user_id}: {e}")
             await self.send_to_user(user_id, {"type": "scan_error", "error": str(e)})
 
+    async def _handle_ble_scan(self, user_id: str):
+        try:
+            from services.ble_service import BLEService
+            secret = (os.getenv("BLE_SECRET") or "DEV_SECRET").encode("utf-8")
+            svc = BLEService(secret)
+            ready = await svc.is_adapter_ready()
+            if not ready:
+                await self.send_to_user(user_id, {"type": "ble_scan_result", "devices": [], "enabled": False, "message": "Bluetooth disabled. Enable Bluetooth in Windows settings."})
+                return
+            devices = await svc.scan(timeout=15.0)
+            await self.send_to_user(user_id, {"type": "ble_scan_result", "devices": devices, "enabled": True})
+        except Exception as e:
+            await self.send_to_user(user_id, {"type": "ble_scan_result", "devices": [], "enabled": False, "message": str(e)})
+
+    async def _handle_ble_select(self, user_id: str, address: str):
+        self._ble_selected[user_id] = address or ""
+        await self.send_to_user(user_id, {"type": "ble_selected", "address": address})
+
+    async def _handle_ble_provision(self, user_id: str, ssid: str, password: str, username: str | None = None):
+        import os
+        from services.ble_service import BLEService
+        import psutil
+        import uuid
+        if not ssid or not password:
+            await self.send_to_user(user_id, {"type": "ble_result", "success": False, "message": "missing_credentials"})
+            return
+        address = self._ble_selected.get(user_id)
+        if not address:
+            await self.send_to_user(user_id, {"type": "ble_result", "success": False, "message": "no_device_selected"})
+            return
+        secret = (os.getenv("BLE_SECRET") or "DEV_SECRET").encode("utf-8")
+        svc = BLEService(secret)
+        def cb(status: str):
+            asyncio.run_coroutine_threadsafe(self.send_to_user(user_id, {"type": "ble_status", "status": status}), asyncio.get_event_loop())
+        try:
+            # Determine host MAC address (cross-platform)
+            import re
+            def _format_mac(n: int) -> str:
+                mac = f"{n:012x}".upper()
+                return ":".join(mac[i:i+2] for i in range(0, 12, 2))
+
+            # Use robust MAC selection from utility
+            from utils.network_utils import get_host_mac
+            host_mac = get_host_mac()
+            
+            if not host_mac:
+                # Should not happen given the fallback in utility, but just in case
+                import uuid
+                node = uuid.getnode()
+                mac_hex = f"{node:012x}".upper()
+                host_mac = ":".join(mac_hex[i:i+2] for i in range(0, 12, 2))
+
+            result = await svc.provision(address, ssid, password, host_mac, username=username, status_cb=cb, timeout=30.0)
+            await self.send_to_user(user_id, {"type": "ble_result", **result})
+        except Exception as e:
+            await self.send_to_user(user_id, {"type": "ble_result", "success": False, "message": str(e)})
+
     async def _handle_select_device(self, user_id: str, device_id: str):
         success = await self.session_manager.allocate_device_to_user(device_id, user_id)
         device = {
@@ -229,17 +300,56 @@ class ClientWebSocketManager:
         try:
             logger.info(f"Received start_experiment command from user {user_id} for device {device_id}, type: {experiment_type}")
             
-            # Set experiment type for the device
-            processor_manager.set_device_experiment(device_id, experiment_type)
+            processor_manager.start_experiment(device_id, experiment_type)
             
-            # Send configuration first if provided
-            if config:
-                logger.info(f"Publishing configuration to device {device_id}: {config}")
-                mqtt_service.publish_config(device_id, config)
+            pendulum_types = {"pendulum_simple", "pendulum_compound", "oscillation"}
+            if experiment_type in pendulum_types:
+                start_cfg = {}
+                mc = config.get("max_count") if isinstance(config, dict) else None
+                if mc is None and isinstance(config, dict):
+                    mc = config.get("maxCount")
+                if mc is not None:
+                    try:
+                        mc = int(mc)
+                    except Exception:
+                        pass
+                    start_cfg["max_count"] = mc
+                    start_cfg["maxCount"] = mc
                 
-            # Send start command
-            logger.info(f"Publishing start command to device {device_id}")
-            mqtt_service.publish_start_command(device_id)
+                pl = config.get("pendulum_length_cm") if isinstance(config, dict) else None
+                if pl is None and isinstance(config, dict):
+                    pl = config.get("pendulumLengthCm")
+                if pl is not None:
+                    try:
+                        pl = float(pl)
+                    except Exception:
+                        pass
+                    start_cfg["pendulum_length_cm"] = pl
+                    start_cfg["pendulumLengthCm"] = pl
+                
+                processor_manager.configure_processor(device_id, experiment_type, start_cfg)
+                
+                logger.info(f"Publishing start command with pendulum config to device {device_id}: {start_cfg}")
+                mqtt_service.publish_start_command(device_id, start_cfg)
+            else:
+                cfg = dict(config or {})
+                dur = cfg.get("duration")
+                if dur is None:
+                    d2 = cfg.get("duration_s") or cfg.get("timeLimit")
+                else:
+                    d2 = dur
+                if d2 is not None:
+                    try:
+                        d2 = int(d2)
+                    except Exception:
+                        pass
+                    cfg["duration"] = d2 + 3
+                if cfg:
+                    processor_manager.configure_processor(device_id, experiment_type, cfg)
+                    logger.info(f"Publishing configuration to device {device_id}: {cfg}")
+                    mqtt_service.publish_config(device_id, cfg)
+                logger.info(f"Publishing start command to device {device_id}")
+                mqtt_service.publish_start_command(device_id)
             await self.send_to_user(user_id, {"type": "experiment_started", "device_id": device_id})
             logger.info(f"Start command successfully sent to device {device_id}")
         except Exception as e:
@@ -311,61 +421,123 @@ class ClientWebSocketManager:
 
         # Normalize incoming config keys to backend expectations
         try:
-            freq = config.get("frequency")
-            if freq is None:
-                freq = config.get("frequency_hz") or config.get("samplingRate")
-            dur = config.get("duration")
-            if dur is None:
-                dur = config.get("duration_s") or config.get("timeLimit")
+            pendulum_types = {"pendulum_simple", "pendulum_compound", "oscillation"}
+            
+            # Heuristic detection if experiment_type is missing or default
+            # If config contains oscillation-specific keys, force oscillation mode
+            if not experiment_type or experiment_type not in pendulum_types:
+                if any(k in config for k in ["max_count", "maxCount", "pendulum_length_cm", "pendulumLengthCm", "pivot_to_com_distance_cm"]):
+                    logger.info("Detected oscillation config keys, forcing experiment_type to oscillation")
+                    experiment_type = "oscillation"
+            
+            if experiment_type in pendulum_types:
+                # Special handling for oscillation experiments
+                # Don't use default freq/duration normalization
+                device_config = {}
+                
+                # Extract Max Count
+                mc = config.get("max_count")
+                if mc is None:
+                    mc = config.get("maxCount")
+                if mc is not None:
+                    try:
+                        device_config["max_count"] = int(mc)
+                        device_config["maxCount"] = int(mc)
+                    except Exception:
+                        pass
 
-            # Coerce to integers when provided
-            if freq is not None:
-                try:
-                    freq = int(freq)
-                except Exception:
-                    pass
-            if dur is not None:
-                try:
-                    dur = int(dur)
-                except Exception:
-                    pass
+                # Extract Pendulum Length
+                pl = config.get("pendulum_length_cm")
+                if pl is None:
+                    pl = config.get("pendulumLengthCm")
+                if pl is not None:
+                    try:
+                        device_config["pendulum_length_cm"] = float(pl)
+                        device_config["pendulumLengthCm"] = float(pl)
+                    except Exception:
+                        pass
+                
+                # Pass through other potential keys if needed, but avoid default freq/dur
+                if config.get("mass") is not None:
+                    device_config["mass"] = config.get("mass")
+                
+                # Ensure we don't send empty config if keys are missing but provided in analysis
+                if not device_config and analysis:
+                     logger.info(f"No direct config keys found for oscillation, checking analysis: {analysis}")
+            else:
+                # Default normalization for other sensor types (distance, displacement, etc.)
+                freq = config.get("frequency")
+                if freq is None:
+                    freq = config.get("frequency_hz") or config.get("samplingRate")
+                dur = config.get("duration")
+                if dur is None:
+                    dur = config.get("duration_s") or config.get("timeLimit")
 
-            normalized_config = {
-                "frequency": freq if freq is not None else 50,
-                "duration": dur if dur is not None else 60,
-                "mode": config.get("mode") or "distance",
-                "averagingSamples": config.get("averagingSamples") if config.get("averagingSamples") is not None else 1,
-            }
+                # Coerce to integers when provided
+                if freq is not None:
+                    try:
+                        freq = int(freq)
+                    except Exception:
+                        pass
+                if dur is not None:
+                    try:
+                        dur = int(dur)
+                    except Exception:
+                        pass
 
-            # Include maxRange only when explicitly provided
-            if config.get("maxRange") is not None:
-                try:
-                    normalized_config["maxRange"] = int(config.get("maxRange"))
-                except Exception:
-                    normalized_config["maxRange"] = config.get("maxRange")
-            elif config.get("max_distance_cm") is not None:
-                try:
-                    normalized_config["maxRange"] = int(round(float(config.get("max_distance_cm")) * 10))
-                except Exception:
-                    pass
+                normalized_config = {
+                    "frequency": freq if freq is not None else 50,
+                    "duration": dur if dur is not None else 60,
+                    "mode": config.get("mode") or "distance",
+                    "averagingSamples": config.get("averagingSamples") if config.get("averagingSamples") is not None else 1,
+                }
+                if experiment_type in {"distance", "displacement", "inclined_plane"}:
+                    try:
+                        normalized_config["duration"] = int(normalized_config.get("duration", 60)) + 3
+                    except Exception:
+                        val = normalized_config.get("duration")
+                        normalized_config["duration"] = (val if isinstance(val, int) else 60) + 3
 
-            # Keep normalized device config separate from analysis config
-            device_config = normalized_config
+                # Include maxRange only when explicitly provided
+                if config.get("maxRange") is not None:
+                    try:
+                        normalized_config["maxRange"] = int(config.get("maxRange"))
+                    except Exception:
+                        normalized_config["maxRange"] = config.get("maxRange")
+                elif config.get("max_distance_cm") is not None:
+                    try:
+                        normalized_config["maxRange"] = int(round(float(config.get("max_distance_cm")) * 10))
+                    except Exception:
+                        pass
+
+                # Keep normalized device config separate from analysis config
+                device_config = normalized_config
         except Exception as e:
             # Fall back to the original config if normalization fails
             logger.warning(f"Config normalization failed: {e}. Using raw config: {config}")
             device_config = config
 
-        # Configure backend processor with analysis parameters (e.g., mass)
+        # Configure backend processor with analysis parameters (e.g., mass) and device parameters
         try:
             processor_manager = SensorProcessorManager.get_instance()
             # Determine experiment type context
             mapped_type = experiment_type or processor_manager.get_device_experiment(device_id) or "displacement"
-            # Prefer explicit analysis payload from client
-            analysis_cfg = analysis if isinstance(analysis, dict) else {}
-            # Configure processor if any analysis parameters provided
-            if analysis_cfg:
-                processor_manager.configure_processor(device_id, mapped_type, analysis_cfg)
+            
+            # Prepare processor config by merging analysis and device config
+            # This ensures processor knows about max_count, length, etc.
+            processor_config = {}
+            
+            # 1. Start with analysis config from client
+            if isinstance(analysis, dict):
+                processor_config.update(analysis)
+            
+            # 2. Merge device config (contains normalized max_count, length, etc.)
+            if isinstance(device_config, dict):
+                processor_config.update(device_config)
+                
+            # Configure processor if we have any config
+            if processor_config:
+                processor_manager.configure_processor(device_id, mapped_type, processor_config)
         except Exception as e:
             logger.warning(f"Failed to configure backend processor during configure_experiment: {e}")
 
@@ -385,7 +557,7 @@ class ClientWebSocketManager:
             await self.send_to_user(user_id, {"type": "error", "message": "Failed to configure experiment"})
             await self.send_to_user(user_id, {"type": "configuration_result", "success": False, "message": str(e) or "Failed to configure experiment"})
 
-    async def _handle_flash_firmware(self, user_id: str, device_id: str, experiment_type: str):
+    async def _handle_flash_firmware(self, user_id: str, device_id: str, experiment_type: str, firmware_file: str = None):
         """Handle firmware flashing request"""
         from ota_manager import OTAManager
         ota_manager = OTAManager.get_instance()
@@ -395,7 +567,7 @@ class ClientWebSocketManager:
             return
         
         try:
-            logger.info(f"Flashing firmware for device {device_id}, experiment type: {experiment_type}")
+            logger.info(f"Flashing firmware for device {device_id}, experiment type: {experiment_type}, file: {firmware_file}")
             
             # Resolve device IP (in-memory or on-demand UDP discovery)
             device_status = await self.session_manager.get_device_status(device_id)
@@ -425,12 +597,15 @@ class ClientWebSocketManager:
                 ota_key = "displacement"
             elif experiment_type == "oscillation":
                 ota_key = "oscillation"
+            elif experiment_type == "pendulum_simple" or experiment_type == "pendulum_compound":
+                ota_key = "oscillation"
             elif experiment_type == "inclined_plane":
                 ota_key = "inclined_plane"
             elif experiment_type == "angle":
                 ota_key = "angle"
             
-            if not ota_key:
+            # Allow proceeding if we have a specific firmware file even if experiment type mapping fails
+            if not ota_key and not firmware_file:
                 await self.send_to_user(user_id, {
                     "type": "firmware_flash_result", 
                     "success": False, 
@@ -441,11 +616,18 @@ class ClientWebSocketManager:
             # Set current context for progress updates
             ota_manager.set_current_context(user_id, device_id)
             
+            # Construct firmware path if file provided
+            firmware_path = None
+            if firmware_file:
+                # Ensure we look in the bin directory
+                firmware_path = os.path.join("bin", firmware_file)
+            
             # Perform OTA update
             result = await ota_manager.start_ota_update(
                 device_id=device_id,
                 device_ip=device_ip,
-                experiment_type=ota_key
+                experiment_type=ota_key,
+                firmware_path=firmware_path
             )
 
             logger.info(f"OTA result for {device_id}: {result}")
@@ -507,3 +689,49 @@ class ClientWebSocketManager:
                 "success": False,
                 "message": f"Failed to save experiment data: {str(e)}"
             })
+    async def _handle_repair_sensor(self, user_id: str, device_id: str, sensor_type: str):
+        if not device_id or not sensor_type:
+            await self.send_to_user(user_id, {"type": "repair_sensor_result", "success": False, "message": "missing_parameters"})
+            return
+        try:
+            # Resolve device IP from session manager/UDP discovery
+            device = await self.session_manager.get_device(device_id)
+            ip = None
+            if device:
+                status = device.get("status", {})
+                ip = status.get("ip_address") or device.get("ip_address")
+            if not ip:
+                # Fall back to UDP discovery registry
+                from services.udp_discovery_service import udp_discovery_service
+                for d in udp_discovery_service.get_online_devices():
+                    if d.get("device_id") == device_id:
+                        ip = d.get("ip_address")
+                        break
+            if not ip:
+                await self.send_to_user(user_id, {"type": "repair_sensor_result", "success": False, "message": "device_ip_not_found"})
+                return
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                url = f"http://{ip}/sensor/repair"
+                payload = {"id": sensor_type}
+                async with session.post(url, json=payload, timeout=10) as resp:
+                    ok = resp.status == 200
+                    try:
+                        data = await resp.json()
+                    except Exception:
+                        data = {"message": await resp.text()}
+                    await self.send_to_user(user_id, {"type": "repair_sensor_result", "success": ok, **data})
+                    
+                    if ok:
+                        # Trigger immediate device status check to update sensor ID
+                        # Allow a short delay for device to process changes and broadcast new ID
+                        logger.info(f"Repair successful for {device_id}, triggering status check update")
+                        asyncio.create_task(self._delayed_status_check(device_id))
+                        
+        except Exception as e:
+            await self.send_to_user(user_id, {"type": "repair_sensor_result", "success": False, "message": str(e)})
+
+    async def _delayed_status_check(self, device_id: str):
+        """Wait briefly then check device status to capture new sensor ID"""
+        await asyncio.sleep(2)
+        await self.session_manager.check_device_online_status(device_id)

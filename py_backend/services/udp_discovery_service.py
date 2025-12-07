@@ -23,7 +23,8 @@ class UDPDiscoveryService:
     - Supports device filtering by availability status
     """
     
-    def __init__(self, broadcast_port: int = 8888, response_port: int = 8889):
+    def __init__(self, broadcast_port: int = 8888, response_port: int = 8889,
+                 mqtt_broker_host: str = "localhost", mqtt_broker_port: int = 1883):
         self.broadcast_port = broadcast_port
         self.response_port = response_port
         self.broadcast_address = "255.255.255.255"
@@ -35,6 +36,10 @@ class UDPDiscoveryService:
         self.last_discovery_time = 0
 
         self.device_timeout = 60  # seconds after which device is considered offline if no response
+
+        # MQTT broker configuration for discovery packet
+        self.mqtt_broker_host = mqtt_broker_host
+        self.mqtt_broker_port = mqtt_broker_port
 
         
         # Socket setup
@@ -184,11 +189,54 @@ class UDPDiscoveryService:
         ]
         
         return common_broadcasts
+
+    def _get_local_ip(self) -> str:
+        """Get local IP address of this machine, preferring 192.168.x.x"""
+        try:
+            # Get all IP addresses associated with the hostname
+            hostname = socket.gethostname()
+            _, _, ip_list = socket.gethostbyname_ex(hostname)
+            
+            # First pass: Look for 192.168.x.x (common home network)
+            for ip in ip_list:
+                if ip.startswith("192.168."):
+                    return ip
+            
+            # Second pass: Look for any private IP that is NOT 127.0.0.1
+            for ip in ip_list:
+                if not ip.startswith("127.") and ":" not in ip:
+                    return ip
+            
+            # Fallback to the connect method if gethostbyname_ex fails to find a good one
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+            return local_ip
+        except:
+            return "127.0.0.1"
     
     def _create_discovery_packet(self) -> bytes:
-        """Create discovery packet - ESP32 expects simple string"""
-        # ESP32 expects just the magic string "LABEXPERT_DISCOVERY" with null terminator
-        return b"LABEXPERT_DISCOVERY\x00"
+        """Create enhanced discovery packet with backend MAC (IP is implicit via UDP source)"""
+        # Get backend MAC address using robust utility
+        from utils.network_utils import get_host_mac
+        mac = get_host_mac()
+        
+        # Fallback (should be handled by utility, but just in case)
+        if not mac:
+            import uuid
+            mac = ':'.join(['{:02x}'.format((uuid.getnode() >> i) & 0xff) 
+                            for i in range(0, 48, 8)])
+        
+        # We NO LONGER send mqtt_broker or mqtt_port. 
+        # The ESP32 will use the UDP packet's source IP.
+        
+        discovery_data = {
+            "magic": "LABEXPERT_DISCOVERY",
+            "backend_mac": mac
+        }
+        
+        return json.dumps(discovery_data).encode('utf-8')
     
     async def _handle_response(self, data: bytes, addr: tuple):
         """Handle response from ESP32 device"""
@@ -202,9 +250,28 @@ class UDPDiscoveryService:
             if not device_id:
                 logger.warning(f"Received response without device_id from {addr}")
                 return
+            # --- NEW SECURITY VERIFICATION START ---
+            # Bidirectional Security Verification: Check if device is bonded to THIS backend
+            device_backend_mac = device_info.get('backend_mac')
             
-            # Network segmentation: Only accept devices from our network segment
-            # This prevents interference between team members on the same physical network
+            # 1. Get our own MAC
+            from utils.network_utils import get_host_mac
+            my_mac = get_host_mac()
+            
+            # 2. Check if device sent a MAC at all
+            if not device_backend_mac:
+                logger.warning(f"Ignoring device {device_id} from {addr}: Missing backend_mac in response!")
+                return
+                
+            # 3. Check for mismatch
+            if my_mac and device_backend_mac.lower() != my_mac.lower():
+                logger.warning(f"Ignoring device {device_id} from {addr}: Backend MAC mismatch!")
+                logger.warning(f"  Expected: {my_mac}")
+                logger.warning(f"  Received: {device_backend_mac}")
+                return
+            # --- NEW SECURITY VERIFICATION END ---
+            
+            # Network segmentation check
             if not self._is_same_network_segment(addr[0]):
                 logger.debug(f"Ignoring device {device_id} from different network segment: {addr[0]}")
                 return
@@ -221,12 +288,13 @@ class UDPDiscoveryService:
             
         except Exception as e:
             logger.error(f"Error handling response from {addr}: {e}")
-    
+            
     def _parse_response_packet(self, data: bytes) -> Dict:
         """Parse ESP32 response packet - ESP32 sends simple JSON"""
         try:
             # ESP32 sends JSON response directly
-            response_str = data.decode('utf-8')
+            # Use replace errors to handle garbage characters from corrupted EEPROMs
+            response_str = data.decode('utf-8', errors='replace')
             device_info = json.loads(response_str)
             
             # Validate required fields and magic value
@@ -244,20 +312,24 @@ class UDPDiscoveryService:
     
     async def _cleanup_stale_devices(self):
         """Remove devices that haven't responded within the timeout period"""
-        current_time = datetime.now().timestamp()
-        stale_devices = []
-        
-        for device_id, device_info in self.online_devices.items():
-            last_seen = device_info.get('last_seen', 0)
-            if current_time - last_seen > self.device_timeout:
-                stale_devices.append(device_id)
-        
-        for device_id in stale_devices:
-            del self.online_devices[device_id]
-            logger.info(f"Device {device_id} marked as offline (no response for {self.device_timeout}s)")
-        
-        if stale_devices:
-            logger.info(f"Cleaned up {len(stale_devices)} stale devices")
+        try:
+            current_time = datetime.now().timestamp()
+            stale_devices = []
+            
+            for device_id, device_info in self.online_devices.items():
+                last_seen = device_info.get('last_seen', 0)
+                if current_time - last_seen > self.device_timeout:
+                    stale_devices.append(device_id)
+            
+            for device_id in stale_devices:
+                del self.online_devices[device_id]
+                logger.info(f"Device {device_id} marked as offline (no response for {self.device_timeout}s)")
+            
+            if stale_devices:
+                logger.info(f"Cleaned up {len(stale_devices)} stale devices")
+                
+        except Exception as e:
+            logger.error(f"Error cleaning up stale devices: {e}")
     
     def get_online_devices(self) -> List[Dict]:
         """Get list of currently online devices"""
@@ -273,49 +345,81 @@ class UDPDiscoveryService:
     
     async def discover_devices(self, timeout: int = 3) -> List[Dict]:
         """
-        Perform immediate discovery with timeout
-        Returns list of discovered devices
+        Perform discovery.
+        If service is running, piggyback on the background listener.
+        If service is not running, perform standalone discovery.
         """
-        logger.info(f"Starting manual discovery with timeout {timeout}s")
+        logger.info(f"Starting discovery with timeout {timeout}s")
         
-        # Create a temporary dictionary for this discovery session
-        discovery_results = {}
-        
-        # Broadcast discovery
-        await self.broadcast_discovery()
-        
-        # Listen for responses for the specified timeout
-        start_time = asyncio.get_event_loop().time()
-        
-        while (asyncio.get_event_loop().time() - start_time) < timeout:
-            try:
-                # Check for responses
-                loop = asyncio.get_event_loop()
-                data, addr = await asyncio.wait_for(
-                    loop.sock_recvfrom(self.response_socket, 1024),
-                    timeout=0.1  # Short timeout to check frequently
-                )
-                
-                # Handle the response
-                device_info = self._parse_response_packet(data)
-                if device_info and 'device_id' in device_info:
-                    device_id = device_info['device_id']
-                    device_info.update({
-                        'last_seen': datetime.now().timestamp(),
-                        'ip_address': addr[0],
-                        'port': addr[1]
-                    })
-                    discovery_results[device_id] = device_info
-                    logger.info(f"Manual discovery found device {device_id} at {addr[0]}")
+        if self.is_running:
+            # Service is running, so the background listener is already active.
+            # We just need to trigger a broadcast and wait, then check the online_devices list.
+            
+            # Clear recent flags or just rely on timestamps?
+            # Let's rely on timestamps. We want devices seen *after* we start this scan.
+            start_time = datetime.now().timestamp()
+            
+            # Broadcast discovery
+            await self.broadcast_discovery()
+            
+            # Wait for responses to come in via the background listener
+            await asyncio.sleep(timeout)
+            
+            # Collect devices that have been updated since we started
+            current_devices = []
+            for device_id, device_info in self.online_devices.items():
+                last_seen = device_info.get('last_seen', 0)
+                if last_seen >= start_time:
+                    current_devices.append(device_info)
+            
+            logger.info(f"Discovery (via background service) completed, found {len(current_devices)} devices")
+            return current_devices
+            
+        else:
+            # Service is NOT running, perform standalone manual discovery
+            # Create a temporary dictionary for this discovery session
+            discovery_results = {}
+            
+            # Ensure sockets are initialized
+            if not self.broadcast_socket or not self.response_socket:
+                if not await self.initialize():
+                    return []
+            
+            # Broadcast discovery
+            await self.broadcast_discovery()
+            
+            # Listen for responses for the specified timeout
+            start_loop_time = asyncio.get_event_loop().time()
+            
+            while (asyncio.get_event_loop().time() - start_loop_time) < timeout:
+                try:
+                    # Check for responses
+                    loop = asyncio.get_event_loop()
+                    data, addr = await asyncio.wait_for(
+                        loop.sock_recvfrom(self.response_socket, 1024),
+                        timeout=0.1  # Short timeout to check frequently
+                    )
                     
-            except asyncio.TimeoutError:
-                continue  # No data, continue listening
-            except Exception as e:
-                logger.error(f"Error during manual discovery: {e}")
-                await asyncio.sleep(0.1)
-        
-        logger.info(f"Manual discovery completed, found {len(discovery_results)} devices")
-        return list(discovery_results.values())
+                    # Handle the response
+                    device_info = self._parse_response_packet(data)
+                    if device_info and 'device_id' in device_info:
+                        device_id = device_info['device_id']
+                        device_info.update({
+                            'last_seen': datetime.now().timestamp(),
+                            'ip_address': addr[0],
+                            'port': addr[1]
+                        })
+                        discovery_results[device_id] = device_info
+                        logger.info(f"Manual discovery found device {device_id} at {addr[0]}")
+                        
+                except asyncio.TimeoutError:
+                    continue  # No data, continue listening
+                except Exception as e:
+                    logger.error(f"Error during manual discovery: {e}")
+                    await asyncio.sleep(0.1)
+            
+            logger.info(f"Manual discovery (standalone) completed, found {len(discovery_results)} devices")
+            return list(discovery_results.values())
     
     def _is_same_network_segment(self, remote_ip: str) -> bool:
         """Check if remote IP is in the same network segment as this host"""
@@ -366,28 +470,6 @@ class UDPDiscoveryService:
         except Exception as e:
             logger.warning(f"Error checking network segment for {remote_ip}: {e}")
             return True  # Fallback: accept on error
-
-    async def _cleanup_stale_devices(self):
-        """Remove devices that haven't responded within the timeout period"""
-        current_time = asyncio.get_event_loop().time()
-        stale_devices = []
-        
-        for device_id, device_info in list(self.online_devices.items()):
-            last_seen = device_info.get('last_seen', 0)
-            if current_time - last_seen > self.device_timeout:
-                stale_devices.append(device_id)
-        
-        for device_id in stale_devices:
-            device_info = self.online_devices.pop(device_id, {})
-            logger.info(f"Removed stale device {device_id} (last seen: {device_info.get('last_seen')})")
-            
-            # Also update database to mark device as offline
-            try:
-                from session_manager import SessionManager
-                session_manager = SessionManager.get_instance()
-                await session_manager._update_device_online_status(device_id, 0)
-            except Exception as e:
-                logger.error(f"Failed to update database status for stale device {device_id}: {e}")
 
 # Global instance for easy access
 udp_discovery_service = UDPDiscoveryService()

@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, memo } from 'react';
+import { useTheme } from '../../context/ThemeContext';
 import { useNavigate } from 'react-router-dom';
 import { useWebSocket, useDeviceManager, useExperimentManager } from '../../hooks/useWebSocket';
 import { 
-  FiSettings, FiBarChart2, FiX, FiWifi, FiWifiOff, FiLogOut, FiRepeat
+  FiSettings, FiBarChart2, FiX, FiWifi, FiWifiOff, FiLogOut, FiRepeat, FiPlay, FiPause, FiStopCircle, FiRefreshCw
 } from 'react-icons/fi';
 
 // New modular components
@@ -20,6 +21,8 @@ import ConfigPanel from './components/ConfigPanel/ConfigPanel';
 const ExperimentInterface = ({ experimentId = '1.1' }) => {
   console.log('ExperimentInterface rendered with experimentId:', experimentId);
   const navigate = useNavigate();
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
   const [showConfigModal, setShowConfigModal] = useState(true);
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [experimentConfig, setExperimentConfig] = useState(null);
@@ -30,6 +33,8 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
   const [showConfigPanel, setShowConfigPanel] = useState(false);
   const [config, setConfig] = useState({ frequency_hz: 20, max_distance_cm: 150, duration_s: 10 });
   const [experimentType, setExperimentType] = useState(localStorage.getItem('experimentType') || 'displacement');
+  const [tileState, setTileState] = useState({ status: 'Stopped', timeRemaining: 0, samples: 0, config });
+  const [experimentResults, setExperimentResults] = useState([]);
   
   // Store integration
   const {
@@ -94,8 +99,24 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
   }, [experimentId, setSelectedExperimentId, setActiveExperiment]); // Removed showInfo and showError from dependencies
 
   useEffect(() => {
-    window.dispatchEvent(new CustomEvent('labex:header:collapse'))
+    window.dispatchEvent(new CustomEvent('labex:header:expand'))
   }, [])
+
+  useEffect(() => {
+    const handler = (e) => setTileState(e.detail || {});
+    window.addEventListener('labex:tiles:update', handler);
+    return () => window.removeEventListener('labex:tiles:update', handler);
+  }, []);
+
+  const formatTime = (seconds) => {
+    const sec = Number(seconds);
+    if (!Number.isFinite(sec)) return '0:00.0';
+    const s = Math.max(0, sec);
+    const m = Math.floor(s / 60);
+    const r = Math.floor(s % 60);
+    const t = Math.floor((s % 1) * 10);
+    return `${m}:${String(r).padStart(2, '0')}.${t}`;
+  };
   
   // Handle WebSocket connection status
   useEffect(() => {
@@ -118,19 +139,21 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
     if (!lastMessage) return;
     
     try {
-      // Check if the message data is valid before parsing
-      if (!lastMessage.data || lastMessage.data === 'undefined') {
-        console.warn('Received invalid WebSocket message data:', lastMessage.data);
-        return;
+      let data = lastMessage;
+      if (typeof data === 'string') {
+        try { data = JSON.parse(data); } catch {}
       }
-      
-      const data = JSON.parse(lastMessage.data);
       
       // Handle different message types
       switch (data.type) {
         case 'experiment_data':
           setRawData(prevData => [...prevData, data.payload]);
           setExperimentData(prevData => [...prevData, data.payload]);
+          break;
+
+        case 'processed_data':
+          setRawData(prevData => [...prevData, data.data]);
+          setExperimentData(prevData => [...prevData, data.data]);
           break;
           
         case 'device_connected':
@@ -172,12 +195,20 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
   }, [lastMessage, setExperimentData, setExperimentStatus]); // Removed toast functions from dependencies
   
   // Handle experiment completion
-  const handleExperimentComplete = useCallback(({ device, experimentType, token }) => {
+  const handleExperimentComplete = useCallback(({ device, experimentType, token, subExperiment }) => {
     try {
       localStorage.setItem('selectedDevice', JSON.stringify(device));
       localStorage.setItem('experimentType', experimentType);
       setSelectedDevice(device);
       setExperimentType(experimentType);
+      
+      if (subExperiment) {
+        setSelectedSubExperiment(subExperiment);
+        if (subExperiment.defaultConfig) {
+          setConfig(subExperiment.defaultConfig);
+        }
+      }
+
       setShowConfigModal(false);
       showSuccess('Experiment configured successfully');
       
@@ -234,7 +265,7 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
   
   // Get experiment name from configuration
   const getExperimentName = () => {
-    return experimentConfig?.name || 'Experiment';
+    return selectedSubExperiment?.name || experimentConfig?.name || 'Experiment';
   };
   
   // Get experiment description
@@ -249,10 +280,12 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
         <ResponsiveModal 
           isOpen={true} 
           onClose={() => setShowConfigModal(false)} 
-          title={experimentConfig?.name || 'Experiment Setup'} 
-          size="full"
+          title="Experiment Setup"
+          size="xl"
+          className="h-[85vh]"
+          noBodyScroll={true}
         >
-          <div className="animate-fade-in">
+          <div className="animate-fade-in h-full">
             <DynamicExperimentSelector
               experimentId={experimentId}
               onComplete={handleExperimentComplete}
@@ -293,78 +326,269 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
           {/* Header */}
           <ResponsiveCard className="p-4 md:p-6">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-              <div>
+              <div className="flex-1">
+                <div className="hidden sm:flex items-center gap-2 mb-2">
+                  <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs ${selectedDevice ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                    <span className={`w-2 h-2 rounded-full ${selectedDevice ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                    {selectedDevice ? 'Connected' : 'Disconnected'}
+                  </div>
+                  {selectedDevice && (
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border bg-slate-100 text-slate-700 border-slate-300 text-xs">
+                      <span className="text-slate-600">Device:</span>
+                      <span className="font-semibold">{selectedDevice.id}</span>
+                    </div>
+                  )}
+                </div>
                 <h1 className="text-2xl md:text-3xl lg:text-4xl font-extrabold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
                   {getExperimentName()}
                 </h1>
                 <p className="text-xs md:text-sm text-slate-600 mt-1 md:mt-2">
                   {getExperimentDescription()}
                 </p>
-                <div className="flex items-center gap-2 mt-2">
-                  <StatusIndicator status={isConnected ? 'connected' : 'disconnected'} />
-                  <span className="text-sm text-gray-600">
-                    {selectedDevice ? (
-                      <>Connected: <span className="font-semibold">{selectedDevice.id}</span></>
-                    ) : (
-                      'No device connected'
-                    )}
-                  </span>
-                </div>
               </div>
-              
-              <div className="flex flex-wrap gap-2">
-                <ResponsiveButton
-                  onClick={() => setShowConfigPanel(true)}
-                  variant="primary"
-                  size="sm"
-                >
-                  <FiSettings className="w-4 h-4 mr-1" />
-                  Configure
-                </ResponsiveButton>
-                <ResponsiveButton
-                  onClick={() => setShowConfigModal(true)}
-                  variant="secondary"
-                  size="sm"
-                >
-                  <FiRepeat className="w-4 h-4 mr-1" />
-                  Change Experiment
-                </ResponsiveButton>
-                
-                <ResponsiveButton
-                  onClick={handleDisconnect}
-                  variant="danger"
-                  size="sm"
-                >
-                  <FiLogOut className="w-4 h-4 mr-1" />
-                  Disconnect
-                </ResponsiveButton>
+              <div className="flex flex-col items-end gap-2">
+                <div className="hidden sm:flex items-center justify-end gap-2 w-full">
+                  <ResponsiveButton
+                    onClick={() => setShowConfigPanel(true)}
+                    variant="primary"
+                    size="sm"
+                  >
+                    <FiSettings className="w-4 h-4 mr-1" />
+                    Configure
+                  </ResponsiveButton>
+                  <ResponsiveButton
+                    onClick={() => setShowConfigModal(true)}
+                    variant="secondary"
+                    size="sm"
+                  >
+                    <FiRepeat className="w-4 h-4 mr-1" />
+                    Change Experiment
+                  </ResponsiveButton>
+                  <ResponsiveButton
+                    onClick={handleDisconnect}
+                    variant="danger"
+                    size="sm"
+                  >
+                    <FiLogOut className="w-4 h-4 mr-1" />
+                    Disconnect
+                  </ResponsiveButton>
+                </div>
+                {/* Mobile compact status + controls */}
+                <div className="flex sm:hidden items-center justify-between gap-2 w-full">
+                  <div className="inline-flex items-center gap-2 px-2 py-1 rounded-full border bg-slate-100 text-slate-700 border-slate-300">
+                    <span className={`w-2 h-2 rounded-full ${selectedDevice ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                    <FiWifi className={`${selectedDevice ? 'text-green-600' : 'text-red-600'} w-4 h-4`} />
+                    {selectedDevice && <span className="text-xs font-semibold">{String(selectedDevice.id).slice(0,5)}</span>}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setShowConfigPanel(true)}
+                      className="p-2 rounded-lg bg-blue-600 text-white shadow-md"
+                      aria-label="Configure"
+                    >
+                      <FiSettings className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setShowConfigModal(true)}
+                      className="p-2 rounded-lg bg-gray-600 text-white shadow-md"
+                      aria-label="Change Experiment"
+                    >
+                      <FiRepeat className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={handleDisconnect}
+                      className="p-2 rounded-lg bg-red-600 text-white shadow-md"
+                      aria-label="Disconnect"
+                    >
+                      <FiLogOut className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </ResponsiveCard>
           
-          {/* Main Content */}
-          <ResponsiveCard padding="xs">
-            <div className="flex items-center justify-between mb-1 md:mb-6">
-              <h2 className="text-lg md:text-2xl font-bold text-slate-800 flex items-center gap-2">
-                <FiBarChart2 className="text-purple-600" />
-                Live Data Feed
-              </h2>
-              <div className="flex items-center gap-2">
-                <StatusIndicator status={experimentStatus} />
-                <span className="text-sm text-gray-600 capitalize">{experimentStatus}</span>
+          {/* Oscillation Counter Display for Experiment 2 */}
+          {experimentConfig?.id === '2' && (
+            <div className="bg-gradient-to-br from-white to-blue-50 rounded-3xl p-6 sm:p-10 shadow-xl border-2 border-blue-200">
+              <div className="text-center">
+                <div className="text-xs sm:text-sm font-bold text-slate-500 mb-2">Oscillation Count</div>
+                <div className="text-6xl sm:text-9xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent mb-4 animate-pulse">
+                  {rawData.length > 0 ? (rawData[rawData.length - 1].oscillation_count ?? rawData[rawData.length - 1].count ?? 0) : 0}
+                </div>
+                <div className="grid grid-cols-2 gap-4 max-w-md mx-auto">
+                  <div className="bg-white rounded-xl p-4 shadow-md">
+                    <div className="text-xs font-bold text-slate-500">MAX COUNT</div>
+                    <div className="text-2xl sm:text-3xl font-bold text-blue-600">
+                      {config.max_count || 50}
+                    </div>
+                  </div>
+                  <div className="bg-white rounded-xl p-4 shadow-md">
+                    <div className="text-xs font-bold text-slate-500">TIME</div>
+                    <div className="text-2xl sm:text-3xl font-bold text-cyan-600">
+                      {rawData.length > 0 
+                        ? (rawData[rawData.length - 1].time ?? rawData[rawData.length - 1].t ?? 0).toFixed(2)
+                        : '0.00'} s
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
-            
-            {/* Optimized Graph Renderer */}
-            <ExperimentGraph 
-              experimentType={experimentType}
-              token={userToken}
-              sharedWebSocket={sharedWebSocket}
-              sharedExperimentManager={sharedExperimentManager}
-              config={config}
-              subExperiment={selectedSubExperiment}
-            />
-          </ResponsiveCard>
+          )}
+
+          {/* Main Content */}
+          <ResponsiveCard padding="xs">
+              <div className="mb-1 md:mb-6">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg md:text-2xl font-bold text-slate-800 flex items-center gap-2">
+                    <FiBarChart2 className="text-purple-600" />
+                    Live Data Feed
+                  </h2>
+                  <div className="hidden sm:grid grid-cols-3 gap-3 w-full pl-4">
+                    <div className={`rounded-xl border-2 p-3 ${isDark ? 'border-slate-700 bg-slate-800' : 'border-slate-300 bg-slate-100'}`}>
+                      <div className={`text-xs font-semibold mb-1 ${isDark ? 'text-slate-300 opacity-80' : 'text-slate-600 opacity-75'}`}>Status</div>
+                      <div className={`text-lg font-bold ${isDark ? 'text-slate-100' : ''}`}>{tileState.status || 'Stopped'}</div>
+                    </div>
+                    
+                    {experimentConfig?.id === '2' ? (
+                      <div className={`rounded-xl border-2 p-3 ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-300 bg-blue-50'}`}>
+                        <div className={`text-xs font-semibold mb-1 ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Running Time</div>
+                        <div className={`text-2xl font-bold font-mono ${isDark ? 'text-blue-200' : 'text-blue-900'} flex items-center gap-2`}>
+                          {formatTime(tileState.runningTime || 0)}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className={`rounded-xl border-2 p-3 transition-all duration-300 ${
+                        tileState.isCountdownMode 
+                          ? (isDark ? 'border-orange-500 bg-orange-900/30 animate-pulse' : 'border-orange-400 bg-orange-100 animate-pulse') 
+                          : (isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-300 bg-blue-50')
+                      }`}>
+                        <div className={`text-xs font-semibold mb-1 transition-colors ${
+                          tileState.isCountdownMode 
+                            ? (isDark ? 'text-orange-300' : 'text-orange-700') 
+                            : (isDark ? 'text-blue-300' : 'text-blue-700')
+                        }`}>Time Remaining</div>
+                        <div className={`text-2xl font-bold font-mono flex items-center gap-2 transition-all duration-300 ${
+                          tileState.isCountdownMode 
+                            ? (isDark ? 'text-orange-200 scale-110' : 'text-orange-800 scale-110') 
+                            : (isDark ? 'text-blue-200' : 'text-blue-900')
+                        }`}>
+                          {formatTime(tileState.timeRemaining || 0)}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className={`rounded-xl border-2 p-3 ${isDark ? 'border-purple-700 bg-purple-900/20' : 'border-purple-300 bg-purple-50'}`}>
+                      <div className={`text-xs font-semibold mb-1 ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>Configuration</div>
+                      <div className={`text-sm ${isDark ? 'text-purple-200' : 'text-purple-900'}`}>
+                        {experimentConfig?.id === '2' ? (
+                          <div className="flex flex-col gap-1">
+                            {selectedSubExperiment?.id === '2.1' && (
+                                <>
+                                  <div>Max Count: {config?.max_count || 50}</div>
+                                  <div>Length: {config?.pendulum_length_cm || 100} cm</div>
+                                </>
+                            )}
+                            {selectedSubExperiment?.id === '2.2' && (
+                                <>
+                                  <div>Max Count: {config?.max_count || 50}</div>
+                                  <div>Dist: {config?.pivot_to_com_distance_cm || 50} cm</div>
+                                </>
+                            )}
+                            {!['2.1', '2.2'].includes(selectedSubExperiment?.id) && (
+                                <div>Freq: {config?.frequency_hz || 10} Hz</div>
+                            )}
+                          </div>
+                        ) : (
+                          <>
+                            <div>Duration: {(tileState?.config?.duration_s) || 10}s</div>
+                            <div className={`text-xs ${isDark ? 'opacity-80' : 'opacity-75'}`}>Samples: {tileState.samples || 0}</div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2 sm:hidden">
+                  <div className={`rounded-lg border p-2 ${isDark ? 'border-slate-700 bg-slate-800' : 'border-slate-300 bg-slate-100'}`}>
+                    <div className={`text-[11px] font-semibold mb-1 ${isDark ? 'text-slate-300 opacity-80' : 'opacity-75'}`}>Status</div>
+                    <div className={`text-base font-bold ${isDark ? 'text-slate-100' : ''}`}>{tileState.status || 'Stopped'}</div>
+                  </div>
+                  
+                  {experimentConfig?.id === '2' ? (
+                    <div className={`rounded-lg border p-2 ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-300 bg-blue-50'}`}>
+                      <div className={`text-[11px] font-semibold mb-1 ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Running Time</div>
+                      <div className={`text-lg font-bold font-mono ${isDark ? 'text-blue-200' : 'text-blue-900'}`}>
+                        {formatTime(tileState.runningTime || 0)}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className={`rounded-lg border p-2 transition-all duration-300 ${
+                      tileState.isCountdownMode 
+                        ? (isDark ? 'border-orange-500 bg-orange-900/30 animate-pulse' : 'border-orange-400 bg-orange-100 animate-pulse') 
+                        : (isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-300 bg-blue-50')
+                    }`}>
+                      <div className={`text-[11px] font-semibold mb-1 transition-colors ${
+                        tileState.isCountdownMode 
+                          ? (isDark ? 'text-orange-300' : 'text-orange-700') 
+                          : (isDark ? 'text-blue-300' : 'text-blue-700')
+                      }`}>Time Remaining</div>
+                      <div className={`text-lg font-bold font-mono transition-all duration-300 ${
+                        tileState.isCountdownMode 
+                          ? (isDark ? 'text-orange-200 scale-110' : 'text-orange-800 scale-110') 
+                          : (isDark ? 'text-blue-200' : 'text-blue-900')
+                      }`}>
+                        {formatTime(tileState.timeRemaining || 0)}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className={`rounded-lg border p-2 ${isDark ? 'border-purple-700 bg-purple-900/20' : 'border-purple-300 bg-purple-50'} col-span-2`}>
+                    <div className={`text-[11px] font-semibold mb-1 ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>Configuration</div>
+                    <div className={`text-xs ${isDark ? 'text-purple-200' : 'text-purple-900'} flex justify-between`}>
+                      {experimentConfig?.id === '2' ? (
+                        <div className="flex justify-between w-full">
+                          {selectedSubExperiment?.id === '2.1' && (
+                              <>
+                                <span>Max: {config?.max_count || 50}</span>
+                                <span>L: {config?.pendulum_length_cm || 100}cm</span>
+                              </>
+                          )}
+                          {selectedSubExperiment?.id === '2.2' && (
+                              <>
+                                <span>Max: {config?.max_count || 50}</span>
+                                <span>D: {config?.pivot_to_com_distance_cm || 50}cm</span>
+                              </>
+                          )}
+                          {!['2.1', '2.2'].includes(selectedSubExperiment?.id) && (
+                              <span>Freq: {config?.frequency_hz || 10} Hz</span>
+                          )}
+                        </div>
+                      ) : (
+                        <>
+                          <span>Duration: {(tileState?.config?.duration_s) || 10}s</span>
+                          <span>Samples: {tileState.samples || 0}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Optimized Graph Renderer */}
+              <ExperimentGraph 
+                experimentType={experimentType}
+                token={userToken}
+                sharedWebSocket={sharedWebSocket}
+                sharedExperimentManager={sharedExperimentManager}
+                config={config}
+                subExperiment={selectedSubExperiment}
+                externalControls={false}
+                onNextAttempt={() => setShowConfigPanel(true)}
+                experimentResults={experimentResults}
+                setExperimentResults={setExperimentResults}
+              />
+            </ResponsiveCard>
           
         </div>
       )}
@@ -377,6 +601,7 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
           selectedDevice={selectedDevice}
           userToken={userToken}
           sharedExperimentManager={sharedExperimentManager}
+          selectedSubExperiment={selectedSubExperiment}
         />
       )}
       
