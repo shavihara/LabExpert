@@ -22,7 +22,7 @@ class FileService:
         stmt = prepare("SELECT * FROM files WHERE user_id = :user_id AND file_type = 'profile_picture' AND is_active = 1")
         existing = stmt({"user_id": user_id}).fetchone()
         if existing:
-            FileService.delete_file(existing['id'])
+            FileService.delete_file(existing[0])
         file_id = str(uuid.uuid4())
         ext = os.path.splitext(file.filename)[1]
         filename = f"profile-{int(datetime.timestamp(datetime.utcnow()))}{ext}"
@@ -38,6 +38,12 @@ class FileService:
             "original_name": file.filename, "filename": filename, "file_path": file_path,
             "mimetype": file.content_type, "size": file.size
         })
+        
+        # Update user profile_picture column
+        relative_path = f"uploads/users/{user_id}/profile/{filename}"
+        update_user_stmt = prepare("UPDATE users SET profile_picture = :profile_picture WHERE id = :user_id")
+        update_user_stmt({"profile_picture": relative_path, "user_id": user_id})
+        
         return {"id": file_id, "filename": filename, "file_path": file_path}
 
     @staticmethod
@@ -46,7 +52,7 @@ class FileService:
         file = stmt({"id": file_id}).fetchone()
         if file:
             try:
-                os.remove(file['file_path'])
+                os.remove(file[5])
             except Exception as e:
                 print(f"Error deleting file: {e}")
             update_stmt = prepare("UPDATE files SET is_active = 0 WHERE id = :id")

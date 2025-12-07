@@ -49,6 +49,8 @@ function Header() {
     }
   }, [location])
 
+  useEffect(() => {}, [])
+
   useEffect(() => {
     const collapse = () => setIsHeaderCollapsed(true)
     const expand = () => setIsHeaderCollapsed(false)
@@ -234,7 +236,6 @@ function Header() {
                 <span className="relative z-10">Logout</span>
               </button>
             )}
-            
           </div>
         )}
 

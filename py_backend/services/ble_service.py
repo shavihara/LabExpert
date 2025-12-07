@@ -9,6 +9,7 @@ CHAR_PASS = "0000FFF2-0000-1000-8000-00805F9B34FB"
 CHAR_STATUS = "0000FFF3-0000-1000-8000-00805F9B34FB"
 CHAR_COMMIT = "0000FFF4-0000-1000-8000-00805F9B34FB"
 CHAR_HOSTMAC = "0000FFF5-0000-1000-8000-00805F9B34FB"
+CHAR_USER = "0000FFF6-0000-1000-8000-00805F9B34FB"
 
 class BLEService:
     def __init__(self, secret: bytes):
@@ -30,7 +31,7 @@ class BLEService:
                 found.append({"name": name, "address": d.address, "rssi": getattr(d, "rssi", None)})
         return found
 
-    async def provision(self, address: str, ssid: str, password: str, host_mac: Optional[str] = None, status_cb: Optional[Callable[[str], None]] = None, timeout: float = 30.0) -> Dict:
+    async def provision(self, address: str, ssid: str, password: str, host_mac: Optional[str] = None, username: Optional[str] = None, status_cb: Optional[Callable[[str], None]] = None, timeout: float = 30.0) -> Dict:
 
         async def notify(sender: int, data: bytearray):
             if status_cb:
@@ -43,6 +44,11 @@ class BLEService:
             await client.start_notify(CHAR_STATUS, notify)
             await client.write_gatt_char(CHAR_SSID, ssid.encode("utf-8"))
             await client.write_gatt_char(CHAR_PASS, password.encode("utf-8"))
+            if username:
+                try:
+                    await client.write_gatt_char(CHAR_USER, username.encode("utf-8"))
+                except Exception:
+                    pass
             if host_mac:
                 try:
                     await client.write_gatt_char(CHAR_HOSTMAC, host_mac.encode("utf-8"))

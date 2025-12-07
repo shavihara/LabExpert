@@ -3,6 +3,7 @@ import asyncio
 import json
 from datetime import datetime
 import logging
+from processor.sensor_oscillation import OscillationProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +120,8 @@ async def reset_osi_count():
 
 async def live_oscillation_generator():
     """SSE generator for live oscillation count data"""
+    processor = OscillationProcessor("OSI_SENSOR")
+    
     try:
         connector = aiohttp.TCPConnector(force_close=False, limit=1)
         async with aiohttp.ClientSession(connector=connector) as session:
@@ -159,22 +162,21 @@ async def live_oscillation_generator():
 
                                     try:
                                         raw_data = json.loads(data_str)
-
-                                        if "count" not in raw_data:
+                                        
+                                        # Process data using OscillationProcessor
+                                        processed_data = await processor.process_data(raw_data)
+                                        
+                                        # If processor returns error or empty, skip? 
+                                        # But process_data returns a dict with 't' usually.
+                                        
+                                        if "error" in processed_data:
+                                            logger.warning(f"Processor error: {processed_data['error']}")
                                             continue
 
-                                        processed_data = {
-                                            "time": round(raw_data["timestamp"] / 1000.0, 3),
-                                            "count": raw_data["count"],
-                                            "sample": raw_data.get("sample", 0)
-                                        }
-
-                                        logger.info(
-                                            f"Sample {processed_data['sample']}: "
-                                            f"t={processed_data['time']}s, "
-                                            f"count={processed_data['count']}"
-                                        )
-
+                                        # Forward the processed data
+                                        # Note: frontend expects specific structure.
+                                        # If it's a result, type will be experiment_result
+                                        
                                         yield {
                                             "event": "message",
                                             "data": json.dumps(processed_data)

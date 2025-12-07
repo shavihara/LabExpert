@@ -9,6 +9,9 @@ import {
   FiSave, FiEye, FiEyeOff, FiDollarSign, FiTarget
 } from 'react-icons/fi';
 
+import { useFullscreen } from '../context/FullscreenContext';
+import { useTheme } from '../context/ThemeContext';
+
 const PlotlyGraph = ({ 
   experimentType, 
   token, 
@@ -30,7 +33,10 @@ const PlotlyGraph = ({
   axis = { x: { label: 'Time', unit: 's' }, y: { distance:{label:'Displacement',unit:'cm'}, velocity:{label:'Velocity',unit:'cm/s'}, acceleration:{label:'Acceleration',unit:'cm/s²'}, intensity:{label:'Intensity',unit:'lux'} } },
   onModeChange,
   onAnalysisData,
-  externalMode
+  externalMode,
+  analysisResults,
+  bestFitData,
+  displayRangeSeconds
 }) => {
   const { theme } = useTheme?.() || { theme: 'light' };
   const isDark = theme === 'dark';
@@ -50,7 +56,7 @@ const PlotlyGraph = ({
   }, []);
 
   const [mode, setMode] = useState('live'); // 'live' or 'analysis'
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const { isFullscreen, fullscreenElement, requestFullscreenFor, exitFullscreen } = useFullscreen();
   const plotContainerRef = useRef(null);
   const mapKey = useCallback((k) => ({
     intensity: 'i-t', distance: 's-t', velocity: 'v-t', acceleration: 'a-t'
@@ -79,16 +85,13 @@ const PlotlyGraph = ({
   const [isMobile, setIsMobile] = useState(false);
   const axisLockRef = useRef(null);
   const axisRangeRef = useRef({ x: null, y: null });
-
   useEffect(() => {
-    const onFsChange = () => {
-      const active = !!document.fullscreenElement;
-      setIsFullscreen(active);
-      document.body.style.overflow = active ? 'hidden' : '';
-    };
-    document.addEventListener('fullscreenchange', onFsChange);
-    return () => document.removeEventListener('fullscreenchange', onFsChange);
-  }, []);
+    if (displayRangeSeconds && displayRangeSeconds > 0) {
+      axisRangeRef.current.x = [0, displayRangeSeconds];
+    }
+  }, [displayRangeSeconds]);
+
+  useEffect(() => {}, []);
 
   useEffect(() => {
     if (externalMode && externalMode !== mode) {
@@ -108,23 +111,10 @@ const PlotlyGraph = ({
   }, []);
 
   const toggleFullscreen = async () => {
-    try {
-      if (!document.fullscreenElement) {
-        if (plotContainerRef.current && plotContainerRef.current.requestFullscreen) {
-          await plotContainerRef.current.requestFullscreen();
-        } else {
-          setIsFullscreen(true);
-          document.body.style.overflow = 'hidden';
-        }
-      } else {
-        await document.exitFullscreen();
-        setIsFullscreen(false);
-        document.body.style.overflow = '';
-      }
-    } catch (e) {
-      setIsFullscreen(prev => !prev);
-      const active = !isFullscreen;
-      document.body.style.overflow = active ? 'hidden' : '';
+    if (fullscreenElement === plotContainerRef.current) {
+      await exitFullscreen()
+    } else {
+      await requestFullscreenFor(plotContainerRef.current)
     }
   };
 
@@ -201,11 +191,104 @@ const PlotlyGraph = ({
 
   // Prepare data for Plotly
   const preparePlotData = useCallback(() => {
+    // Special Handling for Pendulum Analysis
+    if (analysisResults && analysisResults.length > 0) {
+      const sourceData = (bestFitData && bestFitData.dataWithErrors) ? bestFitData.dataWithErrors : analysisResults;
+      
+      const traces = [
+        {
+          x: sourceData.map(r => r.length_cm),
+          y: sourceData.map(r => r.period_squared),
+          error_y: bestFitData && bestFitData.dataWithErrors ? {
+            type: 'data',
+            array: sourceData.map(r => r.error_y),
+            visible: true,
+            color: '#3B82F6',
+            thickness: 1.5,
+            width: 3
+          } : undefined,
+          error_x: bestFitData && bestFitData.dataWithErrors ? {
+             type: 'data',
+             array: sourceData.map(r => r.error_x),
+             visible: true,
+             color: '#3B82F6',
+             thickness: 1.5,
+             width: 3
+          } : undefined,
+          type: 'scatter',
+          mode: 'markers',
+          name: 'Data Points',
+          marker: { color: '#3B82F6', size: 10, symbol: 'circle' }
+        }
+      ];
+
+      if (bestFitData) {
+        const lengths = analysisResults.map(r => r.length_cm);
+        const periods = analysisResults.map(r => r.period_squared);
+        const minL = Math.min(...lengths);
+        const maxL = Math.max(...lengths);
+        
+        // Best Fit
+        traces.push({
+          x: [minL, maxL],
+          y: [bestFitData.slope * minL + bestFitData.intercept, bestFitData.slope * maxL + bestFitData.intercept],
+          type: 'scatter',
+          mode: 'lines',
+          name: 'Best Fit',
+          line: { color: '#EF4444', width: 2, dash: 'solid' }
+        });
+        
+        // Error Bars (Min/Max Slopes)
+        if (bestFitData.slopeMax !== undefined && bestFitData.slopeMin !== undefined) {
+            const meanX = lengths.reduce((a, b) => a + b, 0) / lengths.length;
+            const meanY = periods.reduce((a, b) => a + b, 0) / periods.length;
+            
+            // Max Slope (Steepest)
+            // y = m(x - x_bar) + y_bar
+            const yMinMax = bestFitData.slopeMax * (minL - meanX) + meanY;
+            const yMaxMax = bestFitData.slopeMax * (maxL - meanX) + meanY;
+            
+            traces.push({
+                x: [minL, maxL],
+                y: [yMinMax, yMaxMax],
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Max Slope (Steepest)',
+                line: { color: '#FCA5A5', width: 1.5, dash: 'dash' }, // Light red
+            });
+
+            // Min Slope (Shallowest)
+            const yMinMin = bestFitData.slopeMin * (minL - meanX) + meanY;
+            const yMaxMin = bestFitData.slopeMin * (maxL - meanX) + meanY;
+            
+            traces.push({
+                x: [minL, maxL],
+                y: [yMinMin, yMaxMin],
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Min Slope (Shallowest)',
+                line: { color: '#FCA5A5', width: 1.5, dash: 'dash' }, // Light red
+            });
+        }
+      }
+      return traces;
+    }
+
     const data = mode === 'analysis' ? analysisDataRef.current : chartData;
-    // Filter out neglected points entirely from graph rendering
+    
+    // Create indexed data to preserve original indices through filtering
+    const indexedData = data.map((d, i) => ({ ...d, __originalIndex: d.__originalIndex != null ? d.__originalIndex : i }));
+    
+    const limitMs = (displayRangeSeconds && displayRangeSeconds > 0) ? displayRangeSeconds * 1000 + 250 : Infinity;
+    const afterRangeFiltered = (displayRangeSeconds && displayRangeSeconds > 0)
+      ? indexedData.filter(d => (d.time || 0) <= limitMs)
+      : indexedData;
+      
+    // Filter out neglected data using the original indices
     const effectiveData = (neglectedData && neglectedData.size > 0)
-      ? data.filter((_, i) => !neglectedData.has(i))
-      : data;
+      ? afterRangeFiltered.filter(d => !neglectedData.has(d.__originalIndex))
+      : afterRangeFiltered;
+      
     const maxPoints = 5000;
     const step = effectiveData.length > maxPoints ? Math.ceil(effectiveData.length / maxPoints) : 1;
     const decimated = step > 1 ? effectiveData.filter((_, i) => i % step === 0) : effectiveData;
@@ -215,7 +298,7 @@ const PlotlyGraph = ({
     
     if (visibleTraces['s-t'] && decimated.some(d => d.distance != null)) {
       traces.push({
-        x: decimated.map(d => d.time || d.timeDisplay),
+        x: decimated.map(d => (d.time || 0) / 1000),
         y: decimated.map(d => d.distance || 0),
         type: useGL ? 'scattergl' : 'scatter',
         mode: 'lines',
@@ -228,7 +311,7 @@ const PlotlyGraph = ({
     // Intensity trace (for light intensity experiments)
     if (visibleTraces['i-t'] && decimated.some(d => d.intensity != null)) {
       traces.push({
-        x: decimated.map(d => d.time || d.timeDisplay),
+        x: decimated.map(d => (d.time || 0) / 1000),
         y: decimated.map(d => d.intensity || 0),
         type: useGL ? 'scattergl' : 'scatter',
         mode: 'lines',
@@ -240,7 +323,7 @@ const PlotlyGraph = ({
     
     if (visibleTraces['v-t'] && decimated.some(d => d.velocity != null)) {
       traces.push({
-        x: decimated.map(d => d.time || d.timeDisplay),
+        x: decimated.map(d => (d.time || 0) / 1000),
         y: decimated.map(d => d.velocity || 0),
         type: useGL ? 'scattergl' : 'scatter',
         mode: 'lines',
@@ -252,7 +335,7 @@ const PlotlyGraph = ({
     
     if (visibleTraces['a-t'] && decimated.some(d => d.acceleration != null)) {
       traces.push({
-        x: decimated.map(d => d.time || d.timeDisplay),
+        x: decimated.map(d => (d.time || 0) / 1000),
         y: decimated.map(d => d.acceleration || 0),
         type: useGL ? 'scattergl' : 'scatter',
         mode: 'lines',
@@ -266,7 +349,7 @@ const PlotlyGraph = ({
     if (mode === 'analysis') {
       if (visibleTraces['ke'] && decimated.some(d => d.kineticEnergy != null)) {
         traces.push({
-          x: decimated.map(d => d.time || d.timeDisplay),
+          x: decimated.map(d => (d.time || 0) / 1000),
           y: decimated.map(d => d.kineticEnergy || 0),
           type: useGL ? 'scattergl' : 'scatter',
           mode: 'lines',
@@ -278,7 +361,7 @@ const PlotlyGraph = ({
       
       if (visibleTraces['pe'] && decimated.some(d => d.potentialEnergy != null)) {
         traces.push({
-          x: decimated.map(d => d.time || d.timeDisplay),
+          x: decimated.map(d => (d.time || 0) / 1000),
           y: decimated.map(d => d.potentialEnergy || 0),
           type: useGL ? 'scattergl' : 'scatter',
           mode: 'lines',
@@ -290,7 +373,7 @@ const PlotlyGraph = ({
       
       if (visibleTraces['te'] && decimated.some(d => d.totalEnergy != null)) {
         traces.push({
-          x: decimated.map(d => d.time || d.timeDisplay),
+          x: decimated.map(d => (d.time || 0) / 1000),
           y: decimated.map(d => d.totalEnergy || 0),
           type: useGL ? 'scattergl' : 'scatter',
           mode: 'lines',
@@ -302,8 +385,89 @@ const PlotlyGraph = ({
     }
 
     return traces;
-  }, [chartData, mode, visibleTraces, neglectedData]);
+  }, [chartData, visibleTraces, mode, neglectedData, analysisResults, bestFitData, displayRangeSeconds]);
 
+  const layout = useMemo(() => {
+    if (analysisResults && analysisResults.length > 0) {
+      return {
+        autosize: true,
+        margin: { l: 50, r: 20, t: 30, b: 40 },
+        showlegend: true,
+        legend: { orientation: 'h', y: 1.1 },
+        xaxis: { 
+          title: 'Length (cm)', 
+          fixedrange: false,
+          gridcolor: isDark ? '#334155' : '#e2e8f0',
+          zerolinecolor: isDark ? '#475569' : '#94a3b8'
+        },
+        yaxis: { 
+          title: 'Period Squared (s²)', 
+          fixedrange: false,
+          gridcolor: isDark ? '#334155' : '#e2e8f0',
+          zerolinecolor: isDark ? '#475569' : '#94a3b8'
+        },
+        paper_bgcolor: 'transparent',
+        plot_bgcolor: 'transparent',
+        font: { color: isDark ? '#e2e8f0' : '#475569' }
+      };
+    }
+
+    const xRange = (displayRangeSeconds && displayRangeSeconds > 0) ? [0, displayRangeSeconds] : undefined;
+    return {
+      uirevision: 'keep-zoom',
+      font: { color: isDark ? '#e5e7eb' : undefined },
+      xaxis: {
+        title: `${axis?.x?.label || 'Time'}${axis?.x?.unit ? ' ('+axis.x.unit+')' : ''}`,
+        showgrid: true,
+        gridcolor: isDark ? '#334155' : '#e2e8f0',
+        zeroline: false,
+        showticklabels: true,
+        tickfont: { size: fullscreenElement === plotContainerRef.current ? 14 : 12 },
+        titlefont: { size: fullscreenElement === plotContainerRef.current ? 16 : 14 },
+        tickangle: isFullscreen ? 0 : 0,
+        automargin: true,
+        nticks: fullscreenElement === plotContainerRef.current ? 15 : 10,
+        tickformat: fullscreenElement === plotContainerRef.current ? '.2f' : undefined,
+        range: xRange,
+        autorange: xRange ? false : true
+      },
+      yaxis: {
+        title: (() => {
+          const active = (availableTraces || []).find(k => visibleTraces[mapKey(k)]);
+          const meta = active ? axis?.y?.[active] : null;
+          return meta ? `${meta.label}${meta.unit ? ' ('+meta.unit+')' : ''}` : 'Value';
+        })(),
+        showgrid: true,
+        gridcolor: isDark ? '#334155' : '#e2e8f0',
+        zeroline: true,
+        zerolinecolor: isDark ? '#475569' : '#94a3b8',
+        zerolinewidth: 1,
+        range: axisRangeRef.current.y || getYAxisRange(),
+        autorange: axisRangeRef.current.y ? false : true,
+        showticklabels: true,
+        tickfont: { size: fullscreenElement === plotContainerRef.current ? 14 : 12 },
+        titlefont: { size: fullscreenElement === plotContainerRef.current ? 16 : 14 },
+        automargin: true,
+        nticks: isFullscreen ? 12 : 8
+      },
+      legend: {
+        x: 0,
+        y: 1.1,
+        orientation: 'h',
+        font: { size: fullscreenElement === plotContainerRef.current ? 14 : 12 }
+      },
+      margin: fullscreenElement === plotContainerRef.current ? { l: 50, r: 35, t: 40, b: 60 } : { l: 40, r: 20, t: 30, b: 45 },
+      hovermode: 'closest',
+      plot_bgcolor: isDark ? '#0b1220' : '#f8fafc',
+      paper_bgcolor: isDark ? '#111827' : '#ffffff',
+      autosize: true,
+      dragmode: dragMode,
+      selections: [], // Explicitly reset selections to avoid console warnings about unrecognized GUI edits
+      ...(mode === 'analysis' && { selectdirection: 'h' })
+    };
+  }, [analysisResults, isDark, axis, dragMode, selectedRegion, isNeglectMode, displayRangeSeconds, availableTraces, visibleTraces, mapKey, isFullscreen, fullscreenElement]);
+
+  // Prepare analysis data: keep time in ms to avoid double conversion in preparePlotData
   // Backend provides energy values for experiments 1.1/1.2, so analysis uses raw chartData
   const calculateEnergyValues = useCallback((data) => data, []);
 
@@ -329,6 +493,7 @@ const PlotlyGraph = ({
       const next = !prev;
       if (next) {
         setMode('analysis');
+        if (onModeChange) onModeChange('analysis');
         setActiveTool(null);
         setSelectedRegion(null);
         setMeasurements({});
@@ -347,12 +512,20 @@ const PlotlyGraph = ({
         const { x: [x0, x1] } = event.range;
         const neglectedIndices = [];
         
+        console.log(`Neglect Selection: Range [${x0.toFixed(3)}, ${x1.toFixed(3)}], Data Points: ${fullChartData.length}`);
+        
         // Find indices of data points within the selected range using full data
         fullChartData.forEach((dataPoint, index) => {
-          if (dataPoint.time >= x0 && dataPoint.time <= x1) {
-            neglectedIndices.push(index);
+          const tSec = (dataPoint.time != null ? dataPoint.time : 0) / 1000;
+          if (tSec >= x0 && tSec <= x1) {
+            // Use __originalIndex if available, otherwise fallback to array index
+            // This ensures we reference the correct original data point even if fullChartData is filtered/sorted
+            const idx = dataPoint.__originalIndex != null ? dataPoint.__originalIndex : index;
+            neglectedIndices.push(idx);
           }
         });
+        
+        console.log(`Found ${neglectedIndices.length} points to neglect.`);
         
         // Call the onNeglectedDataRange callback with neglected indices
         if (neglectedIndices.length > 0 && onNeglectedDataRange) {
@@ -378,7 +551,7 @@ const PlotlyGraph = ({
     
     const { x: [x0, x1] } = range;
     const filteredData = analysisDataRef.current.filter(
-      d => d.time >= x0 && d.time <= x1
+      d => (d.time != null ? d.time / 1000 : 0) >= x0 && (d.time != null ? d.time / 1000 : 0) <= x1
     );
     
     if (filteredData.length > 1) {
@@ -386,7 +559,7 @@ const PlotlyGraph = ({
       const last = filteredData[filteredData.length - 1];
       
       setMeasurements({
-        deltaTime: last.time - first.time,
+        deltaTime: (last.time - first.time) / 1000,
         deltaDistance: last.distance - first.distance,
         deltaVelocity: last.velocity - first.velocity,
         deltaAcceleration: last.acceleration - first.acceleration,
@@ -401,18 +574,37 @@ const PlotlyGraph = ({
     
     const { x: [x0, x1] } = range;
     const filteredData = analysisDataRef.current.filter(
-      d => d.time >= x0 && d.time <= x1
+      d => (d.time != null ? d.time / 1000 : 0) >= x0 && (d.time != null ? d.time / 1000 : 0) <= x1
     );
     
     if (filteredData.length > 1) {
+      const xValues = filteredData.map(d => d.time / 1000);
+      
+      // Helper for linear regression
+      const getSlope = (yValues) => {
+        const n = xValues.length;
+        if (n < 2) return 0;
+        
+        let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+        for (let i = 0; i < n; i++) {
+          sumX += xValues[i];
+          sumY += yValues[i];
+          sumXY += xValues[i] * yValues[i];
+          sumXX += xValues[i] * xValues[i];
+        }
+        
+        const denominator = (n * sumXX - sumX * sumX);
+        return denominator !== 0 ? (n * sumXY - sumX * sumY) / denominator : 0;
+      };
+
+      // Calculate slopes using linear regression for better accuracy
+      const distanceSlope = getSlope(filteredData.map(d => d.distance || 0));
+      const velocitySlope = getSlope(filteredData.map(d => d.velocity || 0));
+      const accelerationSlope = getSlope(filteredData.map(d => d.acceleration || 0));
+      
       const first = filteredData[0];
       const last = filteredData[filteredData.length - 1];
-      
-      // Calculate slopes for different measurements
-      const timeDelta = last.time - first.time;
-      const distanceSlope = timeDelta !== 0 ? (last.distance - first.distance) / timeDelta : 0;
-      const velocitySlope = timeDelta !== 0 ? (last.velocity - first.velocity) / timeDelta : 0;
-      const accelerationSlope = timeDelta !== 0 ? (last.acceleration - first.acceleration) / timeDelta : 0;
+      const timeDelta = (last.time - first.time) / 1000;
       
       setMeasurements({
         deltaTime: timeDelta,
@@ -560,15 +752,25 @@ const PlotlyGraph = ({
   };
 
   const TraceVisibilityControls = () => {
-    const getTraceLabel = (trace) => ({
-      'i-t': axis?.y?.intensity?.label || 'Intensity',
-      's-t': axis?.y?.distance?.label || 'Displacement',
-      'v-t': axis?.y?.velocity?.label || 'Velocity', 
-      'a-t': axis?.y?.acceleration?.label || 'Acceleration',
-      'ke': 'Kinetic Energy',
-      'pe': 'Potential Energy',
-      'te': 'Total Energy'
-    }[trace]);
+    const getTraceLabel = (trace) => {
+      const predefined = {
+        'i-t': axis?.y?.intensity?.label || 'Intensity',
+        's-t': axis?.y?.distance?.label || 'Displacement',
+        'v-t': axis?.y?.velocity?.label || 'Velocity', 
+        'a-t': axis?.y?.acceleration?.label || 'Acceleration',
+        'ke': 'Kinetic Energy',
+        'pe': 'Potential Energy',
+        'te': 'Total Energy'
+      }[trace];
+      
+      if (predefined) return predefined;
+      
+      // Fallback for custom traces like t2_vs_l
+      // Try to find matching key in axis.y
+      // mapKey(k) = k + '-t' (usually)
+      const rawKey = trace.endsWith('-t') ? trace.slice(0, -2) : trace;
+      return axis?.y?.[rawKey]?.label || trace;
+    };
 
     const getTraceColor = (trace) => ({
       'i-t': 'bg-yellow-500 hover:bg-yellow-600',
@@ -578,7 +780,7 @@ const PlotlyGraph = ({
       'ke': 'bg-orange-500 hover:bg-orange-600',
       'pe': 'bg-purple-500 hover:bg-purple-600',
       'te': 'bg-cyan-500 hover:bg-cyan-600'
-    }[trace]);
+    }[trace] || 'bg-slate-500 hover:bg-slate-600');
 
     const tone = (t) => ({
       's-t': { ring: 'ring-blue-200', text: 'text-blue-700', bar: 'bg-blue-500' },
@@ -672,7 +874,7 @@ const PlotlyGraph = ({
 
       {/* Plot Container */}
       <div ref={plotContainerRef} className={`bg-white rounded-xl shadow-lg border border-slate-200 ${
-        isFullscreen ? 'fixed inset-0 z-[10000] p-4 md:p-6' : 'p-2 sm:p-3 md:p-4'
+        fullscreenElement === plotContainerRef.current ? 'fixed inset-0 z-[10000] p-4 md:p-6' : 'p-2 sm:p-3 md:p-4'
       }`}>
         <div className={`${isFullscreen ? 'mb-4' : 'mb-2'} flex items-center justify-between`}>
           <div className="flex items-center gap-2">
@@ -694,8 +896,8 @@ const PlotlyGraph = ({
               onClick={toggleFullscreen}
               className={`${isDark ? 'px-2 py-1 border border-slate-700 bg-slate-800 text-purple-300 hover:bg-slate-700' : 'px-2 py-1 bg-purple-50 text-purple-700 hover:bg-purple-100'} rounded transition-all text-xs flex items-center gap-1 shrink-0`}
             >
-              {isFullscreen ? <FiMinimize size={14} /> : <FiMaximize size={14} />}
-              <span className="hidden sm:inline">{isFullscreen ? 'Exit' : 'Full'}</span>
+              {fullscreenElement === plotContainerRef.current ? <FiMinimize size={14} /> : <FiMaximize size={14} />}
+              <span className="hidden sm:inline">{fullscreenElement === plotContainerRef.current ? 'Exit' : 'Full'}</span>
             </button>
           </div>
         </div>
@@ -709,12 +911,12 @@ const PlotlyGraph = ({
         </div>
 
         {/* Plotly Graph */}
-        <div style={{ height: isFullscreen ? 'calc(100vh - 120px)' : '400px' }}>
+        <div style={{ height: fullscreenElement === plotContainerRef.current ? 'calc(100vh - 120px)' : '400px' }}>
           <Plot
             ref={plotRef}
             plotly={plotlyLib}
             data={preparePlotData()}
-            layout={{
+            layout={layout || {
               uirevision: 'keep-zoom',
               font: { color: isDark ? '#e5e7eb' : undefined },
               // Title and icon are rendered in the header above the plot for consistent alignment
@@ -724,12 +926,12 @@ const PlotlyGraph = ({
                 gridcolor: isDark ? '#334155' : '#e2e8f0',
                 zeroline: false,
                 showticklabels: true,
-                tickfont: { size: isFullscreen ? 14 : 12 },
-                titlefont: { size: isFullscreen ? 16 : 14 },
+                tickfont: { size: fullscreenElement === plotContainerRef.current ? 14 : 12 },
+                titlefont: { size: fullscreenElement === plotContainerRef.current ? 16 : 14 },
                 tickangle: isFullscreen ? 0 : 0,
                 automargin: true,
-                nticks: isFullscreen ? 15 : 10,
-                tickformat: isFullscreen ? '.2f' : undefined,
+                nticks: fullscreenElement === plotContainerRef.current ? 15 : 10,
+                tickformat: fullscreenElement === plotContainerRef.current ? '.2f' : undefined,
                 range: axisRangeRef.current.x || undefined,
                 autorange: axisRangeRef.current.x ? false : true
               },
@@ -747,8 +949,8 @@ const PlotlyGraph = ({
                 range: axisRangeRef.current.y || getYAxisRange(),
                 autorange: axisRangeRef.current.y ? false : true,
                 showticklabels: true,
-                tickfont: { size: isFullscreen ? 14 : 12 },
-                titlefont: { size: isFullscreen ? 16 : 14 },
+                tickfont: { size: fullscreenElement === plotContainerRef.current ? 14 : 12 },
+                titlefont: { size: fullscreenElement === plotContainerRef.current ? 16 : 14 },
                 automargin: true,
                 nticks: isFullscreen ? 12 : 8
               },
@@ -756,9 +958,9 @@ const PlotlyGraph = ({
                 x: 0,
                 y: 1.1,
                 orientation: 'h',
-                font: { size: isFullscreen ? 14 : 12 }
+                font: { size: fullscreenElement === plotContainerRef.current ? 14 : 12 }
               },
-              margin: isFullscreen ? { l: 50, r: 35, t: 40, b: 60 } : { l: 40, r: 20, t: 30, b: 45 },
+              margin: fullscreenElement === plotContainerRef.current ? { l: 50, r: 35, t: 40, b: 60 } : { l: 40, r: 20, t: 30, b: 45 },
               hovermode: 'closest',
               plot_bgcolor: isDark ? '#0b1220' : '#f8fafc',
               paper_bgcolor: isDark ? '#111827' : '#ffffff',
@@ -805,7 +1007,7 @@ const PlotlyGraph = ({
             <AnalysisTools />
           </div>
         )}
-        {isFullscreen && (
+        {fullscreenElement === plotContainerRef.current && (
           <div className="text-center text-xs text-slate-500 mt-2">
             {mode === 'live' 
               ? 'Real-time data streaming. Use mouse to interact with the plot.'
@@ -819,4 +1021,3 @@ const PlotlyGraph = ({
 };
 
 export default PlotlyGraph;
-import { useTheme } from '../context/ThemeContext';
