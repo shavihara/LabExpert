@@ -31,7 +31,7 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
   const [isConnected, setIsConnected] = useState(false);
   const [loadingError, setLoadingError] = useState(null);
   const [showConfigPanel, setShowConfigPanel] = useState(false);
-  const [config, setConfig] = useState({ frequency_hz: 20, max_distance_cm: 150, duration_s: 10 });
+  const [config, setConfig] = useState({ frequency_hz: 20, max_distance_cm: 150, duration_s: 10, run_indefinite: true });
   const [experimentType, setExperimentType] = useState(localStorage.getItem('experimentType') || 'displacement');
   const [tileState, setTileState] = useState({ status: 'Stopped', timeRemaining: 0, samples: 0, config });
   const [experimentResults, setExperimentResults] = useState([]);
@@ -75,7 +75,7 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
       setExperimentConfig(cfg.mainExperiment);
       setSelectedSubExperiment(cfg.subExperiment);
       if (cfg.subExperiment?.defaultConfig) {
-        setConfig(cfg.subExperiment.defaultConfig);
+        setConfig({ ...cfg.subExperiment.defaultConfig, run_indefinite: true });
       }
       setSelectedExperimentId(experimentId);
       setActiveExperiment(cfg.mainExperiment);
@@ -458,24 +458,33 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
                         </div>
                       </div>
                     ) : (
-                      <div className={`rounded-xl border-2 p-3 transition-all duration-300 ${
-                        tileState.isCountdownMode 
-                          ? (isDark ? 'border-orange-500 bg-orange-900/30 animate-pulse' : 'border-orange-400 bg-orange-100 animate-pulse') 
-                          : (isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-300 bg-blue-50')
-                      }`}>
-                        <div className={`text-xs font-semibold mb-1 transition-colors ${
-                          tileState.isCountdownMode 
-                            ? (isDark ? 'text-orange-300' : 'text-orange-700') 
-                            : (isDark ? 'text-blue-300' : 'text-blue-700')
-                        }`}>Time Remaining</div>
-                        <div className={`text-2xl font-bold font-mono flex items-center gap-2 transition-all duration-300 ${
-                          tileState.isCountdownMode 
-                            ? (isDark ? 'text-orange-200 scale-110' : 'text-orange-800 scale-110') 
-                            : (isDark ? 'text-blue-200' : 'text-blue-900')
-                        }`}>
-                          {formatTime(tileState.timeRemaining || 0)}
+                      tileState?.config?.run_indefinite === true ? (
+                        <div className={`rounded-xl border-2 p-3 ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-300 bg-blue-50'}`}>
+                          <div className={`text-xs font-semibold mb-1 ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Running Time</div>
+                          <div className={`text-2xl font-bold font-mono ${isDark ? 'text-blue-200' : 'text-blue-900'} flex items-center gap-2`}>
+                            {formatTime(tileState.runningTime || 0)}
+                          </div>
                         </div>
-                      </div>
+                      ) : (
+                        <div className={`rounded-xl border-2 p-3 transition-all duration-300 ${
+                          tileState.isCountdownMode 
+                            ? (isDark ? 'border-orange-500 bg-orange-900/30 animate-pulse' : 'border-orange-400 bg-orange-100 animate-pulse') 
+                            : (isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-300 bg-blue-50')
+                        }`}>
+                          <div className={`text-xs font-semibold mb-1 transition-colors ${
+                            tileState.isCountdownMode 
+                              ? (isDark ? 'text-orange-300' : 'text-orange-700') 
+                              : (isDark ? 'text-blue-300' : 'text-blue-700')
+                          }`}>Time Remaining</div>
+                          <div className={`text-2xl font-bold font-mono flex items-center gap-2 transition-all duration-300 ${
+                            tileState.isCountdownMode 
+                              ? (isDark ? 'text-orange-200 scale-110' : 'text-orange-800 scale-110') 
+                              : (isDark ? 'text-blue-200' : 'text-blue-900')
+                          }`}>
+                            {formatTime(tileState.timeRemaining || 0)}
+                          </div>
+                        </div>
+                      )
                     )}
 
                     <div className={`rounded-xl border-2 p-3 ${isDark ? 'border-purple-700 bg-purple-900/20' : 'border-purple-300 bg-purple-50'}`}>
@@ -501,7 +510,7 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
                           </div>
                         ) : (
                           <>
-                            <div>Duration: {(tileState?.config?.duration_s) || 10}s</div>
+                            <div>Duration: {tileState?.config?.run_indefinite === true ? 'Indefinite' : ((tileState?.config?.duration_s) || 10) + 's'}</div>
                             <div className={`text-xs ${isDark ? 'opacity-80' : 'opacity-75'}`}>Samples: {tileState.samples || 0}</div>
                           </>
                         )}
@@ -523,24 +532,33 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
                       </div>
                     </div>
                   ) : (
-                    <div className={`rounded-lg border p-2 transition-all duration-300 ${
-                      tileState.isCountdownMode 
-                        ? (isDark ? 'border-orange-500 bg-orange-900/30 animate-pulse' : 'border-orange-400 bg-orange-100 animate-pulse') 
-                        : (isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-300 bg-blue-50')
-                    }`}>
-                      <div className={`text-[11px] font-semibold mb-1 transition-colors ${
-                        tileState.isCountdownMode 
-                          ? (isDark ? 'text-orange-300' : 'text-orange-700') 
-                          : (isDark ? 'text-blue-300' : 'text-blue-700')
-                      }`}>Time Remaining</div>
-                      <div className={`text-lg font-bold font-mono transition-all duration-300 ${
-                        tileState.isCountdownMode 
-                          ? (isDark ? 'text-orange-200 scale-110' : 'text-orange-800 scale-110') 
-                          : (isDark ? 'text-blue-200' : 'text-blue-900')
-                      }`}>
-                        {formatTime(tileState.timeRemaining || 0)}
+                    tileState?.config?.run_indefinite === true ? (
+                      <div className={`rounded-lg border p-2 ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-300 bg-blue-50'}`}>
+                        <div className={`text-[11px] font-semibold mb-1 ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Running Time</div>
+                        <div className={`text-lg font-bold font-mono ${isDark ? 'text-blue-200' : 'text-blue-900'}`}>
+                          {formatTime(tileState.runningTime || 0)}
+                        </div>
                       </div>
-                    </div>
+                    ) : (
+                      <div className={`rounded-lg border p-2 transition-all duration-300 ${
+                        tileState.isCountdownMode 
+                          ? (isDark ? 'border-orange-500 bg-orange-900/30 animate-pulse' : 'border-orange-400 bg-orange-100 animate-pulse') 
+                          : (isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-300 bg-blue-50')
+                      }`}>
+                        <div className={`text-[11px] font-semibold mb-1 transition-colors ${
+                          tileState.isCountdownMode 
+                            ? (isDark ? 'text-orange-300' : 'text-orange-700') 
+                            : (isDark ? 'text-blue-300' : 'text-blue-700')
+                        }`}>Time Remaining</div>
+                        <div className={`text-lg font-bold font-mono transition-all duration-300 ${
+                          tileState.isCountdownMode 
+                            ? (isDark ? 'text-orange-200 scale-110' : 'text-orange-800 scale-110') 
+                            : (isDark ? 'text-blue-200' : 'text-blue-900')
+                        }`}>
+                          {formatTime(tileState.timeRemaining || 0)}
+                        </div>
+                      </div>
+                    )
                   )}
 
                   <div className={`rounded-lg border p-2 ${isDark ? 'border-purple-700 bg-purple-900/20' : 'border-purple-300 bg-purple-50'} col-span-2`}>
@@ -566,7 +584,7 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
                         </div>
                       ) : (
                         <>
-                          <span>Duration: {(tileState?.config?.duration_s) || 10}s</span>
+                          <span>Duration: {tileState?.config?.run_indefinite === true ? 'Indefinite' : ((tileState?.config?.duration_s) || 10) + 's'}</span>
                           <span>Samples: {tileState.samples || 0}</span>
                         </>
                       )}

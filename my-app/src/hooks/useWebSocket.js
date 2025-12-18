@@ -618,11 +618,18 @@ export const useExperimentManager = (webSocketInstance, externalExperimentData =
       // Default distance/time-of-flight style configuration
       backendConfig = {
         frequency: config.frequency_hz || config.frequency || 50,
-        duration: config.duration_s || config.duration || 60,
         mode: config.mode || 'distance'
       };
+      if (!(config.run_indefinite === true)) {
+        backendConfig.duration = config.duration_s || config.duration || 60;
+      } else {
+        backendConfig.run_indefinite = true;
+      }
       if (config.max_distance_cm != null && !Number.isNaN(config.max_distance_cm)) {
         backendConfig.maxRange = Math.round(config.max_distance_cm * 10);
+      }
+      if (config.resolution != null) {
+        backendConfig.resolution = parseInt(config.resolution);
       }
     }
     const analysis = {};

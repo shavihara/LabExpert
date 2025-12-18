@@ -45,6 +45,7 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
   }, [configStatus, isSubmitting, onClose]);
 
   const isPendulumExperiment = selectedSubExperiment?.id === '2.1' || selectedSubExperiment?.id === '2.2';
+  const isTemperatureExperiment = selectedSubExperiment?.id === 'temperature_live';
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm p-4">
@@ -129,7 +130,27 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
             </>
           )}
 
-          {!isPendulumExperiment && (
+          {/* Temperature Experiment Specific Configs */}
+          {isTemperatureExperiment && (
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">
+                Resolution
+              </label>
+              <select
+                value={config.resolution || 10}
+                onChange={(e) => onChange({ ...config, resolution: parseInt(e.target.value) })}
+                className="w-full px-4 py-2 border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none transition-all"
+              >
+                <option value={9}>0.5°C (94ms)</option>
+                <option value={10}>0.25°C (188ms)</option>
+                <option value={11}>0.125°C (375ms)</option>
+                <option value={12}>0.0625°C (750ms)</option>
+              </select>
+              <p className="text-xs text-slate-500 mt-1">Select temperature resolution</p>
+            </div>
+          )}
+
+          {!isPendulumExperiment && !isTemperatureExperiment && (
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-2">
               Sampling Frequency (Hz)
@@ -161,7 +182,7 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
               />
               <p className="text-xs text-slate-500 mt-1">Maximum expected ambient intensity</p>
             </div>
-          ) : (!isPendulumExperiment && (
+          ) : (!isPendulumExperiment && !isTemperatureExperiment && (
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-2">
                 Max Distance (cm)
@@ -180,14 +201,45 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
 
           {!isPendulumExperiment && (
           <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-semibold text-slate-700">
+                Set Custom duration
+              </label>
+              <input
+                type="checkbox"
+                checked={config.run_indefinite === false}
+                onChange={(e) => onChange({ ...config, run_indefinite: !e.target.checked })}
+                className="w-4 h-4 accent-blue-600"
+              />
+            </div>
             <label className="block text-sm font-semibold text-slate-700 mb-2">
               Duration (seconds)
             </label>
             <input
               type="number"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              step="1"
               value={config.duration_s}
-              onChange={(e) => onChange({ ...config, duration_s: parseInt(e.target.value) })}
-              className="w-full px-4 py-2 border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none transition-all"
+              onChange={(e) => {
+                const raw = String(e.target.value || '').replace(/[^0-9]/g, '');
+                const num = Math.max(1, Math.min(300, parseInt(raw || '0')));
+                onChange({ ...config, duration_s: num });
+              }}
+              onKeyDown={(e) => {
+                const allowed = ['Backspace','Delete','ArrowLeft','ArrowRight','Tab'];
+                if (allowed.includes(e.key)) return;
+                if (!/^[0-9]$/.test(e.key)) e.preventDefault();
+              }}
+              onBlur={(e) => {
+                const v = parseInt(e.target.value || '0');
+                const num = Math.max(1, Math.min(300, Number.isFinite(v) ? v : 1));
+                if (num !== config.duration_s) onChange({ ...config, duration_s: num });
+              }}
+              disabled={config.run_indefinite === true}
+              className={`w-full px-4 py-2 border-2 rounded-lg focus:border-blue-500 focus:outline-none transition-all ${
+                config.run_indefinite === true ? 'border-slate-200 bg-slate-100 cursor-not-allowed opacity-70' : 'border-slate-200'
+              }`}
               min="1"
               max="300"
             />

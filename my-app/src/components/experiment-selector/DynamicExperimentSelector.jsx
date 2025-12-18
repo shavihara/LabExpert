@@ -215,6 +215,7 @@ const DynamicExperimentSelector = ({
           'inclined_plane': ['inclined_plane', 'angle', 'incline'],
           'pendulum_simple': ['pendulum', 'accelerometer', 'gyroscope'],
           'pendulum_compound': ['pendulum', 'accelerometer', 'gyroscope'],
+          'temperature': ['temperature', 'thermal', 'thermometer'],
           'thermal': ['temperature', 'thermal', 'thermometer'],
           'light_intensity': ['light', 'ldr', 'photo', 'intensity', 'lux']
         };
@@ -264,6 +265,7 @@ const DynamicExperimentSelector = ({
       'pendulum_simple': <FiRadio className="w-6 h-6" />,
       'pendulum_compound': <FiRadio className="w-6 h-6" />,
       'thermal': <FiThermometer className="w-6 h-6" />,
+      'temperature': <FiThermometer className="w-6 h-6" />,
       'light_intensity': <FiActivity className="w-6 h-6" />
     };
     

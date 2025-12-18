@@ -225,57 +225,54 @@ export const experimentRegistry = {
 
   '3': {
     id: '3',
-    name: 'Temperature Analysis',
+    name: 'Temperature Monitoring',
     category: 'thermodynamics',
     icon: '🌡️',
-    description: 'Thermal experiments and heat transfer analysis',
+    description: 'Monitor live temperature with configurable resolution',
     color: '#EF4444', // Red theme
 
     subExperiments: {
       '3.1': {
-        id: '3.1',
-        name: 'Heat Transfer',
-        icon: '🔥',
-        description: 'Measure temperature changes during heat transfer processes',
-        firmware: 'THERMAL.bin',
-        firmwareType: 'thermal',
+        id: 'temperature_live',
+        name: 'Live Temperature Monitor',
+        icon: '🌡️',
+        description: 'Monitor live temperature with configurable resolution.',
+        firmware: 'THRMON.bin',
+        firmwareType: 'temperature',
 
-        dataFields: ['time', 'temperature', 'heat_flux', 'thermal_conductivity'],
+        dataFields: ['time', 'celsius', 'fahrenheit', 'kelvin'],
         units: {
           time: 's',
-          temperature: '°C',
-          heat_flux: 'W/m²',
-          thermal_conductivity: 'W/m·K'
+          celsius: '°C',
+          fahrenheit: '°F',
+          kelvin: 'K'
         },
 
         graphConfig: {
           xAxis: 'time',
-          yAxes: ['temperature', 'heat_flux'],
-          colors: ['#EF4444', '#F97316'],
-          yAxisLabels: ['Temperature (°C)', 'Heat Flux (W/m²)']
+          yAxes: ['celsius', 'fahrenheit', 'kelvin'],
+          colors: ['#EF4444', '#F97316', '#3B82F6'],
+          yAxisLabels: ['Temperature (°C)', 'Temperature (°F)', 'Temperature (K)']
         },
 
         tableConfig: {
           columns: [
             { key: 'time', label: 'Time (s)', format: 'float', precision: 2 },
-            { key: 'temperature', label: 'Temperature (°C)', format: 'float', precision: 1 },
-            { key: 'heat_flux', label: 'Heat Flux (W/m²)', format: 'float', precision: 2 },
-            { key: 'thermal_conductivity', label: 'Conductivity (W/m·K)', format: 'float', precision: 3 }
+            { key: 'celsius', label: 'Celsius (°C)', format: 'float', precision: 2 },
+            { key: 'fahrenheit', label: 'Fahrenheit (°F)', format: 'float', precision: 2 },
+            { key: 'kelvin', label: 'Kelvin (K)', format: 'float', precision: 2 }
           ]
         },
 
-        requiredSensors: ['temperature', 'thermal_sensor'],
+        requiredSensors: ['temperature'],
 
         defaultConfig: {
-          frequency_hz: 5,
-          max_temperature_c: 100,
-          duration_s: 300,
-          ambient_temperature_c: 25
+          resolution: 10,
+          duration: 300
         }
       }
     }
-  }
-  ,
+  },
   '4': {
     id: '4',
     name: 'Light Intensity Analysis',

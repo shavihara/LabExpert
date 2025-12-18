@@ -364,6 +364,7 @@ class ExperimentConfig(BaseModel):
     frequency: int
     duration: int
     mode: str = "distance"
+    resolution: Optional[int] = None
 
 
 class ExperimentData(BaseModel):
@@ -835,6 +836,9 @@ async def configure_sensor(
         "mode": config.mode,
         "averagingSamples": 1
     }
+
+    if config.resolution is not None:
+        mqtt_config["resolution"] = config.resolution
     
     # Use MQTT to send configuration to device
     mqtt_service = MQTTService.get_instance()

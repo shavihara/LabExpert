@@ -338,12 +338,16 @@ class ClientWebSocketManager:
                     d2 = cfg.get("duration_s") or cfg.get("timeLimit")
                 else:
                     d2 = dur
-                if d2 is not None:
+                indef = bool(cfg.get("run_indefinite") or cfg.get("indefinite"))
+                if not indef and d2 is not None:
                     try:
                         d2 = int(d2)
                     except Exception:
                         pass
                     cfg["duration"] = d2 + 3
+                elif indef:
+                    cfg.pop("duration", None)
+                    cfg["run_indefinite"] = True
                 if cfg:
                     processor_manager.configure_processor(device_id, experiment_type, cfg)
                     logger.info(f"Publishing configuration to device {device_id}: {cfg}")
@@ -472,6 +476,7 @@ class ClientWebSocketManager:
                 dur = config.get("duration")
                 if dur is None:
                     dur = config.get("duration_s") or config.get("timeLimit")
+                indef = bool(config.get("run_indefinite") or config.get("indefinite"))
 
                 # Coerce to integers when provided
                 if freq is not None:
@@ -487,11 +492,19 @@ class ClientWebSocketManager:
 
                 normalized_config = {
                     "frequency": freq if freq is not None else 50,
-                    "duration": dur if dur is not None else 60,
                     "mode": config.get("mode") or "distance",
                     "averagingSamples": config.get("averagingSamples") if config.get("averagingSamples") is not None else 1,
                 }
-                if experiment_type in {"distance", "displacement", "inclined_plane"}:
+                if not indef:
+                    normalized_config["duration"] = dur if dur is not None else 60
+                else:
+                    normalized_config["run_indefinite"] = True
+                if config.get("resolution") is not None:
+                    try:
+                        normalized_config["resolution"] = int(config.get("resolution"))
+                    except Exception:
+                        normalized_config["resolution"] = config.get("resolution")
+                if experiment_type in {"distance", "displacement", "inclined_plane"} and not indef:
                     try:
                         normalized_config["duration"] = int(normalized_config.get("duration", 60)) + 3
                     except Exception:

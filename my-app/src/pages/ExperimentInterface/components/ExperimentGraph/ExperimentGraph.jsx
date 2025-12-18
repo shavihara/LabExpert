@@ -101,14 +101,20 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   const [isCountdownMode, setIsCountdownMode] = useState(false);
   useEffect(() => {
     const base = Number(config?.duration_s);
-    if (Number.isFinite(base) && base > 0) {
+    const indef = !!config?.run_indefinite;
+    if (!indef && Number.isFinite(base) && base > 0) {
       setTotalDuration(base);
       setDisplayRangeSeconds(base);
       if (!isRunning) {
         setTimeRemaining(base);
       }
+    } else {
+      setTotalDuration(0);
+      if (!isRunning) {
+        setTimeRemaining(0);
+      }
     }
-  }, [config?.duration_s, isRunning]);
+  }, [config?.duration_s, config?.run_indefinite, isRunning]);
 
   useEffect(() => {
     const mq = typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)') : null;
@@ -201,6 +207,12 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         d = message.data;
         const t = Number(d.t ?? d.time ?? 0);
         const elapsedMs = Number.isFinite(t) ? (t * 1000) : (startTimeRef.current ? (Date.now() - startTimeRef.current) : 0);
+        const tc = Number(d.celsius ?? d.C ?? d.temp_c ?? d.temperature_c);
+        const tf = Number(d.fahrenheit ?? d.temp_f);
+        const tk = Number(d.kelvin ?? d.temp_k);
+        const cVal = Number.isFinite(tc) ? tc : (Number.isFinite(tf) ? (tf - 32) * 5/9 : (Number.isFinite(tk) ? tk - 273.15 : 0));
+        const fVal = Number.isFinite(tf) ? tf : (Number.isFinite(cVal) ? cVal * 9/5 + 32 : (Number.isFinite(tk) ? (tk - 273.15) * 9/5 + 32 : 0));
+        const kVal = Number.isFinite(tk) ? tk : (Number.isFinite(cVal) ? cVal + 273.15 : (Number.isFinite(tf) ? (tf - 32) * 5/9 + 273.15 : 0));
         const point = {
           time: elapsedMs,
           timeDisplay: (elapsedMs / 1000).toFixed(2),
@@ -212,12 +224,15 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
           period: Number(d.period ?? d.T ?? 0),
           damping_coefficient: Number(d.damping_coefficient ?? d.zeta ?? 0),
           intensity: Number(d.intensity ?? d.lux ?? d.light ?? 0),
+          celsius: cVal,
+          fahrenheit: fVal,
+          kelvin: kVal,
           kineticEnergy: Number(d.ke ?? d.kineticEnergy ?? 0),
           potentialEnergy: Number(d.pe ?? d.potentialEnergy ?? 0),
           totalEnergy: Number(d.te ?? d.totalEnergy ?? 0),
           sample: d.sample ?? d.packet_id ?? null,
           packet_id: d.packet_id ?? null,
-          __originalIndex: chartDataRef.current.length // Add original index for neglect tracking
+          __originalIndex: chartDataRef.current.length
         };
         
         // Debug logging for sample processing
@@ -271,6 +286,12 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
       }
       if (!Number.isFinite(elapsedMs) || elapsedMs < 0) elapsedMs = 0;
 
+      const tc2 = Number(d.celsius ?? d.C ?? d.temp_c ?? d.temperature_c);
+      const tf2 = Number(d.fahrenheit ?? d.temp_f);
+      const tk2 = Number(d.kelvin ?? d.temp_k);
+      const cVal2 = Number.isFinite(tc2) ? tc2 : (Number.isFinite(tf2) ? (tf2 - 32) * 5/9 : (Number.isFinite(tk2) ? tk2 - 273.15 : 0));
+      const fVal2 = Number.isFinite(tf2) ? tf2 : (Number.isFinite(cVal2) ? cVal2 * 9/5 + 32 : (Number.isFinite(tk2) ? (tk2 - 273.15) * 9/5 + 32 : 0));
+      const kVal2 = Number.isFinite(tk2) ? tk2 : (Number.isFinite(cVal2) ? cVal2 + 273.15 : (Number.isFinite(tf2) ? (tf2 - 32) * 5/9 + 273.15 : 0));
       const point = {
         time: elapsedMs,
         timeDisplay: (elapsedMs / 1000).toFixed(2),
@@ -282,7 +303,10 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         period: Number(d.period ?? d.T ?? 0),
         damping_coefficient: Number(d.damping_coefficient ?? d.zeta ?? 0),
         intensity: Number(d.intensity ?? d.lux ?? d.light ?? 0),
-        __originalIndex: chartDataRef.current.length // Add original index for neglect tracking
+        celsius: cVal2,
+        fahrenheit: fVal2,
+        kelvin: kVal2,
+        __originalIndex: chartDataRef.current.length
       };
       chartDataRef.current = [...chartDataRef.current, point];
       scheduleChartFlush();
@@ -339,29 +363,26 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
           // Normal phase
           setRunningTime(elapsed);
           
-          if (!isCountUpMode) {
+          if (!isCountUpMode && totalDuration > 0) {
             const remaining = Math.max(0, totalDuration - elapsed);
             setTimeRemaining(remaining);
-            
-            // Auto-stop when time is up
             if (remaining <= 0) {
-              console.log('Timer finished, stopping experiment');
               setIsRunning(false);
               setIsPaused(false);
               setTimeRemaining(0);
-              
               if (sharedExperimentManager?.stopExperiment) {
                 sharedExperimentManager.stopExperiment();
               } else {
                 sendMessage({ action: 'stop_experiment' });
               }
-              
               if (!completionTriggeredRef.current) {
                 completionTriggeredRef.current = true;
                 if (onComplete) onComplete(chartDataRef.current);
               }
-              return; // Stop the animation loop
+              return;
             }
+          } else if (!isCountUpMode && totalDuration === 0) {
+            setTimeRemaining(0);
           }
         }
         
@@ -462,8 +483,8 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
 
     let startConfig = { duration_s: 10 };
     try {
-      startConfig = JSON.parse(localStorage.getItem('experimentConfig') || '{"duration_s": 10}');
-      if (isCountUpMode) {
+      startConfig = JSON.parse(localStorage.getItem('experimentConfig') || '{"duration_s": 10, "run_indefinite": true}');
+      if (isCountUpMode || startConfig.run_indefinite === true) {
         setTotalDuration(0);
         setTimeRemaining(0);
       } else {
@@ -472,14 +493,8 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         setTimeRemaining(uiDur);
       }
     } catch (e) {
-      if (isCountUpMode) {
-        setTotalDuration(0);
-        setTimeRemaining(0);
-      } else {
-        const uiDur = 10;
-        setTotalDuration(uiDur);
-        setTimeRemaining(uiDur);
-      }
+      setTotalDuration(0);
+      setTimeRemaining(0);
     }
     
     if (dataHandlerCleanupRef.current) {
@@ -512,9 +527,13 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     } else {
       startCfg = {
         frequency: config?.frequency_hz || 50,
-        duration: config?.duration_s || 60,
         mode: 'distance'
       };
+      if (!(config?.run_indefinite === true)) {
+        startCfg.duration = config?.duration_s || 60;
+      } else {
+        startCfg.run_indefinite = true;
+      }
       if (config?.max_distance_cm != null) {
         startCfg.maxRange = Math.round(config.max_distance_cm * 10);
       }
@@ -794,10 +813,11 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   const axisMeta = React.useMemo(() => {
     const units = (subExperiment && subExperiment.units) || { time: 's' };
     const labels = (subExperiment && subExperiment.graphConfig && subExperiment.graphConfig.yAxisLabels) || [];
+    const colors = (subExperiment && subExperiment.graphConfig && subExperiment.graphConfig.colors) || [];
     const yAxes = availableTraces;
     const y = {};
     yAxes.forEach((k, i) => {
-      y[k] = { label: labels[i] || (k.charAt(0).toUpperCase() + k.slice(1)), unit: units[k] || '' };
+      y[k] = { label: labels[i] || (k.charAt(0).toUpperCase() + k.slice(1)), unit: units[k] || '', color: colors[i] };
     });
     return { x: { label: 'Time', unit: units.time || 's' }, y };
   }, [subExperiment, availableTraces]);
@@ -864,9 +884,14 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     const source = isAnalysisMode ? analysisData : chartData;
     const limitMs = (displayRangeSeconds || 0) * 1000 + 250;
     const bounded = (displayRangeSeconds && displayRangeSeconds > 0) ? source.filter(row => (row.time || 0) <= limitMs) : source;
+    const tableKeys = (subExperiment && subExperiment.tableConfig && Array.isArray(subExperiment.tableConfig.columns))
+      ? subExperiment.tableConfig.columns
+          .map(c => c.key)
+          .filter(k => k !== 'time' && k !== 'sample')
+      : availableTraces;
     return bounded.map(row => {
       const obj = { time: Number((row.time / 1000).toFixed(2)), __originalIndex: row.__originalIndex };
-      availableTraces.forEach(k => { obj[k] = row[k]; });
+      tableKeys.forEach(k => { obj[k] = row[k]; });
       const s = row.sample != null ? row.sample : (row.packet_id != null ? row.packet_id : (row.__originalIndex != null ? row.__originalIndex + 1 : null));
       obj.sample = s;
       if (isAnalysisMode) {
