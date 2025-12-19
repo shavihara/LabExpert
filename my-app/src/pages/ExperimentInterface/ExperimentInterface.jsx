@@ -212,11 +212,13 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
       setShowConfigModal(false);
       showSuccess('Experiment configured successfully');
       
-      // Send configuration to server
-      sendMessage({
-        action: 'configure_experiment',
-        payload: { device, experimentType, token }
-      });
+      // Apply default configuration immediately using unified experiment manager
+      try {
+        const expType = subExperiment?.firmwareType || experimentType;
+        const cfg = subExperiment?.defaultConfig ? { ...subExperiment.defaultConfig, run_indefinite: true } : {};
+        localStorage.setItem('experimentConfig', JSON.stringify(cfg));
+        sharedExperimentManager.applyConfiguration(device.id, cfg, expType);
+      } catch {}
     } catch (error) {
       console.error('Error completing experiment setup:', error);
       showError('Failed to configure experiment');

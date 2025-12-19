@@ -631,6 +631,18 @@ export const useExperimentManager = (webSocketInstance, externalExperimentData =
       if (config.resolution != null) {
         backendConfig.resolution = parseInt(config.resolution);
       }
+      // Inclined plane custom parameters
+      if (config.surconference_cm != null) {
+        backendConfig.circumference_cm = Number(config.surconference_cm);
+      } else if (config.circumference_cm != null) {
+        backendConfig.circumference_cm = Number(config.circumference_cm);
+      }
+      if (config.angle_deg != null) {
+        backendConfig.angle_deg = Number(config.angle_deg);
+      }
+      if (config.gravity != null) {
+        backendConfig.gravity = Number(config.gravity);
+      }
     }
     const analysis = {};
     if (config.mass !== undefined && !Number.isNaN(config.mass)) {

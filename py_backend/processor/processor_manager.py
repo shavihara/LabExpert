@@ -4,8 +4,9 @@ import asyncio
 import logging
 from typing import Dict, Optional
 from .sensor_displacement import DisplacementProcessor
+from .sensor_galileo import GalileoProcessor
 from .sensor_oscillation import OscillationProcessor
-from .sensor_angle import AngleProcessor
+#from .sensor_angle import AngleProcessor
 from .sensor_disp_angle import DispAngleProcessor
 from .sensor_temperature import TemperatureProcessor
 
@@ -36,8 +37,6 @@ class SensorProcessorManager:
         mapped_experiment_type = experiment_type
         if experiment_type == "tof":
             mapped_experiment_type = "displacement"
-        elif experiment_type == "inclined_plane":
-            mapped_experiment_type = "displacement"
         elif experiment_type == "distance":
             mapped_experiment_type = "displacement"
         elif experiment_type == "pendulum_simple" or experiment_type == "pendulum_compound":
@@ -50,7 +49,7 @@ class SensorProcessorManager:
             if mapped_experiment_type == "displacement":
                 self.processors[device_id][mapped_experiment_type] = DisplacementProcessor(device_id)
             elif mapped_experiment_type == "inclined_plane":
-                self.processors[device_id][mapped_experiment_type] = DisplacementProcessor(device_id)
+                self.processors[device_id][mapped_experiment_type] = GalileoProcessor(device_id)
             elif mapped_experiment_type == "oscillation":
                 self.processors[device_id][mapped_experiment_type] = OscillationProcessor(device_id)
             elif mapped_experiment_type == "angle":
@@ -74,8 +73,6 @@ class SensorProcessorManager:
         if experiment_type == "tof":
             mapped_experiment_type = "displacement"
         elif experiment_type == "distance":
-            mapped_experiment_type = "displacement"
-        elif experiment_type == "inclined_plane":
             mapped_experiment_type = "displacement"
         elif experiment_type == "pendulum_simple" or experiment_type == "pendulum_compound":
             mapped_experiment_type = "oscillation"

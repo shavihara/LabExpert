@@ -46,6 +46,7 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
 
   const isPendulumExperiment = selectedSubExperiment?.id === '2.1' || selectedSubExperiment?.id === '2.2';
   const isTemperatureExperiment = selectedSubExperiment?.id === 'temperature_live';
+  const isInclinedPlane = selectedSubExperiment?.id === 'inclined_plane' || selectedSubExperiment?.firmwareType === 'inclined_plane';
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm p-4">
@@ -182,7 +183,7 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
               />
               <p className="text-xs text-slate-500 mt-1">Maximum expected ambient intensity</p>
             </div>
-          ) : (!isPendulumExperiment && !isTemperatureExperiment && (
+          ) : (!isPendulumExperiment && !isTemperatureExperiment && !isInclinedPlane && (
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-2">
                 Max Distance (cm)
@@ -198,6 +199,40 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
               <p className="text-xs text-slate-500 mt-1">Maximum measurable distance</p>
             </div>
           ))}
+
+          {isInclinedPlane && (
+            <>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  Surconference (cm)
+                </label>
+                <input
+                  type="number"
+                  value={config.surconference_cm || ''}
+                  onChange={(e) => onChange({ ...config, surconference_cm: parseFloat(e.target.value) })}
+                  className="w-full px-4 py-2 border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none transition-all"
+                  min="0"
+                  step="0.01"
+                />
+                <p className="text-xs text-slate-500 mt-1">Circumference of rolling object</p>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  Angle (degree)
+                </label>
+                <input
+                  type="number"
+                  value={config.angle_deg || ''}
+                  onChange={(e) => onChange({ ...config, angle_deg: parseFloat(e.target.value) })}
+                  className="w-full px-4 py-2 border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none transition-all"
+                  min="0"
+                  max="90"
+                  step="0.1"
+                />
+                <p className="text-xs text-slate-500 mt-1">Incline angle of the plane</p>
+              </div>
+            </>
+          )}
 
           {!isPendulumExperiment && (
           <div>

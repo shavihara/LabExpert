@@ -1,0 +1,19 @@
+Firmware Architecture and Fault Tolerance Mechanisms
+
+1. Dual-Partition Manager-Worker Architecture
+The system employs a modified A/B partitioning scheme to separate administrative tasks from application logic. A custom partition table defines two application slots: ota_0 (Manager) and ota_1 (Worker).
+* Technique: The ota_0 partition hosts a persistent "Manager" firmware responsible for network provisioning, UDP discovery, and OTA orchestration. The ota_1 partition is reserved for transient "Worker" firmware (specific sensor logic).
+* Method: Upon receiving a payload via the HTTP Update library, the Manager writes the binary to the ota_1 partition. It then utilizes the esp_ota_ops API to update the otadata partition, designating ota_1 as the active boot partition for the subsequent restart.
+
+2. Cross-Partition State Persistence (NVS)
+To ensure seamless transitions between the Manager and Worker firmware without re-provisioning, the system utilizes the ESP32's Non-Volatile Storage (NVS) library.
+* Technique: Key-Value storage with a shared namespace configuration.
+* Method: Network credentials (SSID, Password) and MQTT configuration are serialized and stored under a unified "wifi" namespace. This allows the Worker firmware to initialize connectivity immediately upon boot by reading the pre-validated credentials written by the Manager, eliminating redundant provisioning cycles.
+
+3. Active Failsafe and Self-Recovery
+A robust fallback mechanism is implemented to prevent "bricking" due to hardware mismatches or corrupted firmware.
+* Technique: Runtime Hardware Verification with Active Rollback.
+* Method: Upon initialization, the Worker firmware performs an I2C interrogation of the attached sensor module's EEPROM. If the hardware signature is invalid or missing, the firmware triggers a self-destruct sequence:
+    1. Boot Reversion: Calls esp_ota_set_boot_partition() to target the stable ota_0 Manager.
+    2. Partition Sanitization: Executes esp_partition_erase_range() to physically wipe the ota_1 partition, ensuring no corrupt code remains.
+    3. System Reset: Triggers a software restart to return the device to its provisioning state.

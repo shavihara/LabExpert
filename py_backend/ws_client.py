@@ -523,6 +523,30 @@ class ClientWebSocketManager:
                     except Exception:
                         pass
 
+                # Preserve inclined plane custom parameters for device and processor
+                if experiment_type in {"inclined_plane"}:
+                    # Angle in degrees
+                    if config.get("angle_deg") is not None:
+                        try:
+                            normalized_config["angle_deg"] = float(config.get("angle_deg"))
+                        except Exception:
+                            normalized_config["angle_deg"] = config.get("angle_deg")
+                    # Circumference (support both spellings)
+                    circ = config.get("circumference_cm")
+                    if circ is None:
+                        circ = config.get("surconference_cm")
+                    if circ is not None:
+                        try:
+                            normalized_config["circumference_cm"] = float(circ)
+                        except Exception:
+                            normalized_config["circumference_cm"] = circ
+                    # Gravity (cm/s^2) optional override
+                    if config.get("gravity") is not None:
+                        try:
+                            normalized_config["gravity"] = float(config.get("gravity"))
+                        except Exception:
+                            normalized_config["gravity"] = config.get("gravity")
+
                 # Keep normalized device config separate from analysis config
                 device_config = normalized_config
         except Exception as e:

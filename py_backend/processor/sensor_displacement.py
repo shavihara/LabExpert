@@ -287,33 +287,43 @@ class DisplacementProcessor(SensorProcessor):
                         analysis["estimated_period"] = np.mean(periods)
                         analysis["period_std"] = np.std(periods)
             
-            # Energy calculations (use SI units; always include keys)
-            mass = self.config.get("mass", 0.0)  # kg
+            # Energy calculations (SI units: Joules)
+            # Assumption: Position data is in cm (converted from mm in mqtt_service or provided as cm)
+            # Assumption: Mass is provided in kg
+            mass_kg = self.config.get("mass", 0.0)
             try:
-                mass = float(mass)
+                mass_kg = float(mass_kg)
             except Exception:
-                mass = 0.0
+                mass_kg = 0.0
 
-            # Convert velocity from cm/s to m/s and position from cm to m
+            # Convert velocity from cm/s to m/s
+            # recent_velocities is in cm/s (derived from position in cm and time in s)
             current_velocity_cm_s = recent_velocities[-1] if recent_velocities else 0.0
             current_velocity_m_s = (current_velocity_cm_s or 0.0) / 100.0
 
+            # Calculate height in meters
+            # Note: P.E. is calculated relative to the lowest point in the current window
             min_position_cm = min(recent_positions) if recent_positions else 0.0
             current_position_cm = recent_positions[-1] if recent_positions else 0.0
             delta_height_m = (current_position_cm - min_position_cm) / 100.0
 
             g = 9.81  # m/s^2
 
-            if mass > 0.0:
-                kinetic_energy = 0.5 * mass * (current_velocity_m_s ** 2)
-                potential_energy = mass * g * max(0.0, delta_height_m)
+            if mass_kg > 0.0:
+                kinetic_energy = 0.5 * mass_kg * (current_velocity_m_s ** 2)
+                potential_energy = mass_kg * g * max(0.0, delta_height_m)
             else:
                 kinetic_energy = 0.0
                 potential_energy = 0.0
 
-            analysis["ke"] = round(float(kinetic_energy), 3)
-            analysis["pe"] = round(float(potential_energy), 3)
-            analysis["te"] = round(float(kinetic_energy + potential_energy), 3)
+            # Return energy in Joules with 4 decimal precision
+            analysis["ke"] = round(float(kinetic_energy), 4)
+            analysis["pe"] = round(float(potential_energy), 4)
+            analysis["te"] = round(float(kinetic_energy + potential_energy), 4)
+            
+            # Debug info to verify units
+            analysis["v_ms"] = round(current_velocity_m_s, 4)
+            analysis["h_m"] = round(delta_height_m, 4)
             
             return analysis
             
