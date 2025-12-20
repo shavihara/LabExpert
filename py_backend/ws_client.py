@@ -141,12 +141,24 @@ class ClientWebSocketManager:
             else:
                 # Verify allocation for device-specific actions
                 user_devices = await self.session_manager.get_user_devices(user_id)
-                if not user_devices:
+                
+                # Check if this is a request for local_camera which is auto-allocated
+                request_device_id = message.get("device_id")
+                is_local_camera = request_device_id == "local_camera"
+                
+                if not user_devices and not is_local_camera:
                     await self.send_to_user(user_id, {"type": "error", "message": "No device allocated - please select a device first"})
                     return
                 
                 if action == "start_experiment":
-                    await self._handle_start_experiment(user_id, message.get("config", {}), message.get("experiment_type"))
+                    cfg = message.get("config", {}) or {}
+                    dev = message.get("device_id")
+                    if dev and "device_id" not in cfg:
+                        try:
+                            cfg["device_id"] = dev
+                        except Exception:
+                            pass
+                    await self._handle_start_experiment(user_id, cfg, message.get("experiment_type"))
                 elif action == "pause_experiment":
                     await self._handle_simple_device_command(user_id, {"type": "pause_experiment"}, "experiment_paused")
                 elif action == "resume_experiment":
@@ -154,7 +166,14 @@ class ClientWebSocketManager:
                 elif action == "stop_experiment":
                     await self._handle_simple_device_command(user_id, {"type": "stop_experiment"}, "experiment_stopped")
                 elif action == "configure_experiment":
-                    await self._handle_configure_experiment(user_id, message.get("config", {}), message.get("experiment_type"), message.get("analysis") or {})
+                    cfg = message.get("config", {}) or {}
+                    dev = message.get("device_id")
+                    if dev and "device_id" not in cfg:
+                        try:
+                            cfg["device_id"] = dev
+                        except Exception:
+                            pass
+                    await self._handle_configure_experiment(user_id, cfg, message.get("experiment_type"), message.get("analysis") or {})
                 elif action == "save_experiment_data":
                     await self._handle_save_experiment_data(user_id, message.get("experiment_type"), message.get("graph_type"), message.get("data"), message.get("timestamp"))
         except Exception as e:
@@ -264,20 +283,28 @@ class ClientWebSocketManager:
         await self.send_to_user(user_id, {"type": "device_selected", "device": device, "status": status})
 
     async def _handle_release_device(self, user_id: str):
-        # Get user's allocated devices before freeing them
         user_devices = await self.session_manager.get_user_devices(user_id)
-        
-        # Send disconnect command to each allocated device via MQTT
         if user_devices:
             from services.mqtt_service import MQTTService
             mqtt_service = MQTTService.get_instance()
+            from processor.processor_manager import SensorProcessorManager
+            processor_manager = SensorProcessorManager.get_instance()
             
             for device_id in user_devices:
-                if mqtt_service:
-                    logger.info(f"Sending disconnect command to device {device_id}")
-                    mqtt_service.publish_disconnect_command(device_id)
+                current_exp = processor_manager.get_device_experiment(device_id)
+                if current_exp == "video_oscillation":
+                    try:
+                        # Fully stop the processor (release camera)
+                        processor_manager.stop_processor(device_id, "video_oscillation")
+                        logger.info(f"Stopped local video experiment for device {device_id} on release")
+                        await self.send_to_user(user_id, {"type": "experiment_stopped", "device_id": device_id, "experiment_type": "video_oscillation"})
+                    except Exception as e:
+                        logger.error(f"Failed to stop local video experiment for {device_id}: {e}")
+                else:
+                    if mqtt_service:
+                        logger.info(f"Sending disconnect command to device {device_id}")
+                        mqtt_service.publish_disconnect_command(device_id)
         
-        # Free user devices from session manager
         await self.session_manager.free_user_devices(user_id)
         await self.send_to_user(user_id, {"type": "device_disconnected", "device_id": None})
 
@@ -287,23 +314,46 @@ class ClientWebSocketManager:
         
         mqtt_service = MQTTService.get_instance()
         processor_manager = SensorProcessorManager.get_instance()
-        devices = await self.session_manager.get_user_devices(user_id)
-        if not devices:
-            await self.send_to_user(user_id, {"type": "error", "message": "No device allocated"})
-            return
-        device_id = devices[0]
-        
-        if not mqtt_service or not mqtt_service.connected:
-            await self.send_to_user(user_id, {"type": "error", "message": "MQTT service not available"})
-            return
+        # Prefer explicit device_id from config (needed for local camera video experiments)
+        device_id = (config or {}).get("device_id")
+        if not device_id:
+            devices = await self.session_manager.get_user_devices(user_id)
+            if not devices:
+                await self.send_to_user(user_id, {"type": "error", "message": "No device allocated"})
+                return
+            device_id = devices[0]
         
         try:
             logger.info(f"Received start_experiment command from user {user_id} for device {device_id}, type: {experiment_type}")
             
-            processor_manager.start_experiment(device_id, experiment_type)
-            
             pendulum_types = {"pendulum_simple", "pendulum_compound", "oscillation"}
+            video_types = {"video_oscillation", "ai_motion", "5.1"}
+            
+            if experiment_type in video_types:
+                user_devices = await self.session_manager.get_user_devices(user_id)
+                if device_id not in user_devices:
+                    await self.session_manager.register_device(device_id)
+                    await self.session_manager.allocate_device_to_user(device_id, user_id)
+                # Ensure the video processor has the running event loop reference for thread-safe sends
+                processor = processor_manager.get_processor(device_id, "video_oscillation")
+                try:
+                    loop = asyncio.get_running_loop()
+                except Exception:
+                    loop = asyncio.get_event_loop()
+                if hasattr(processor, "loop"):
+                    processor.loop = loop
+                if isinstance(config, dict) and config:
+                    processor_manager.configure_processor(device_id, "video_oscillation", config)
+                processor_manager.start_experiment(device_id, "video_oscillation")
+                await self.send_to_user(user_id, {"type": "experiment_started", "device_id": device_id, "experiment_type": "video_oscillation"})
+                logger.info(f"Started video_oscillation experiment for device {device_id}")
+                return
+            
+            processor_manager.start_experiment(device_id, experiment_type)
             if experiment_type in pendulum_types:
+                if not mqtt_service or not mqtt_service.connected:
+                    await self.send_to_user(user_id, {"type": "error", "message": "MQTT service not available"})
+                    return
                 start_cfg = {}
                 mc = config.get("max_count") if isinstance(config, dict) else None
                 if mc is None and isinstance(config, dict):
@@ -332,6 +382,9 @@ class ClientWebSocketManager:
                 logger.info(f"Publishing start command with pendulum config to device {device_id}: {start_cfg}")
                 mqtt_service.publish_start_command(device_id, start_cfg)
             else:
+                if not mqtt_service or not mqtt_service.connected:
+                    await self.send_to_user(user_id, {"type": "error", "message": "MQTT service not available"})
+                    return
                 cfg = dict(config or {})
                 dur = cfg.get("duration")
                 if dur is None:
@@ -361,37 +414,50 @@ class ClientWebSocketManager:
             await self.send_to_user(user_id, {"type": "error", "message": "Failed to start experiment"})
 
     async def _handle_simple_device_command(self, user_id: str, command: dict, success_event: str):
-        from services.mqtt_service import MQTTService
-        mqtt_service = MQTTService.get_instance()
         devices = await self.session_manager.get_user_devices(user_id)
         if not devices:
             await self.send_to_user(user_id, {"type": "error", "message": "No device allocated"})
             return
         device_id = devices[0]
-        
-        if not mqtt_service or not mqtt_service.connected:
-            await self.send_to_user(user_id, {"type": "error", "message": "MQTT service not available"})
-            return
-        
+
         try:
             command_type = command.get("type")
             logger.info(f"Received {command_type} command from user {user_id} for device {device_id}")
             
             if command_type == "pause_experiment":
-                logger.info(f"Publishing pause command to device {device_id}")
+                from services.mqtt_service import MQTTService
+                mqtt_service = MQTTService.get_instance()
+                if not mqtt_service or not mqtt_service.connected:
+                    await self.send_to_user(user_id, {"type": "error", "message": "MQTT service not available"})
+                    return
                 mqtt_service.publish_pause_command(device_id)
                 await self.send_to_user(user_id, {"type": success_event, "device_id": device_id})
                 logger.info(f"Pause command successfully sent to device {device_id}")
             elif command_type == "resume_experiment":
-                logger.info(f"Publishing resume command to device {device_id}")
+                from services.mqtt_service import MQTTService
+                mqtt_service = MQTTService.get_instance()
+                if not mqtt_service or not mqtt_service.connected:
+                    await self.send_to_user(user_id, {"type": "error", "message": "MQTT service not available"})
+                    return
                 mqtt_service.publish_resume_command(device_id)
                 await self.send_to_user(user_id, {"type": success_event, "device_id": device_id})
                 logger.info(f"Resume command successfully sent to device {device_id}")
             elif command_type == "stop_experiment":
-                logger.info(f"Publishing stop command to device {device_id}")
-                mqtt_service.publish_stop_command(device_id)
-                await self.send_to_user(user_id, {"type": success_event, "device_id": device_id})
-                logger.info(f"Stop command successfully sent to device {device_id}")
+                from processor.processor_manager import SensorProcessorManager
+                processor_manager = SensorProcessorManager.get_instance()
+                current_exp = processor_manager.get_device_experiment(device_id)
+                if current_exp == "video_oscillation":
+                    processor_manager.stop_experiment(device_id)
+                    await self.send_to_user(user_id, {"type": success_event, "device_id": device_id, "experiment_type": "video_oscillation"})
+                else:
+                    from services.mqtt_service import MQTTService
+                    mqtt_service = MQTTService.get_instance()
+                    if not mqtt_service or not mqtt_service.connected:
+                        await self.send_to_user(user_id, {"type": "error", "message": "MQTT service not available"})
+                        return
+                    mqtt_service.publish_stop_command(device_id)
+                    await self.send_to_user(user_id, {"type": success_event, "device_id": device_id})
+                logger.info(f"Stop command executed for device {device_id}")
             else:
                 logger.warning(f"Unknown command type received: {command_type}")
                 await self.send_to_user(user_id, {"type": "error", "message": f"Unknown command type: {command_type}"})
@@ -417,7 +483,9 @@ class ClientWebSocketManager:
             # If device_id is provided, verify it's allocated to the user or allocate it
             user_devices = await self.session_manager.get_user_devices(user_id)
             if device_id not in user_devices:
-                # Try to allocate the device to the user
+                # For video experiments allow dynamic registration of local pseudo-device
+                if experiment_type in {"video_oscillation", "ai_motion", "5.1"}:
+                    await self.session_manager.register_device(device_id)
                 success = await self.session_manager.allocate_device_to_user(device_id, user_id)
                 if not success:
                     await self.send_to_user(user_id, {"type": "error", "message": f"Device {device_id} is not available or already allocated to another user"})
@@ -426,15 +494,80 @@ class ClientWebSocketManager:
         # Normalize incoming config keys to backend expectations
         try:
             pendulum_types = {"pendulum_simple", "pendulum_compound", "oscillation"}
+            video_types = {"video_oscillation", "ai_motion", "5.1"}
             
-            # Heuristic detection if experiment_type is missing or default
-            # If config contains oscillation-specific keys, force oscillation mode
-            if not experiment_type or experiment_type not in pendulum_types:
-                if any(k in config for k in ["max_count", "maxCount", "pendulum_length_cm", "pendulumLengthCm", "pivot_to_com_distance_cm"]):
-                    logger.info("Detected oscillation config keys, forcing experiment_type to oscillation")
+            if not experiment_type or (experiment_type not in pendulum_types and experiment_type not in video_types):
+                if any(k in config for k in ["camera_id", "cameraIndex", "vertical_line_position", "detection_threshold", "lower_hsv", "upper_hsv"]):
+                    experiment_type = "video_oscillation"
+                elif any(k in config for k in ["max_count", "maxCount", "pendulum_length_cm", "pendulumLengthCm", "pivot_to_com_distance_cm"]):
                     experiment_type = "oscillation"
             
-            if experiment_type in pendulum_types:
+            if experiment_type in video_types:
+                device_config = {}
+                cam = config.get("camera_id")
+                if cam is None:
+                    cam = config.get("cameraIndex")
+                if cam is not None:
+                    try:
+                        device_config["camera_id"] = int(cam)
+                    except Exception:
+                        device_config["camera_id"] = cam
+                vl = config.get("vertical_line_position")
+                if vl is not None:
+                    try:
+                        device_config["vertical_line_position"] = float(vl)
+                    except Exception:
+                        device_config["vertical_line_position"] = vl
+                th = config.get("detection_threshold")
+                if th is not None:
+                    try:
+                        device_config["detection_threshold"] = float(th)
+                    except Exception:
+                        device_config["detection_threshold"] = th
+                pf = config.get("preview_fps")
+                if pf is not None:
+                    try:
+                        device_config["preview_fps"] = int(pf)
+                    except Exception:
+                        device_config["preview_fps"] = pf
+                lh = config.get("lower_hsv")
+                uh = config.get("upper_hsv")
+                if isinstance(lh, (list, tuple)) and isinstance(uh, (list, tuple)):
+                    device_config["lower_hsv"] = list(lh)
+                    device_config["upper_hsv"] = list(uh)
+                
+                # HSV Ranges (frontend sends these)
+                hr = config.get("h_range")
+                if hr is not None:
+                    device_config["h_range"] = hr
+                sr = config.get("s_range")
+                if sr is not None:
+                    device_config["s_range"] = sr
+                vr = config.get("v_range")
+                if vr is not None:
+                    device_config["v_range"] = vr
+                
+                # Other settings
+                ac = config.get("adaptive_color")
+                if ac is not None:
+                    device_config["adaptive_color"] = ac
+                rt = config.get("reset_tracking")
+                if rt is not None:
+                    device_config["reset_tracking"] = rt
+
+                mba = config.get("min_blob_area")
+                if mba is not None:
+                    try:
+                        device_config["min_blob_area"] = float(mba)
+                    except Exception:
+                        device_config["min_blob_area"] = mba
+                can = config.get("confidence_area_norm")
+                if can is not None:
+                    try:
+                        device_config["confidence_area_norm"] = float(can)
+                    except Exception:
+                        device_config["confidence_area_norm"] = can
+            elif experiment_type in pendulum_types:
                 # Special handling for oscillation experiments
                 # Don't use default freq/duration normalization
                 device_config = {}
@@ -579,16 +712,18 @@ class ClientWebSocketManager:
             logger.warning(f"Failed to configure backend processor during configure_experiment: {e}")
 
         try:
-            # Use MQTT for configuration (WebSocket removed)
-            mqtt_service = MQTTService.get_instance()
-            if not mqtt_service or not mqtt_service.connected:
-                await self.send_to_user(user_id, {"type": "error", "message": "MQTT service not available"})
-                return
-
-            logger.info(f"Publishing configuration via MQTT to device {device_id}: {device_config}")
-            mqtt_service.publish_config(device_id, device_config)
-            await self.send_to_user(user_id, {"type": "experiment_configured", "device_id": device_id, "config": config})
-            await self.send_to_user(user_id, {"type": "configuration_result", "success": True, "message": "Configuration applied", "device_id": device_id, "config": config})
+                if experiment_type in {"video_oscillation", "ai_motion", "5.1"}:
+                    await self.send_to_user(user_id, {"type": "experiment_configured", "device_id": device_id, "config": config, "experiment_type": "video_oscillation"})
+                    await self.send_to_user(user_id, {"type": "configuration_result", "success": True, "message": "Configuration applied", "device_id": device_id, "config": config})
+                else:
+                    mqtt_service = MQTTService.get_instance()
+                    if not mqtt_service or not mqtt_service.connected:
+                        await self.send_to_user(user_id, {"type": "error", "message": "MQTT service not available"})
+                        return
+                    logger.info(f"Publishing configuration via MQTT to device {device_id}: {device_config}")
+                    mqtt_service.publish_config(device_id, device_config)
+                    await self.send_to_user(user_id, {"type": "experiment_configured", "device_id": device_id, "config": config})
+                    await self.send_to_user(user_id, {"type": "configuration_result", "success": True, "message": "Configuration applied", "device_id": device_id, "config": config})
         except Exception as e:
             logger.error(f"Failed to configure experiment: {e}")
             await self.send_to_user(user_id, {"type": "error", "message": "Failed to configure experiment"})

@@ -238,4 +238,15 @@ export const fileAPI = {
   getFile: (fileId) => `${API_URL}/files/${fileId}`,
 };
 
+export const experimentsAPI = {
+  listFiles: async (params = {}) => {
+    const response = await api.get('/api/experiments/files', { params });
+    return response.data?.files || [];
+  },
+  downloadRunUrl: (runId) => `${API_URL}/api/experiments/download/${runId}`,
+  downloadRun: async (runId) => {
+    return api.get(`/api/experiments/download/${runId}`, { responseType: 'blob' });
+  },
+};
+
 export { API_URL, api };

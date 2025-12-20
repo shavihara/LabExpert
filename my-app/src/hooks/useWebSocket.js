@@ -613,6 +613,13 @@ export const useExperimentManager = (webSocketInstance, externalExperimentData =
         backendConfig.pivot_to_com_distance_cm = Number(config.pivot_to_com_distance_cm);
         backendConfig.pivotToComDistanceCm = Number(config.pivot_to_com_distance_cm);
       }
+      // AI Pendulum (Video Oscillation) Fields
+      if (config.h_range) backendConfig.h_range = config.h_range;
+      if (config.s_range) backendConfig.s_range = config.s_range;
+      if (config.v_range) backendConfig.v_range = config.v_range;
+      if (config.adaptive_color !== undefined) backendConfig.adaptive_color = config.adaptive_color;
+      if (config.reset_tracking !== undefined) backendConfig.reset_tracking = config.reset_tracking;
+      
       // Avoid sending frequency/duration/mode for OSI pendulum firmware
     } else {
       // Default distance/time-of-flight style configuration

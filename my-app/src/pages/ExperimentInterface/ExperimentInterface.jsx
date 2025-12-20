@@ -24,7 +24,14 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
   const [showConfigModal, setShowConfigModal] = useState(true);
-  const [selectedDevice, setSelectedDevice] = useState(null);
+  const [selectedDevice, setSelectedDevice] = useState(() => {
+    try {
+      const saved = localStorage.getItem('selectedDevice');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
   const [experimentConfig, setExperimentConfig] = useState(null);
   const [selectedSubExperiment, setSelectedSubExperiment] = useState(null);
   const [rawData, setRawData] = useState([]);
@@ -35,6 +42,14 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
   const [experimentType, setExperimentType] = useState(localStorage.getItem('experimentType') || 'displacement');
   const [tileState, setTileState] = useState({ status: 'Stopped', timeRemaining: 0, samples: 0, config });
   const [experimentResults, setExperimentResults] = useState([]);
+  const [previewFrame, setPreviewFrame] = useState(null);
+  const [aiError, setAiError] = useState(null);
+  const [streamUrl, setStreamUrl] = useState('');
+  
+  const configTimerRef = React.useRef(null);
+  const pendingConfigRef = React.useRef(null);
+  const lastConfigSentRef = React.useRef(0);
+  const CONFIG_THROTTLE_MS = 300;
   
   // Store integration
   const {
@@ -52,9 +67,63 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
   // WebSocket connection
   const userToken = localStorage.getItem('token');
   const sharedWebSocket = useWebSocket(userToken, true);
-  const { sendMessage, lastMessage, connectionStatus } = sharedWebSocket;
+  const { sendMessage, lastMessage, isConnected: wsIsConnected, addMessageHandler } = sharedWebSocket;
   const sharedDeviceManager = useDeviceManager(sharedWebSocket);
   const sharedExperimentManager = useExperimentManager(sharedWebSocket, experimentData, setExperimentData);
+
+  useEffect(() => {
+    if (wsIsConnected && selectedDevice?.id === 'local_camera') {
+      // Use port 5000 as per backend configuration (see api.js)
+      const url = `http://localhost:5000/video_feed?device_id=local_camera&t=${Date.now()}`;
+      console.log('Setting stream URL:', url);
+      setStreamUrl(url);
+    }
+  }, [wsIsConnected, selectedDevice?.id]);
+  
+  const queueAIConfigUpdate = useCallback((partial) => {
+    if (!wsIsConnected || selectedDevice?.id !== 'local_camera') return;
+    pendingConfigRef.current = { ...(pendingConfigRef.current || {}), ...partial };
+    if (!configTimerRef.current) {
+      const now = Date.now();
+      const delay = Math.max(0, CONFIG_THROTTLE_MS - (now - lastConfigSentRef.current));
+      configTimerRef.current = setTimeout(() => {
+        lastConfigSentRef.current = Date.now();
+        const merged = { ...config, ...(pendingConfigRef.current || {}) };
+        const aiCfg = {
+          ...merged,
+          experiment_type: 'video_oscillation',
+          camera_id: selectedDevice?.camera_id,
+          device_id: 'local_camera'
+        };
+        sendMessage({
+          action: 'configure_experiment',
+          device_id: 'local_camera',
+          config: aiCfg,
+          experiment_type: 'video_oscillation'
+        });
+        pendingConfigRef.current = null;
+        configTimerRef.current = null;
+      }, delay);
+    }
+  }, [wsIsConnected, selectedDevice, config, sendMessage]);
+  
+  const handleTrackerClick = useCallback((e) => {
+    const target = e.target;
+    const iw = target.naturalWidth || 640;
+    const ih = target.naturalHeight || 480;
+    const rect = target.getBoundingClientRect();
+    const rx = e.clientX - rect.left;
+    const ry = e.clientY - rect.top;
+    const x = Math.round((rx / rect.width) * iw);
+    const y = Math.round((ry / rect.height) * ih);
+    const w = 50;
+    const h = 50;
+    const x0 = Math.max(0, x - Math.floor(w / 2));
+    const y0 = Math.max(0, y - Math.floor(h / 2));
+    const bbox = [x0, y0, w, h];
+    setConfig(prev => ({ ...prev, tracking_mode: 'csrt', tracker_bbox: bbox }));
+    queueAIConfigUpdate({ tracking_mode: 'csrt', tracker_bbox: bbox });
+  }, [queueAIConfigUpdate, setConfig]);
   
   // Load experiment configuration (main + default sub-experiment)
   useEffect(() => {
@@ -90,6 +159,7 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
       console.error('Error details:', error.message);
       console.error('Stack trace:', error.stack);
       setLoadingError(error.message);
+      setShowConfigModal(true);
       
       // Use setTimeout to avoid toast functions triggering re-renders
       setTimeout(() => {
@@ -107,6 +177,44 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
     window.addEventListener('labex:tiles:update', handler);
     return () => window.removeEventListener('labex:tiles:update', handler);
   }, []);
+  
+  useEffect(() => {
+    const isAI = (experimentId == '5' || experimentId === 5) && (selectedSubExperiment?.id === '5.1');
+    const deviceId = selectedDevice?.camera_id || 0;
+    
+    if (isAI && wsIsConnected && !showConfigModal && selectedDevice?.id === 'local_camera') {
+        const aiCfg = {
+          ...config,
+          camera_id: deviceId,
+          experiment_type: 'video_oscillation',
+          preview_fps: 15,
+          device_id: 'local_camera'
+        };
+        sendMessage({
+          action: 'configure_experiment',
+          device_id: 'local_camera',
+          config: aiCfg,
+          experiment_type: 'video_oscillation'
+        });
+        
+        // Start the AI video processing
+        sendMessage({
+          action: 'start_experiment',
+          device_id: 'local_camera',
+          config: aiCfg,
+          experiment_type: 'video_oscillation'
+        });
+    }
+
+    return () => {
+        // Stop AI processing and release device when component unmounts
+        if (wsIsConnected && isAI) {
+            sendMessage({
+                action: 'release_device'
+            });
+        }
+    };
+}, [experimentId, selectedSubExperiment, selectedDevice, wsIsConnected, showConfigModal, sendMessage]); // Removed config from dependencies to prevent restart on slider change
 
   const formatTime = (seconds) => {
     const sec = Number(seconds);
@@ -118,21 +226,82 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
     return `${m}:${String(r).padStart(2, '0')}.${t}`;
   };
   
+  // Handle WebSocket messages for AI video processing
+  useEffect(() => {
+    const handleAIMessage = (data) => {
+      if (data.type === 'processed_data' && data.experiment_type === 'video_oscillation') {
+        // Update oscillation count from backend AI processing
+        if (data.data?.oscillation_count !== undefined) {
+          setTileState(prev => ({
+            ...prev,
+            count: data.data.oscillation_count,
+            runningTime: data.data.time_elapsed || 0
+          }));
+        }
+        if (data.data?.detection_confidence !== undefined) {
+          setTileState(prev => ({
+            ...prev,
+            detection_confidence: data.data.detection_confidence
+          }));
+        }
+        if (data.data?.center_x !== undefined || data.data?.center_y !== undefined) {
+          setTileState(prev => ({
+            ...prev,
+            center_x: data.data.center_x,
+            center_y: data.data.center_y
+          }));
+        }
+        
+        // Add to experiment data for graph
+        if (data.data) {
+          setExperimentData(prev => [...prev, data.data]);
+        }
+      }
+      
+      // Video preview handled via MJPEG stream now to reduce lag
+      /* 
+      if (data.type === 'video_preview' && data.experiment_type === 'video_oscillation') {
+        if (data.frame) {
+          setPreviewFrame(data.frame);
+          setAiError(null);
+        }
+      } 
+      */
+      
+      // Handle experiment status updates
+      if (data.type === 'experiment_started' && data.experiment_type === 'video_oscillation') {
+        setTileState(prev => ({ ...prev, status: 'Running' }));
+        setAiError(null);
+      }
+      
+      if (data.type === 'experiment_stopped' && data.experiment_type === 'video_oscillation') {
+        setTileState(prev => ({ ...prev, status: 'Stopped' }));
+      }
+
+      if (data.type === 'error' && data.experiment_type === 'video_oscillation') {
+        setAiError(data.message || data.payload?.message || 'AI video error');
+      }
+    };
+    
+    const unsubscribe = addMessageHandler(handleAIMessage);
+    return unsubscribe;
+  }, [addMessageHandler]);
+
   // Handle WebSocket connection status
   useEffect(() => {
-    setIsConnected(connectionStatus === 'connected');
-    if (connectionStatus === 'connected') {
+    setIsConnected(wsIsConnected);
+    if (wsIsConnected) {
       // Use setTimeout to avoid toast functions triggering re-renders
       setTimeout(() => {
         showSuccess('Connected to server');
       }, 100);
-    } else if (connectionStatus === 'disconnected') {
+    } else {
       // Use setTimeout to avoid toast functions triggering re-renders
       setTimeout(() => {
         showError('Disconnected from server');
       }, 100);
     }
-  }, [connectionStatus]); // Removed showSuccess and showError from dependencies
+  }, [wsIsConnected]); // Removed showSuccess and showError from dependencies
   
   // Handle incoming WebSocket messages
   useEffect(() => {
@@ -166,12 +335,14 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
           break;
           
         case 'device_disconnected':
-          setSelectedDevice(null);
-          setIsConnected(false);
-          // Use setTimeout to avoid toast functions triggering re-renders
-          setTimeout(() => {
-            showInfo('Device disconnected');
-          }, 100);
+          // Ignore disconnects for local_camera to keep AI preview running
+          if (selectedDevice?.id !== 'local_camera') {
+            setSelectedDevice(null);
+            setIsConnected(false);
+            setTimeout(() => {
+              showInfo('Device disconnected');
+            }, 100);
+          }
           break;
           
         case 'experiment_status':
@@ -181,7 +352,7 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
         case 'error':
           // Use setTimeout to avoid toast functions triggering re-renders
           setTimeout(() => {
-            showError(data.payload.message);
+            showError(data?.payload?.message || data?.message || 'Error');
           }, 100);
           break;
           
@@ -228,6 +399,13 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
   // Handle device disconnection
   const handleDisconnect = useCallback(() => {
     try {
+      if (selectedSubExperiment?.id === '5.1') {
+        sendMessage({
+          action: 'stop_experiment',
+          device_id: 'local_camera',
+          experiment_type: 'video_oscillation'
+        });
+      }
       sendMessage({ action: 'release_device' });
       setSelectedDevice(null);
       setIsConnected(false);
@@ -410,6 +588,259 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
             </div>
           </ResponsiveCard>
           
+          {/* AI Pendulum: Camera + Counter above Live Data Feed */}
+          {(experimentConfig?.id === '5' && selectedSubExperiment?.id === '5.1') && (
+            <div className="bg-gradient-to-br from-white to-purple-50 rounded-3xl p-4 sm:p-6 shadow-xl border-2 border-purple-200">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
+                <div className="rounded-xl overflow-hidden border-2 border-purple-200 bg-black">
+                  <div className="aspect-video relative flex items-center justify-center bg-black">
+                    {wsIsConnected && selectedDevice?.id === 'local_camera' ? (
+                      <div className="w-full h-full relative">
+                        <img
+                           src={streamUrl}
+                           className="w-full h-full object-contain"
+                           alt="AI Detection Preview"
+                           style={{ cursor: 'crosshair' }}
+                           onError={(e) => {
+                              console.error("Video stream error", e);
+                              if (wsIsConnected) setAiError('Video stream unavailable - Check backend');
+                           }}
+                           onClick={handleTrackerClick}
+                           onLoad={() => setAiError(null)}
+                         />
+                        {aiError && (
+                           <div className="absolute top-0 left-0 right-0 bg-red-500 bg-opacity-75 text-white p-2 text-center">
+                              {aiError}
+                           </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-white text-center p-4">
+                        {aiError ? (
+                          <>
+                            <div className="mb-2">AI Video Error</div>
+                            <div className="text-xs text-slate-300">{aiError}</div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="animate-pulse mb-2">Waiting for AI Video Feed...</div>
+                            <div className="text-xs text-slate-400">Ensure camera is connected and backend is running</div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="rounded-xl p-6 bg-white shadow-md border border-purple-200">
+                  <div className="text-center">
+                    <div className="text-xs sm:text-sm font-bold text-slate-500 mb-2">Oscillation Count</div>
+                    <div className="text-6xl sm:text-7xl font-extrabold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent mb-4">
+                      {Number(tileState?.count ?? 0)}
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 max-w-md mx-auto">
+                      <div className="bg-purple-50 rounded-xl p-4 border border-purple-200">
+                        <div className="text-xs font-bold text-purple-700">MAX COUNT</div>
+                        <div className="text-2xl sm:text-3xl font-bold text-purple-900">
+                          {config.max_count || 50}
+                        </div>
+                      </div>
+                      <div className="bg-indigo-50 rounded-xl p-4 border border-indigo-200">
+                        <div className="text-xs font-bold text-indigo-700">TIME</div>
+                        <div className="text-2xl sm:text-3xl font-bold text-indigo-900">
+                          {formatTime(tileState.runningTime || 0)}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-6 text-left max-w-lg mx-auto">
+                      <div className="grid grid-cols-1 gap-4">
+                        {/* Hue Range */}
+                        <div className="flex flex-col gap-1">
+                            <label className="text-xs text-slate-600 font-semibold">Hue (0-180)</label>
+                            <div className="flex flex-col gap-2">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-500 w-8">Min:</span>
+                                    <input 
+                                        type="range" min="0" max="180"
+                                        value={config.h_range?.[0] ?? 0}
+                                        onChange={(e) => {
+                                            const val = parseInt(e.target.value) || 0;
+                                            const newRange = [val, config.h_range?.[1] ?? 50];
+                                            setConfig(prev => ({ ...prev, h_range: newRange }));
+                                            queueAIConfigUpdate({ h_range: newRange });
+                                        }}
+                                        className="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                                    />
+                                    <span className="text-xs font-mono w-8 text-right">{config.h_range?.[0] ?? 0}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-500 w-8">Max:</span>
+                                    <input 
+                                        type="range" min="0" max="180"
+                                        value={config.h_range?.[1] ?? 50}
+                                        onChange={(e) => {
+                                            const val = parseInt(e.target.value) || 0;
+                                            const newRange = [config.h_range?.[0] ?? 0, val];
+                                            setConfig(prev => ({ ...prev, h_range: newRange }));
+                                            queueAIConfigUpdate({ h_range: newRange });
+                                        }}
+                                        className="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                                    />
+                                    <span className="text-xs font-mono w-8 text-right">{config.h_range?.[1] ?? 50}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Saturation Range */}
+                        <div className="flex flex-col gap-1">
+                            <label className="text-xs text-slate-600 font-semibold">Saturation (0-255)</label>
+                            <div className="flex flex-col gap-2">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-500 w-8">Min:</span>
+                                    <input 
+                                        type="range" min="0" max="255"
+                                        value={config.s_range?.[0] ?? 100}
+                                        onChange={(e) => {
+                                            const val = parseInt(e.target.value) || 0;
+                                            const newRange = [val, config.s_range?.[1] ?? 255];
+                                            setConfig(prev => ({ ...prev, s_range: newRange }));
+                                            queueAIConfigUpdate({ s_range: newRange });
+                                        }}
+                                        className="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                                    />
+                                    <span className="text-xs font-mono w-8 text-right">{config.s_range?.[0] ?? 100}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-500 w-8">Max:</span>
+                                    <input 
+                                        type="range" min="0" max="255"
+                                        value={config.s_range?.[1] ?? 255}
+                                        onChange={(e) => {
+                                            const val = parseInt(e.target.value) || 0;
+                                            const newRange = [config.s_range?.[0] ?? 100, val];
+                                            setConfig(prev => ({ ...prev, s_range: newRange }));
+                                            queueAIConfigUpdate({ s_range: newRange });
+                                        }}
+                                        className="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                                    />
+                                    <span className="text-xs font-mono w-8 text-right">{config.s_range?.[1] ?? 255}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Value Range */}
+                        <div className="flex flex-col gap-1">
+                            <label className="text-xs text-slate-600 font-semibold">Value (0-255)</label>
+                            <div className="flex flex-col gap-2">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-500 w-8">Min:</span>
+                                    <input 
+                                        type="range" min="0" max="255"
+                                        value={config.v_range?.[0] ?? 50}
+                                        onChange={(e) => {
+                                            const val = parseInt(e.target.value) || 0;
+                                            const newRange = [val, config.v_range?.[1] ?? 255];
+                                            setConfig(prev => ({ ...prev, v_range: newRange }));
+                                            queueAIConfigUpdate({ v_range: newRange });
+                                        }}
+                                        className="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                                    />
+                                    <span className="text-xs font-mono w-8 text-right">{config.v_range?.[0] ?? 50}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-500 w-8">Max:</span>
+                                    <input 
+                                        type="range" min="0" max="255"
+                                        value={config.v_range?.[1] ?? 255}
+                                        onChange={(e) => {
+                                            const val = parseInt(e.target.value) || 0;
+                                            const newRange = [config.v_range?.[0] ?? 50, val];
+                                            setConfig(prev => ({ ...prev, v_range: newRange }));
+                                            queueAIConfigUpdate({ v_range: newRange });
+                                        }}
+                                        className="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                                    />
+                                    <span className="text-xs font-mono w-8 text-right">{config.v_range?.[1] ?? 255}</span>
+                                </div>
+                            </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex items-center justify-between gap-4">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={config.adaptive_color ?? false}
+                                onChange={(e) => {
+                                    const val = e.target.checked;
+                                    setConfig(prev => ({ ...prev, adaptive_color: val }));
+                                    queueAIConfigUpdate({ adaptive_color: val });
+                                }}
+                                className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500"
+                            />
+                            <span className="text-xs sm:text-sm text-slate-700 font-medium">Adaptive Color</span>
+                        </label>
+                        
+                        <button
+                            onClick={() => {
+                                queueAIConfigUpdate({ reset_tracking: true });
+                                // Also trigger explicit reset action if needed
+                                sendMessage({
+                                    action: 'reset_tracking',
+                                    device_id: 'local_camera',
+                                    experiment_type: 'video_oscillation'
+                                });
+                            }}
+                            className="px-3 py-1.5 rounded-md bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs sm:text-sm font-medium transition-colors"
+                        >
+                            Reset Tracking
+                        </button>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
+                        <button
+                          onClick={() => {
+                            setConfig(prev => ({ ...prev, tracking_mode: 'color' }));
+                            queueAIConfigUpdate({ tracking_mode: 'color' });
+                          }}
+                          className="px-3 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs sm:text-sm font-medium transition-colors"
+                        >
+                          Color
+                        </button>
+                        <button
+                          onClick={() => {
+                            setConfig(prev => ({ ...prev, tracking_mode: 'auto' }));
+                            queueAIConfigUpdate({ tracking_mode: 'auto' });
+                          }}
+                          className="px-3 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs sm:text-sm font-medium transition-colors"
+                        >
+                          Auto
+                        </button>
+                        <button
+                          onClick={() => {
+                            setConfig(prev => ({ ...prev, tracking_mode: 'aruco' }));
+                            queueAIConfigUpdate({ tracking_mode: 'aruco' });
+                          }}
+                          className="px-3 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs sm:text-sm font-medium transition-colors"
+                        >
+                          ArUco
+                        </button>
+                        <button
+                          onClick={() => {
+                            setConfig(prev => ({ ...prev, tracking_mode: 'csrt' }));
+                            queueAIConfigUpdate({ tracking_mode: 'csrt' });
+                          }}
+                          className="px-3 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs sm:text-sm font-medium transition-colors"
+                        >
+                          CSRT
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          
           {/* Oscillation Counter Display for Experiment 2 */}
           {experimentConfig?.id === '2' && (
             <div className="bg-gradient-to-br from-white to-blue-50 rounded-3xl p-6 sm:p-10 shadow-xl border-2 border-blue-200">
@@ -452,7 +883,7 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
                       <div className={`text-lg font-bold ${isDark ? 'text-slate-100' : ''}`}>{tileState.status || 'Stopped'}</div>
                     </div>
                     
-                    {experimentConfig?.id === '2' ? (
+                    {(experimentConfig?.id === '2' || experimentConfig?.id === '5') ? (
                       <div className={`rounded-xl border-2 p-3 ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-300 bg-blue-50'}`}>
                         <div className={`text-xs font-semibold mb-1 ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Running Time</div>
                         <div className={`text-2xl font-bold font-mono ${isDark ? 'text-blue-200' : 'text-blue-900'} flex items-center gap-2`}>
@@ -492,9 +923,9 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
                     <div className={`rounded-xl border-2 p-3 ${isDark ? 'border-purple-700 bg-purple-900/20' : 'border-purple-300 bg-purple-50'}`}>
                       <div className={`text-xs font-semibold mb-1 ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>Configuration</div>
                       <div className={`text-sm ${isDark ? 'text-purple-200' : 'text-purple-900'}`}>
-                        {experimentConfig?.id === '2' ? (
+                        {(experimentConfig?.id === '2' || experimentConfig?.id === '5') ? (
                           <div className="flex flex-col gap-1">
-                            {selectedSubExperiment?.id === '2.1' && (
+                            {(selectedSubExperiment?.id === '2.1' || selectedSubExperiment?.id === '5.1') && (
                                 <>
                                   <div>Max Count: {config?.max_count || 50}</div>
                                   <div>Length: {config?.pendulum_length_cm || 100} cm</div>
@@ -506,7 +937,7 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
                                   <div>Dist: {config?.pivot_to_com_distance_cm || 50} cm</div>
                                 </>
                             )}
-                            {!['2.1', '2.2'].includes(selectedSubExperiment?.id) && (
+                            {!['2.1', '2.2', '5.1'].includes(selectedSubExperiment?.id) && (
                                 <div>Freq: {config?.frequency_hz || 10} Hz</div>
                             )}
                           </div>

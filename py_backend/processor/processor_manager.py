@@ -9,6 +9,7 @@ from .sensor_oscillation import OscillationProcessor
 #from .sensor_angle import AngleProcessor
 from .sensor_disp_angle import DispAngleProcessor
 from .sensor_temperature import TemperatureProcessor
+from .sensor_video_oscillation import VideoOscillationProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,9 @@ class SensorProcessorManager:
             mapped_experiment_type = "oscillation"
         elif experiment_type == "temperature_live":
             mapped_experiment_type = "temperature"
+        elif experiment_type == "video_oscillation" or experiment_type == "ai_motion" or experiment_type == "5.1":
+            mapped_experiment_type = "video_oscillation"
+
         
         if mapped_experiment_type not in self.processors[device_id]:
             # Create appropriate processor based on experiment type
@@ -58,6 +62,9 @@ class SensorProcessorManager:
                 self.processors[device_id][mapped_experiment_type] = DispAngleProcessor(device_id)
             elif mapped_experiment_type == "temperature":
                 self.processors[device_id][mapped_experiment_type] = TemperatureProcessor(device_id)
+            elif mapped_experiment_type == "video_oscillation":
+                self.processors[device_id][mapped_experiment_type] = VideoOscillationProcessor(device_id)
+
             else:
                 logger.warning(f"Unknown experiment type: {experiment_type} (mapped to: {mapped_experiment_type})")
                 return None
@@ -128,7 +135,26 @@ class SensorProcessorManager:
             if processor:
                 processor.stop_experiment()
                 logger.info(f"Stopped {experiment_type} experiment for device {device_id}")
-    
+
+    def stop_processor(self, device_id: str, experiment_type: str):
+        """Fully stop and cleanup a processor"""
+        if device_id in self.processors and experiment_type in self.processors[device_id]:
+            processor = self.processors[device_id][experiment_type]
+            if hasattr(processor, 'cleanup'):
+                processor.cleanup()
+            elif hasattr(processor, 'stop_experiment'):
+                processor.stop_experiment()
+            
+            del self.processors[device_id][experiment_type]
+            logger.info(f"Cleaned up {experiment_type} processor for device {device_id}")
+        # Clear current experiment mapping if it matches
+        current = self.device_experiments.get(device_id)
+        if current == experiment_type:
+            try:
+                del self.device_experiments[device_id]
+            except Exception:
+                self.device_experiments.pop(device_id, None)
+
     def reset_device(self, device_id: str):
         """Reset all processors for a device"""
         if device_id in self.processors:

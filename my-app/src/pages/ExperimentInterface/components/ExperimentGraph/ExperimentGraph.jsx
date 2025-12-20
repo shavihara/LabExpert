@@ -51,6 +51,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   const [notif, setNotif] = useState(null);
   const [bestFitData, setBestFitData] = useState(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const lastCountRef = useRef(0);
   
   const chartDataRef = useRef([]);
   const timerRef = useRef(null);
@@ -163,13 +164,14 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         runningTime,
         config,
         samples: chartDataRef.current.length,
-        isCountdownMode
+        isCountdownMode,
+        count: lastCountRef.current
       };
       window.dispatchEvent(new CustomEvent('labex:tiles:update', { detail }));
     } catch {}
   }, [isRunning, isPaused, timeRemaining, runningTime, config, isCountdownMode]);
 
-  const isCountUpMode = (subExperiment?.id === '2.1' || subExperiment?.id === '2.2' || ['pendulum_simple','pendulum_compound'].includes(experimentType));
+  const isCountUpMode = (subExperiment?.id === '2.1' || subExperiment?.id === '2.2' || subExperiment?.id === '5.1' || ['pendulum_simple','pendulum_compound'].includes(experimentType));
 
   // ===== DIRECT DATA STREAMING HANDLER =====
   const handleDataMessage = useCallback((message) => {
@@ -245,7 +247,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         const currentConfig = configRef.current || {};
         const maxCountCfg = Number(currentConfig?.max_count ?? 0);
         const pendId = subExperimentRef.current?.id;
-        const isPendulum = (pendId === '2.1' || pendId === '2.2');
+        const isPendulum = (pendId === '2.1' || pendId === '2.2' || pendId === '5.1');
         if (isPendulum && Number.isFinite(maxCountCfg) && maxCountCfg > 0 && countVal >= maxCountCfg && !completionTriggeredRef.current) {
           completionTriggeredRef.current = true;
           setIsRunning(false);
@@ -312,10 +314,13 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
       scheduleChartFlush();
 
       const countVal2 = Number(d.oscillation_count ?? d.count ?? 0);
+      if (Number.isFinite(countVal2)) {
+        lastCountRef.current = countVal2;
+      }
       const currentConfig2 = configRef.current || {};
       const maxCountCfg2 = Number(currentConfig2?.max_count ?? 0);
       const pendId2 = subExperimentRef.current?.id;
-      const isPendulum2 = (pendId2 === '2.1' || pendId2 === '2.2');
+      const isPendulum2 = (pendId2 === '2.1' || pendId2 === '2.2' || pendId2 === '5.1');
       if (isPendulum2 && Number.isFinite(maxCountCfg2) && maxCountCfg2 > 0 && countVal2 >= maxCountCfg2 && !completionTriggeredRef.current) {
         completionTriggeredRef.current = true;
         setIsRunning(false);
@@ -511,7 +516,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
 
     // Build config for start based on sub-experiment
     let startCfg = {};
-    if (subExperiment?.id === '2.1' || subExperiment?.id === '2.2') {
+    if (subExperiment?.id === '2.1' || subExperiment?.id === '2.2' || subExperiment?.id === '5.1') {
       if (config?.max_count != null) {
         startCfg.max_count = parseInt(config.max_count);
         startCfg.maxCount = parseInt(config.max_count);
@@ -911,7 +916,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
 
       {!externalControls && !isAnalysisMode && (
         <div className="bg-white rounded-xl shadow-md border border-slate-200 p-3">
-          {(subExperiment?.id?.startsWith('2') || ['pendulum_simple', 'pendulum_compound'].includes(experimentType)) ? (
+          {(subExperiment?.id?.startsWith('2') || subExperiment?.id === '5.1' || ['pendulum_simple', 'pendulum_compound'].includes(experimentType)) ? (
             <div className="flex flex-wrap gap-2">
               <button
                 onClick={handleStart}
@@ -955,7 +960,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
                 disabled={isRunning || !experimentResults || experimentResults.length < 2}
                 className="flex-1 min-w-[90px] flex items-center justify-center gap-1.5 px-3 py-2.5 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md text-sm"
               >
-                <FiTarget size={16} /> Find G
+                <FiTarget size={16} /> Process
               </button>
             </div>
           ) : (

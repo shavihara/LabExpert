@@ -3,7 +3,40 @@ import re
 import uuid
 import logging
 import ipaddress
+import subprocess
+import platform
+
 logger = logging.getLogger(__name__)
+
+def get_wifi_ssid() -> str:
+    """
+    Get the SSID of the connected WiFi network on Windows.
+    Returns None if not connected or not found.
+    """
+    ssid = None
+    if platform.system() == "Windows":
+        try:
+            # Execute the netsh command to get WLAN interface details
+            result = subprocess.run(
+                ["netsh", "wlan", "show", "interfaces"], 
+                capture_output=True, 
+                text=True, 
+                encoding='utf-8',  # Handle potential encoding issues
+                errors='ignore'
+            )
+            
+            if result.returncode == 0:
+                output = result.stdout
+                # Look for the "SSID" line (e.g., "    SSID                   : MyNetwork")
+                # The regex looks for "SSID" followed by any characters until ":" and then captures the value
+                match = re.search(r"^\s*SSID\s*:\s*(.+)$", output, re.MULTILINE)
+                if match:
+                    ssid = match.group(1).strip()
+                    logger.info(f"Detected WiFi SSID: {ssid}")
+        except Exception as e:
+            logger.error(f"Error getting WiFi SSID: {e}")
+            
+    return ssid
 
 def get_host_mac() -> str:
     """

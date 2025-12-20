@@ -44,7 +44,7 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
     }
   }, [configStatus, isSubmitting, onClose]);
 
-  const isPendulumExperiment = selectedSubExperiment?.id === '2.1' || selectedSubExperiment?.id === '2.2';
+  const isPendulumExperiment = selectedSubExperiment?.id === '2.1' || selectedSubExperiment?.id === '2.2' || selectedSubExperiment?.id === '5.1';
   const isTemperatureExperiment = selectedSubExperiment?.id === 'temperature_live';
   const isInclinedPlane = selectedSubExperiment?.id === 'inclined_plane' || selectedSubExperiment?.firmwareType === 'inclined_plane';
 
@@ -68,7 +68,7 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
         <div className="p-6 space-y-6">
           
           {/* Sub-experiment 2.1 Specific Configs */}
-          {selectedSubExperiment?.id === '2.1' && (
+          {selectedSubExperiment?.id === '2.1' ? (
             <>
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-2">
@@ -97,7 +97,39 @@ const ConfigPanel = ({ config, onChange, onClose, selectedDevice, userToken, sha
                 <p className="text-xs text-slate-500 mt-1">Length of the pendulum string</p>
               </div>
             </>
-          )}
+          ) : null}
+
+              {/* Sub-experiment 5.1 (AI Pendulum) Specific Configs */}
+              {selectedSubExperiment?.id === '5.1' ? (
+                <>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">
+                      Max Count
+                    </label>
+                    <input
+                      type="number"
+                      value={config.max_count || 50}
+                      onChange={(e) => onChange({ ...config, max_count: parseInt(e.target.value) })}
+                      className="w-full px-4 py-2 border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none transition-all"
+                      min="1"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">Number of oscillations to count</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">
+                      Length of String (cm)
+                    </label>
+                    <input
+                      type="number"
+                      value={config.pendulum_length_cm || 100}
+                      onChange={(e) => onChange({ ...config, pendulum_length_cm: parseFloat(e.target.value) })}
+                      className="w-full px-4 py-2 border-2 border-slate-200 rounded-lg focus:border-blue-500 focus:outline-none transition-all"
+                      min="1"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">Length of the pendulum string</p>
+                  </div>
+                </>
+              ) : null}
 
           {/* Sub-experiment 2.2 Specific Configs */}
           {selectedSubExperiment?.id === '2.2' && (

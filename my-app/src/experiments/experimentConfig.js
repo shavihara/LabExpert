@@ -349,33 +349,67 @@ export const experimentRegistry = {
 
   '5': {
     id: '5',
-    name: 'Motion Detection',
+    name: 'Motion Analysis (AI)',
     category: 'sensors',
     icon: '🏃',
-    description: 'Detect and track motion patterns using advanced sensors',
+    description: 'AI-powered motion tracking and analysis',
     color: '#8B5CF6', // Purple theme
 
     subExperiments: {
       '5.1': {
         id: '5.1',
-        name: 'Motion Tracker',
-        icon: '📡',
-        description: 'Real-time motion tracking and pattern recognition',
-        firmware: 'TOF.bin',
-        firmwareType: 'displacement',
+        name: 'Simple Pendulum',
+        icon: '🔄',
+        description: 'Analyze pendulum motion using AI vision',
+        firmware: 'AI_VISION.bin', // Placeholder
+        firmwareType: 'ai_motion',
 
-        dataFields: ['time', 'distance', 'velocity', 'motion_detected'],
+        dataFields: ['time', 'angle', 'period'],
+        units: {
+          time: 's',
+          angle: '°',
+          period: 's'
+        },
+
+        graphConfig: {
+          xAxis: 'time',
+          yAxes: ['angle'],
+          colors: ['#8B5CF6'],
+          yAxisLabels: ['Angle (°)']
+        },
+
+        tableConfig: {
+          columns: [
+            { key: 'time', label: 'Time (s)', format: 'float', precision: 2 },
+            { key: 'angle', label: 'Angle (°)', format: 'float', precision: 1 }
+          ]
+        },
+
+        requiredSensors: ['camera'],
+
+        defaultConfig: {
+          camera_id: 'default'
+        }
+      },
+      '5.2': {
+        id: '5.2',
+        name: 'Modern Galileo Experiment',
+        icon: '📐',
+        description: 'Track inclined plane motion using AI vision',
+        firmware: 'AI_VISION.bin', // Placeholder
+        firmwareType: 'ai_motion',
+
+        dataFields: ['time', 'distance', 'velocity'],
         units: {
           time: 's',
           distance: 'cm',
-          velocity: 'cm/s',
-          motion_detected: 'bool'
+          velocity: 'cm/s'
         },
 
         graphConfig: {
           xAxis: 'time',
           yAxes: ['distance', 'velocity'],
-          colors: ['#8B5CF6', '#EC4899'],
+          colors: ['#3B82F6', '#10B981'],
           yAxisLabels: ['Distance (cm)', 'Velocity (cm/s)']
         },
 
@@ -383,18 +417,14 @@ export const experimentRegistry = {
           columns: [
             { key: 'time', label: 'Time (s)', format: 'float', precision: 2 },
             { key: 'distance', label: 'Distance (cm)', format: 'float', precision: 2 },
-            { key: 'velocity', label: 'Velocity (cm/s)', format: 'float', precision: 2 },
-            { key: 'motion_detected', label: 'Motion', format: 'bool' }
+            { key: 'velocity', label: 'Velocity (cm/s)', format: 'float', precision: 2 }
           ]
         },
 
-        requiredSensors: ['tof'],
+        requiredSensors: ['camera'],
 
         defaultConfig: {
-          frequency_hz: 20,
-          max_distance_cm: 200,
-          duration_s: 60,
-          sensitivity: 0.5
+          camera_id: 'default'
         }
       }
     }
