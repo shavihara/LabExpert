@@ -2,6 +2,7 @@ import asyncio
 import base64
 import threading
 import time
+from datetime import datetime
 from typing import Optional, Tuple, List, Dict
 import cv2
 import numpy as np
@@ -23,6 +24,10 @@ class VideoOscillationProcessor(SensorProcessor):
         self.data_fps = 15
         self._last_data_ts = 0.0
         
+        # Reset request flag for thread safety
+        self.reset_requested = False
+        self.final_elapsed_time = None # Store final time when stopped
+
         # Tracking State (Ported from PendulumTracker)
         self.lower_color = np.array([0, 100, 50])
         self.upper_color = np.array([50, 255, 255])
@@ -201,6 +206,7 @@ class VideoOscillationProcessor(SensorProcessor):
         self.kalman_initialized = False
         self.color_history.clear()
         self.start_time = None
+        self.final_elapsed_time = None
         self._start_monotonic = None
         self.last_sign = None
         self.counting_started = False
@@ -291,16 +297,37 @@ class VideoOscillationProcessor(SensorProcessor):
         self.worker.start()
 
     def start_experiment(self):
-        super().start_experiment()
-        self._ensure_camera_running()
+        # Set recording flag to True to enable data processing
         self.recording = True
-        self._reset_tracking_state()
+        super().start_experiment()
+        # Reset start_time to None so it stays 0 until first crossing
+        self.start_time = None
+        self.final_elapsed_time = None
+        
+        self._ensure_camera_running()
+        # Request reset in the worker thread to avoid race conditions
+        self.reset_requested = True
         self._send_event("experiment_started")
 
     def stop_experiment(self):
+        if self.recording:
+            # Only set if not already set (e.g. by max count logic)
+            if self.final_elapsed_time is None:
+                self.final_elapsed_time = self.get_elapsed_time()
+            
         self.recording = False
         self._send_event("experiment_stopped")
-        # Do NOT close camera here to allow preview to continue
+        
+        # Reset counters and state to return to "Testing Mode" (Idle)
+        # This ensures the video overlay resets to 0 and is ready for new test swings
+        self.reset_requested = True
+        self.start_time = None
+        self.final_elapsed_time = None
+        self.counting_started = False
+        self.crossing_count = 0
+        self.oscillation_count_event = 0
+        
+        # Do NOT close camera here - we want to keep preview running
 
     def cleanup(self):
         """Fully stop the processor and release resources"""
@@ -616,6 +643,11 @@ class VideoOscillationProcessor(SensorProcessor):
                 time.sleep(0.02)
                 continue
             
+            # Handle reset request at the start of the loop
+            if self.reset_requested:
+                self._reset_tracking_state()
+                self.reset_requested = False
+
             # Reduce processing load by resizing if needed (optional, keeping original size for now)
             # frame = cv2.resize(frame, (640, 480)) 
 
@@ -711,40 +743,84 @@ class VideoOscillationProcessor(SensorProcessor):
                     self._detect_extreme_points(filtered_center[1], relative_time)
                     self._draw_motion_trail(output_frame)
                     
+                    # Always run counting logic if tracking, but separate 'preview' vs 'recording' is implicit
+                    # because start_experiment resets the counters.
+                    mid_x = int(frame.shape[1] // 2)
+                    prev_x = self.last_x
+                    curr_x = filtered_center[0]
+                    self.last_x = curr_x
+                    crossed = False
+                    if prev_x is not None:
+                        prev_side = prev_x - mid_x
+                        curr_side = curr_x - mid_x
+                        if (prev_side * curr_side) < 0:
+                            if (current_time - self.last_cross_ts) >= self.min_cross_interval:
+                                crossed = True
+                                self.last_cross_ts = current_time
+                    sign = -1 if (curr_x - mid_x) < 0 else (1 if (curr_x - mid_x) > 0 else 0)
+                    self.last_sign = sign if sign != 0 else self.last_sign
+                    if crossed:
+                        if not self.counting_started:
+                            self.counting_started = True
+                            self.crossing_count = 0
+                            self.oscillation_count_event = 0
+                            if self.recording:
+                                self.start_time = datetime.now()
+                        else:
+                            self.crossing_count += 1
+                            if (self.crossing_count % 2) == 0:
+                                self.oscillation_count_event += 1
+                    
+                    # Check for max oscillations if recording
                     if self.recording:
-                        mid_x = int(frame.shape[1] // 2)
-                        prev_x = self.last_x
-                        curr_x = filtered_center[0]
-                        self.last_x = curr_x
-                        crossed = False
-                        if prev_x is not None:
-                            prev_side = prev_x - mid_x
-                            curr_side = curr_x - mid_x
-                            if (prev_side * curr_side) < 0:
-                                if (current_time - self.last_cross_ts) >= self.min_cross_interval:
-                                    crossed = True
-                                    self.last_cross_ts = current_time
-                        sign = -1 if (curr_x - mid_x) < 0 else (1 if (curr_x - mid_x) > 0 else 0)
-                        self.last_sign = sign if sign != 0 else self.last_sign
-                        if crossed:
-                            if not self.counting_started:
-                                self.counting_started = True
-                                self.crossing_count = 0
-                            else:
-                                self.crossing_count += 1
-                                if (self.crossing_count % 2) == 0:
-                                    self.oscillation_count_event += 1
+                        try:
+                            max_osc = int(self.config.get("max_oscillations") or self.config.get("max_count") or 0)
+                            if max_osc > 0 and self.oscillation_count_event >= max_osc:
+                                # Capture exact time immediately
+                                final_time = self.get_elapsed_time()
+                                self.final_elapsed_time = final_time
+                                
+                                # Send final result before stopping
+                                length_cm = float(self.config.get("pendulum_length_cm") or self.config.get("length_string") or 0)
+                                period = float(self.current_period) if self.current_period else 0.0
+                                period_sq = period ** 2
+                                
+                                result_data = {
+                                    "type": "experiment_result",
+                                    "status": "experiment_completed",
+                                    "total_time": final_time,
+                                    "count": int(self.oscillation_count_event),
+                                    "length_cm": length_cm,
+                                    "period": period,
+                                    "period_squared": period_sq,
+                                    "g_calculated": (4 * (np.pi**2) * (length_cm/100)) / period_sq if period_sq > 0 else 0
+                                }
+                                self._send_processed(result_data)
+                                
+                                # Stop recording immediately to prevent over-counting
+                                self.recording = False
+                                self.loop.call_soon_threadsafe(self.stop_experiment)
+                        except Exception:
+                            pass
                     
                     cv2.putText(output_frame, f"Cross:{int(self.crossing_count)} Osc:{int(self.oscillation_count_event)}",
                                 (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (60, 200, 255), 2)
 
             now = time.time()
-            if self.data_fps > 0 and self.recording:
+            # Send data even if not recording (for preview), but set elapsed time to 0 if not recording
+            if self.data_fps > 0:
                 data_interval = 1.0 / float(self.data_fps)
                 if now - self._last_data_ts >= data_interval:
                     self._last_data_ts = now
+                    
+                    elapsed = 0.0
+                    if self.recording:
+                        elapsed = self.get_elapsed_time()
+                    elif self.final_elapsed_time is not None:
+                        elapsed = self.final_elapsed_time
+                        
                     data = {
-                        "time_elapsed": self.get_elapsed_time(),
+                        "time_elapsed": elapsed,
                         "oscillation_count": int(self.oscillation_count_event),
                         "midline_crossings": int(self.crossing_count),
                         "counting_started": bool(self.counting_started),
@@ -753,7 +829,8 @@ class VideoOscillationProcessor(SensorProcessor):
                         "center_x": int(center[0]) if center else None,
                         "center_y": int(center[1]) if center else None,
                         "frame_width": frame.shape[1],
-                        "frame_height": frame.shape[0]
+                        "frame_height": frame.shape[0],
+                        "length_string": self.config.get("length_string") or self.config.get("pendulum_length_cm", 0)
                     }
                     self._send_processed(data)
             

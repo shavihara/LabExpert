@@ -235,7 +235,8 @@ const PlotlyGraph = ({
   // Prepare data for Plotly
   const preparePlotData = useCallback(() => {
     // Special Handling for Pendulum Analysis
-    if (analysisResults && analysisResults.length > 0) {
+    // Only show analysis if NOT running, to allow live monitoring during runs
+    if (!isRunning && analysisResults && analysisResults.length > 0) {
       const sourceData = (bestFitData && bestFitData.dataWithErrors) ? bestFitData.dataWithErrors : analysisResults;
       
       const traces = [
@@ -456,7 +457,7 @@ const PlotlyGraph = ({
   }, [visibleTraces, availableTraces, mapKey]);
 
   const layout = useMemo(() => {
-    if (analysisResults && analysisResults.length > 0) {
+    if (!isRunning && analysisResults && analysisResults.length > 0) {
       return {
         autosize: true,
         margin: { l: 50, r: 20, t: 30, b: 40 },

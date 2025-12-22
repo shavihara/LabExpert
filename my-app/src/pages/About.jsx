@@ -28,7 +28,7 @@ const About = () => {
       id: 1,
       name: 'T.H.N.S.Shavihara',
       role: 'Backend & Data Processing Lead',
-      description: 'Architected the full-stack platform, integrating a FastAPI backend with a React/Plotly.js frontend for multi-user experimentation. Implemented advanced signal processing algorithms, MQTT sensor data transmission, and 3D sensor module designs.',
+      description: 'Architected the full-stack platform, integrating a FastAPI backend with a React/Plotly.js frontend for multi-user experimentation. Implemented advanced signal processing algorithms, MQTT sensor data transmission, and 3D sensor module design for "Plug and Play" sensor structure.',
       image: dev1Image,
       borderColor: '#8b5cf6' // Violet-500
     },
@@ -52,7 +52,7 @@ const About = () => {
       id: 4,
       name: 'Sudesh Bandara',
       role: 'Mechanical Design Engineer',
-      description: 'Designed the precision mechanical infrastructure, including the motorized inclined plane with low-friction aluminum tracks. Developed the "Plug and Play" sensor module structure and stable base construction for reliable physical experimentation.',
+      description: 'Designed the precision mechanical infrastructure, including the motorized inclined plane with low-friction aluminum tracks and stable base construction for reliable physical experimentation.',
       image: dev4Image,
       borderColor: '#f59e0b' // Amber-500
     }

@@ -364,11 +364,12 @@ export const experimentRegistry = {
         firmware: 'AI_VISION.bin', // Placeholder
         firmwareType: 'ai_motion',
 
-        dataFields: ['time', 'angle', 'period'],
+        dataFields: ['time', 'angle', 'period', 'oscillation_count'],
         units: {
           time: 's',
           angle: '°',
-          period: 's'
+          period: 's',
+          oscillation_count: ''
         },
 
         graphConfig: {
@@ -381,7 +382,8 @@ export const experimentRegistry = {
         tableConfig: {
           columns: [
             { key: 'time', label: 'Time (s)', format: 'float', precision: 2 },
-            { key: 'angle', label: 'Angle (°)', format: 'float', precision: 1 }
+            { key: 'angle', label: 'Angle (°)', format: 'float', precision: 1 },
+            { key: 'oscillation_count', label: 'Count', format: 'int' }
           ]
         },
 

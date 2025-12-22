@@ -70,6 +70,7 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
   const { sendMessage, lastMessage, isConnected: wsIsConnected, addMessageHandler } = sharedWebSocket;
   const sharedDeviceManager = useDeviceManager(sharedWebSocket);
   const sharedExperimentManager = useExperimentManager(sharedWebSocket, experimentData, setExperimentData);
+  const aiCompletedRef = React.useRef(false);
 
   useEffect(() => {
     if (wsIsConnected && selectedDevice?.id === 'local_camera') {
@@ -231,12 +232,14 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
     const handleAIMessage = (data) => {
       if (data.type === 'processed_data' && data.experiment_type === 'video_oscillation') {
         // Update oscillation count from backend AI processing
-        if (data.data?.oscillation_count !== undefined) {
-          setTileState(prev => ({
-            ...prev,
-            count: data.data.oscillation_count,
-            runningTime: data.data.time_elapsed || 0
-          }));
+        if (!aiCompletedRef.current) {
+          if (data.data?.oscillation_count !== undefined) {
+            setTileState(prev => ({
+              ...prev,
+              count: data.data.oscillation_count,
+              runningTime: data.data.time_elapsed || 0
+            }));
+          }
         }
         if (data.data?.detection_confidence !== undefined) {
           setTileState(prev => ({
@@ -256,6 +259,26 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
         if (data.data) {
           setExperimentData(prev => [...prev, data.data]);
         }
+
+        // Auto-stop when reaching configured max count and append result row
+        const maxCount = Number(config?.max_count ?? 0);
+        const currentCount = Number(data?.data?.oscillation_count ?? data?.data?.count ?? 0);
+        const isValidMax = Number.isFinite(maxCount) && maxCount > 0;
+        if (!aiCompletedRef.current && isValidMax && currentCount >= maxCount) {
+          aiCompletedRef.current = true;
+          const total_time = Number(data?.data?.total_time ?? data?.data?.time_elapsed ?? 0);
+          const length_cm = Number(config?.pendulum_length_cm ?? 0);
+          const period = (Number.isFinite(total_time) && total_time > 0 && currentCount > 0) ? (total_time / currentCount) : Number(data?.data?.period ?? 0);
+          const period_squared = Number.isFinite(period) ? period * period : 0;
+          const result = { type: 'experiment_result', length_cm, total_time, count: currentCount, period, period_squared };
+          setExperimentResults(prev => [...prev, result]);
+          setTileState(prev => ({ ...prev, status: 'Stopped', runningTime: total_time }));
+          sendMessage({
+            action: 'stop_experiment',
+            device_id: 'local_camera',
+            experiment_type: 'video_oscillation'
+          });
+        }
       }
       
       // Video preview handled via MJPEG stream now to reduce lag
@@ -272,10 +295,12 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
       if (data.type === 'experiment_started' && data.experiment_type === 'video_oscillation') {
         setTileState(prev => ({ ...prev, status: 'Running' }));
         setAiError(null);
+        aiCompletedRef.current = false;
       }
       
       if (data.type === 'experiment_stopped' && data.experiment_type === 'video_oscillation') {
         setTileState(prev => ({ ...prev, status: 'Stopped' }));
+        aiCompletedRef.current = true;
       }
 
       if (data.type === 'error' && data.experiment_type === 'video_oscillation') {
@@ -957,7 +982,7 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
                     <div className={`text-base font-bold ${isDark ? 'text-slate-100' : ''}`}>{tileState.status || 'Stopped'}</div>
                   </div>
                   
-                  {experimentConfig?.id === '2' ? (
+                  {experimentConfig?.id === '2' || experimentConfig?.id === '5' ? (
                     <div className={`rounded-lg border p-2 ${isDark ? 'border-blue-700 bg-blue-900/20' : 'border-blue-300 bg-blue-50'}`}>
                       <div className={`text-[11px] font-semibold mb-1 ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Running Time</div>
                       <div className={`text-lg font-bold font-mono ${isDark ? 'text-blue-200' : 'text-blue-900'}`}>
@@ -997,9 +1022,15 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
                   <div className={`rounded-lg border p-2 ${isDark ? 'border-purple-700 bg-purple-900/20' : 'border-purple-300 bg-purple-50'} col-span-2`}>
                     <div className={`text-[11px] font-semibold mb-1 ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>Configuration</div>
                     <div className={`text-xs ${isDark ? 'text-purple-200' : 'text-purple-900'} flex justify-between`}>
-                      {experimentConfig?.id === '2' ? (
+                      {experimentConfig?.id === '2' || experimentConfig?.id === '5' ? (
                         <div className="flex justify-between w-full">
                           {selectedSubExperiment?.id === '2.1' && (
+                              <>
+                                <span>Max: {config?.max_count || 50}</span>
+                                <span>L: {config?.pendulum_length_cm || 100}cm</span>
+                              </>
+                          )}
+                          {selectedSubExperiment?.id === '5.1' && (
                               <>
                                 <span>Max: {config?.max_count || 50}</span>
                                 <span>L: {config?.pendulum_length_cm || 100}cm</span>
@@ -1011,7 +1042,7 @@ const ExperimentInterface = ({ experimentId = '1.1' }) => {
                                 <span>D: {config?.pivot_to_com_distance_cm || 50}cm</span>
                               </>
                           )}
-                          {!['2.1', '2.2'].includes(selectedSubExperiment?.id) && (
+                          {!['2.1', '2.2', '5.1'].includes(selectedSubExperiment?.id) && (
                               <span>Freq: {config?.frequency_hz || 10} Hz</span>
                           )}
                         </div>
