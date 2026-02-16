@@ -10,6 +10,7 @@ docs/
 New_Project_Guide.md
 uploads/
 public
+public\workbox-v7.3.0
 # -------------------------
 # Python cache and compiled files
 # -------------------------
