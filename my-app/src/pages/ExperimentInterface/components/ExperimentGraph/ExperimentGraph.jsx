@@ -51,6 +51,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   const [notif, setNotif] = useState(null);
   const [bestFitData, setBestFitData] = useState(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const lastCountRef = useRef(0);
   
   const chartDataRef = useRef([]);
   const timerRef = useRef(null);
@@ -67,6 +68,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   const rafPendingRef = useRef(false);
   const lastFlushRef = useRef(0);
   const FLUSH_INTERVAL_MS = 50;
+  const countingStartedRef = useRef(false);
 
   const scheduleChartFlush = useCallback(() => {
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -101,14 +103,20 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   const [isCountdownMode, setIsCountdownMode] = useState(false);
   useEffect(() => {
     const base = Number(config?.duration_s);
-    if (Number.isFinite(base) && base > 0) {
+    const indef = !!config?.run_indefinite;
+    if (!indef && Number.isFinite(base) && base > 0) {
       setTotalDuration(base);
       setDisplayRangeSeconds(base);
       if (!isRunning) {
         setTimeRemaining(base);
       }
+    } else {
+      setTotalDuration(0);
+      if (!isRunning) {
+        setTimeRemaining(0);
+      }
     }
-  }, [config?.duration_s, isRunning]);
+  }, [config?.duration_s, config?.run_indefinite, isRunning]);
 
   useEffect(() => {
     const mq = typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)') : null;
@@ -157,13 +165,14 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         runningTime,
         config,
         samples: chartDataRef.current.length,
-        isCountdownMode
+        isCountdownMode,
+        count: lastCountRef.current
       };
       window.dispatchEvent(new CustomEvent('labex:tiles:update', { detail }));
     } catch {}
   }, [isRunning, isPaused, timeRemaining, runningTime, config, isCountdownMode]);
 
-  const isCountUpMode = (subExperiment?.id === '2.1' || subExperiment?.id === '2.2' || ['pendulum_simple','pendulum_compound'].includes(experimentType));
+  const isCountUpMode = (subExperiment?.id === '2.1' || subExperiment?.id === '2.2' || subExperiment?.id === '5.1' || ['pendulum_simple','pendulum_compound'].includes(experimentType));
 
   // ===== DIRECT DATA STREAMING HANDLER =====
   const handleDataMessage = useCallback((message) => {
@@ -199,8 +208,20 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
       let d = null;
       if (message?.type === 'processed_data' && message?.data) {
         d = message.data;
-        const t = Number(d.t ?? d.time ?? 0);
+        const t = Number(d.time_elapsed ?? d.t ?? d.time ?? 0);
+        
+        // Sync local timer start with backend start for 5.1 (wait for first crossing)
+        if (subExperimentRef.current?.id === '5.1' && t === 0 && isRunningRef.current) {
+          startTimeRef.current = Date.now();
+        }
+
         const elapsedMs = Number.isFinite(t) ? (t * 1000) : (startTimeRef.current ? (Date.now() - startTimeRef.current) : 0);
+        const tc = Number(d.celsius ?? d.C ?? d.temp_c ?? d.temperature_c);
+        const tf = Number(d.fahrenheit ?? d.temp_f);
+        const tk = Number(d.kelvin ?? d.temp_k);
+        const cVal = Number.isFinite(tc) ? tc : (Number.isFinite(tf) ? (tf - 32) * 5/9 : (Number.isFinite(tk) ? tk - 273.15 : 0));
+        const fVal = Number.isFinite(tf) ? tf : (Number.isFinite(cVal) ? cVal * 9/5 + 32 : (Number.isFinite(tk) ? (tk - 273.15) * 9/5 + 32 : 0));
+        const kVal = Number.isFinite(tk) ? tk : (Number.isFinite(cVal) ? cVal + 273.15 : (Number.isFinite(tf) ? (tf - 32) * 5/9 + 273.15 : 0));
         const point = {
           time: elapsedMs,
           timeDisplay: (elapsedMs / 1000).toFixed(2),
@@ -212,12 +233,18 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
           period: Number(d.period ?? d.T ?? 0),
           damping_coefficient: Number(d.damping_coefficient ?? d.zeta ?? 0),
           intensity: Number(d.intensity ?? d.lux ?? d.light ?? 0),
+          celsius: cVal,
+          fahrenheit: fVal,
+          kelvin: kVal,
           kineticEnergy: Number(d.ke ?? d.kineticEnergy ?? 0),
           potentialEnergy: Number(d.pe ?? d.potentialEnergy ?? 0),
           totalEnergy: Number(d.te ?? d.totalEnergy ?? 0),
+          oscillation_count: Number(d.oscillation_count ?? d.count ?? 0),
+          midline_crossings: Number(d.midline_crossings ?? 0),
+          counting_started: !!d.counting_started,
           sample: d.sample ?? d.packet_id ?? null,
           packet_id: d.packet_id ?? null,
-          __originalIndex: chartDataRef.current.length // Add original index for neglect tracking
+          __originalIndex: chartDataRef.current.length
         };
         
         // Debug logging for sample processing
@@ -230,7 +257,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         const currentConfig = configRef.current || {};
         const maxCountCfg = Number(currentConfig?.max_count ?? 0);
         const pendId = subExperimentRef.current?.id;
-        const isPendulum = (pendId === '2.1' || pendId === '2.2');
+        const isPendulum = (pendId === '2.1' || pendId === '2.2' || pendId === '5.1');
         if (isPendulum && Number.isFinite(maxCountCfg) && maxCountCfg > 0 && countVal >= maxCountCfg && !completionTriggeredRef.current) {
           completionTriggeredRef.current = true;
           setIsRunning(false);
@@ -239,7 +266,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
           try { sendMessage({ action: 'stop_experiment' }); } catch {}
 
           if (setExperimentResults) {
-            const total_time = Number(d.t ?? d.time ?? (point.time / 1000));
+            const total_time = Number(d.total_time ?? d.time_elapsed ?? d.t ?? d.time ?? (point.time / 1000));
             const length_cm = Number(currentConfig?.pendulum_length_cm ?? 0);
             const period = Number(d.period ?? d.T ?? 0);
             const period_squared = Number.isFinite(period) ? period * period : undefined;
@@ -271,6 +298,12 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
       }
       if (!Number.isFinite(elapsedMs) || elapsedMs < 0) elapsedMs = 0;
 
+      const tc2 = Number(d.celsius ?? d.C ?? d.temp_c ?? d.temperature_c);
+      const tf2 = Number(d.fahrenheit ?? d.temp_f);
+      const tk2 = Number(d.kelvin ?? d.temp_k);
+      const cVal2 = Number.isFinite(tc2) ? tc2 : (Number.isFinite(tf2) ? (tf2 - 32) * 5/9 : (Number.isFinite(tk2) ? tk2 - 273.15 : 0));
+      const fVal2 = Number.isFinite(tf2) ? tf2 : (Number.isFinite(cVal2) ? cVal2 * 9/5 + 32 : (Number.isFinite(tk2) ? (tk2 - 273.15) * 9/5 + 32 : 0));
+      const kVal2 = Number.isFinite(tk2) ? tk2 : (Number.isFinite(cVal2) ? cVal2 + 273.15 : (Number.isFinite(tf2) ? (tf2 - 32) * 5/9 + 273.15 : 0));
       const point = {
         time: elapsedMs,
         timeDisplay: (elapsedMs / 1000).toFixed(2),
@@ -282,16 +315,22 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         period: Number(d.period ?? d.T ?? 0),
         damping_coefficient: Number(d.damping_coefficient ?? d.zeta ?? 0),
         intensity: Number(d.intensity ?? d.lux ?? d.light ?? 0),
-        __originalIndex: chartDataRef.current.length // Add original index for neglect tracking
+        celsius: cVal2,
+        fahrenheit: fVal2,
+        kelvin: kVal2,
+        __originalIndex: chartDataRef.current.length
       };
       chartDataRef.current = [...chartDataRef.current, point];
       scheduleChartFlush();
 
       const countVal2 = Number(d.oscillation_count ?? d.count ?? 0);
+      if (Number.isFinite(countVal2)) {
+        lastCountRef.current = countVal2;
+      }
       const currentConfig2 = configRef.current || {};
       const maxCountCfg2 = Number(currentConfig2?.max_count ?? 0);
       const pendId2 = subExperimentRef.current?.id;
-      const isPendulum2 = (pendId2 === '2.1' || pendId2 === '2.2');
+      const isPendulum2 = (pendId2 === '2.1' || pendId2 === '2.2' || pendId2 === '5.1');
       if (isPendulum2 && Number.isFinite(maxCountCfg2) && maxCountCfg2 > 0 && countVal2 >= maxCountCfg2 && !completionTriggeredRef.current) {
         completionTriggeredRef.current = true;
         setIsRunning(false);
@@ -300,7 +339,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         try { sendMessage({ action: 'stop_experiment' }); } catch {}
 
         if (setExperimentResults) {
-          const total_time = Number(d.t ?? d.time ?? (point.time / 1000));
+          const total_time = Number(d.total_time ?? d.time_elapsed ?? d.t ?? d.time ?? (point.time / 1000));
           const length_cm = Number(currentConfig2?.pendulum_length_cm ?? 0);
           const period = Number(d.period ?? d.T ?? 0);
           const period_squared = Number.isFinite(period) ? period * period : undefined;
@@ -323,7 +362,11 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     const updateTimer = () => {
       if (isRunning && !isPaused) {
         const now = Date.now();
-        const elapsed = (now - startTimeRef.current) / 1000;
+        let elapsed = (now - startTimeRef.current) / 1000;
+        
+        if (subExperimentRef.current?.id === '5.1' && !countingStartedRef.current) {
+          elapsed = 0;
+        }
         
         const isDelayExp = isDelayModeRef.current;
 
@@ -339,29 +382,26 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
           // Normal phase
           setRunningTime(elapsed);
           
-          if (!isCountUpMode) {
+          if (!isCountUpMode && totalDuration > 0) {
             const remaining = Math.max(0, totalDuration - elapsed);
             setTimeRemaining(remaining);
-            
-            // Auto-stop when time is up
             if (remaining <= 0) {
-              console.log('Timer finished, stopping experiment');
               setIsRunning(false);
               setIsPaused(false);
               setTimeRemaining(0);
-              
               if (sharedExperimentManager?.stopExperiment) {
                 sharedExperimentManager.stopExperiment();
               } else {
                 sendMessage({ action: 'stop_experiment' });
               }
-              
               if (!completionTriggeredRef.current) {
                 completionTriggeredRef.current = true;
                 if (onComplete) onComplete(chartDataRef.current);
               }
-              return; // Stop the animation loop
+              return;
             }
+          } else if (!isCountUpMode && totalDuration === 0) {
+            setTimeRemaining(0);
           }
         }
         
@@ -449,6 +489,8 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     chartDataRef.current = [];
     setChartData([]);
     sensorStartTimeRef.current = null;
+    lastCountRef.current = 0;
+    countingStartedRef.current = false;
     
     setIsRunning(true);
     setIsPaused(false);
@@ -462,8 +504,8 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
 
     let startConfig = { duration_s: 10 };
     try {
-      startConfig = JSON.parse(localStorage.getItem('experimentConfig') || '{"duration_s": 10}');
-      if (isCountUpMode) {
+      startConfig = JSON.parse(localStorage.getItem('experimentConfig') || '{"duration_s": 10, "run_indefinite": true}');
+      if (isCountUpMode || startConfig.run_indefinite === true) {
         setTotalDuration(0);
         setTimeRemaining(0);
       } else {
@@ -472,14 +514,8 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
         setTimeRemaining(uiDur);
       }
     } catch (e) {
-      if (isCountUpMode) {
-        setTotalDuration(0);
-        setTimeRemaining(0);
-      } else {
-        const uiDur = 10;
-        setTotalDuration(uiDur);
-        setTimeRemaining(uiDur);
-      }
+      setTotalDuration(0);
+      setTimeRemaining(0);
     }
     
     if (dataHandlerCleanupRef.current) {
@@ -496,27 +532,34 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
 
     // Build config for start based on sub-experiment
     let startCfg = {};
-    if (subExperiment?.id === '2.1' || subExperiment?.id === '2.2') {
-      if (config?.max_count != null) {
-        startCfg.max_count = parseInt(config.max_count);
-        startCfg.maxCount = parseInt(config.max_count);
+    const currentSubExp = subExperimentRef.current;
+    const currentConfig = configRef.current;
+
+    if (currentSubExp?.id === '2.1' || currentSubExp?.id === '2.2' || currentSubExp?.id === '5.1') {
+      if (currentConfig?.max_count != null) {
+        startCfg.max_count = parseInt(currentConfig.max_count);
+        startCfg.maxCount = parseInt(currentConfig.max_count);
       }
-      if (config?.pendulum_length_cm != null) {
-        startCfg.pendulum_length_cm = Number(config.pendulum_length_cm);
-        startCfg.pendulumLengthCm = Number(config.pendulum_length_cm);
+      if (currentConfig?.pendulum_length_cm != null) {
+        startCfg.pendulum_length_cm = Number(currentConfig.pendulum_length_cm);
+        startCfg.pendulumLengthCm = Number(currentConfig.pendulum_length_cm);
       }
-      if (config?.pivot_to_com_distance_cm != null) {
-        startCfg.pivot_to_com_distance_cm = Number(config.pivot_to_com_distance_cm);
-        startCfg.pivotToComDistanceCm = Number(config.pivot_to_com_distance_cm);
+      if (currentConfig?.pivot_to_com_distance_cm != null) {
+        startCfg.pivot_to_com_distance_cm = Number(currentConfig.pivot_to_com_distance_cm);
+        startCfg.pivotToComDistanceCm = Number(currentConfig.pivot_to_com_distance_cm);
       }
     } else {
       startCfg = {
-        frequency: config?.frequency_hz || 50,
-        duration: config?.duration_s || 60,
+        frequency: currentConfig?.frequency_hz || 50,
         mode: 'distance'
       };
-      if (config?.max_distance_cm != null) {
-        startCfg.maxRange = Math.round(config.max_distance_cm * 10);
+      if (!(currentConfig?.run_indefinite === true)) {
+        startCfg.duration = currentConfig?.duration_s || 60;
+      } else {
+        startCfg.run_indefinite = true;
+      }
+      if (currentConfig?.max_distance_cm != null) {
+        startCfg.maxRange = Math.round(currentConfig.max_distance_cm * 10);
       }
     }
 
@@ -794,20 +837,21 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   const axisMeta = React.useMemo(() => {
     const units = (subExperiment && subExperiment.units) || { time: 's' };
     const labels = (subExperiment && subExperiment.graphConfig && subExperiment.graphConfig.yAxisLabels) || [];
+    const colors = (subExperiment && subExperiment.graphConfig && subExperiment.graphConfig.colors) || [];
     const yAxes = availableTraces;
     const y = {};
     yAxes.forEach((k, i) => {
-      y[k] = { label: labels[i] || (k.charAt(0).toUpperCase() + k.slice(1)), unit: units[k] || '' };
+      y[k] = { label: labels[i] || (k.charAt(0).toUpperCase() + k.slice(1)), unit: units[k] || '', color: colors[i] };
     });
     return { x: { label: 'Time', unit: units.time || 's' }, y };
   }, [subExperiment, availableTraces]);
 
   const tableColumns = React.useMemo(() => {
     if (showResultsTable) {
-      if (subExperiment?.id === '2.1') {
+      if (subExperiment?.id === '2.1' || subExperiment?.id === '5.1') {
         return [
           { key: 'length_cm', label: 'Length (cm)', format: 'float', precision: 1 },
-          { key: 'count', label: 'osci Count', format: 'int' },
+          { key: 'count', label: 'Oscillations', format: 'int' },
           { key: 'total_time', label: 'Total Time (s)', format: 'float', precision: 3 },
           { key: 'period', label: 'Period T (s)', format: 'float', precision: 4 },
           { key: 'period_squared', label: 'T² (s²)', format: 'float', precision: 4 }
@@ -864,9 +908,14 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
     const source = isAnalysisMode ? analysisData : chartData;
     const limitMs = (displayRangeSeconds || 0) * 1000 + 250;
     const bounded = (displayRangeSeconds && displayRangeSeconds > 0) ? source.filter(row => (row.time || 0) <= limitMs) : source;
+    const tableKeys = (subExperiment && subExperiment.tableConfig && Array.isArray(subExperiment.tableConfig.columns))
+      ? subExperiment.tableConfig.columns
+          .map(c => c.key)
+          .filter(k => k !== 'time' && k !== 'sample')
+      : availableTraces;
     return bounded.map(row => {
       const obj = { time: Number((row.time / 1000).toFixed(2)), __originalIndex: row.__originalIndex };
-      availableTraces.forEach(k => { obj[k] = row[k]; });
+      tableKeys.forEach(k => { obj[k] = row[k]; });
       const s = row.sample != null ? row.sample : (row.packet_id != null ? row.packet_id : (row.__originalIndex != null ? row.__originalIndex + 1 : null));
       obj.sample = s;
       if (isAnalysisMode) {
@@ -886,7 +935,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
 
       {!externalControls && !isAnalysisMode && (
         <div className="bg-white rounded-xl shadow-md border border-slate-200 p-3">
-          {(subExperiment?.id?.startsWith('2') || ['pendulum_simple', 'pendulum_compound'].includes(experimentType)) ? (
+          {(subExperiment?.id?.startsWith('2') || subExperiment?.id === '5.1' || ['pendulum_simple', 'pendulum_compound'].includes(experimentType)) ? (
             <div className="flex flex-wrap gap-2">
               <button
                 onClick={handleStart}
@@ -930,7 +979,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
                 disabled={isRunning || !experimentResults || experimentResults.length < 2}
                 className="flex-1 min-w-[90px] flex items-center justify-center gap-1.5 px-3 py-2.5 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md text-sm"
               >
-                <FiTarget size={16} /> Find G
+                <FiTarget size={16} /> Process
               </button>
             </div>
           ) : (
@@ -1062,7 +1111,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
           className={`bg-white rounded-xl shadow-lg border border-slate-200 ${isAnalysisMode ? 'p-4' : 'p-2 sm:p-3 md:p-4 lg:col-span-4 overflow-y-auto min-h-0'}`}
           style={(!isAnalysisMode && isLg && !isTableFullscreen) ? { height: (graphCardHeight || 400), maxHeight: (graphCardHeight || 400) } : undefined}
         >
-          {(subExperiment?.id === '2.1' && !showResultsTable) ? (
+          {((subExperiment?.id === '2.1') && !showResultsTable) ? (
             <div className="text-center text-sm text-slate-600">Results will appear after completion</div>
           ) : (
             <LiveDataTable 

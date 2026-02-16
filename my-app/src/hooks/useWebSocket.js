@@ -613,19 +613,42 @@ export const useExperimentManager = (webSocketInstance, externalExperimentData =
         backendConfig.pivot_to_com_distance_cm = Number(config.pivot_to_com_distance_cm);
         backendConfig.pivotToComDistanceCm = Number(config.pivot_to_com_distance_cm);
       }
+      // AI Pendulum (Video Oscillation) Fields
+      if (config.h_range) backendConfig.h_range = config.h_range;
+      if (config.s_range) backendConfig.s_range = config.s_range;
+      if (config.v_range) backendConfig.v_range = config.v_range;
+      if (config.adaptive_color !== undefined) backendConfig.adaptive_color = config.adaptive_color;
+      if (config.reset_tracking !== undefined) backendConfig.reset_tracking = config.reset_tracking;
+      
       // Avoid sending frequency/duration/mode for OSI pendulum firmware
     } else {
       // Default distance/time-of-flight style configuration
       backendConfig = {
         frequency: config.frequency_hz || config.frequency || 50,
-        duration: config.duration_s || config.duration || 60,
         mode: config.mode || 'distance'
       };
+      if (!(config.run_indefinite === true)) {
+        backendConfig.duration = config.duration_s || config.duration || 60;
+      } else {
+        backendConfig.run_indefinite = true;
+      }
       if (config.max_distance_cm != null && !Number.isNaN(config.max_distance_cm)) {
         backendConfig.maxRange = Math.round(config.max_distance_cm * 10);
       }
       if (config.resolution != null) {
         backendConfig.resolution = parseInt(config.resolution);
+      }
+      // Inclined plane custom parameters
+      if (config.surconference_cm != null) {
+        backendConfig.circumference_cm = Number(config.surconference_cm);
+      } else if (config.circumference_cm != null) {
+        backendConfig.circumference_cm = Number(config.circumference_cm);
+      }
+      if (config.angle_deg != null) {
+        backendConfig.angle_deg = Number(config.angle_deg);
+      }
+      if (config.gravity != null) {
+        backendConfig.gravity = Number(config.gravity);
       }
     }
     const analysis = {};

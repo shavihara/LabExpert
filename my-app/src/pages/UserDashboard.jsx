@@ -3,12 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import { useWebSocket } from '../hooks/useWebSocket';
 import pendulumGif from '../assets/images/pendulum.gif';
 import { useTheme } from '../context/ThemeContext';
-import { logoutUser, updateUserProfile, userAPI, API_URL } from '../utils/api';
+import '../styles/UserDashboard.css';
+import { logoutUser, updateUserProfile, userAPI, experimentsAPI, API_URL, api } from '../utils/api';
+import experimentRegistry, { getExperimentConfig } from '../experiments/experimentConfig';
 import {
   LayoutDashboard,
   FlaskConical,
   History,
   User,
+  Users,
   Settings,
   FileText,
   LogOut,
@@ -25,9 +28,12 @@ import {
   Zap,
   Volume2,
   Download,
-  Wrench
-  , Maximize2, Minimize2
+  Wrench,
+  Maximize2, 
+  Minimize2,
+  RotateCw
 } from 'lucide-react';
+import QRCode from 'react-qr-code';
 
 import { 
   ResponsiveButton, 
@@ -68,6 +74,34 @@ function UserDashboard() {
   });
   const [profileImagePreview, setProfileImagePreview] = useState(null);
   const [notification, setNotification] = useState(null);
+  const [serverIp, setServerIp] = useState(null);
+  const [serverSsid, setServerSsid] = useState(null);
+  const [ipLoading, setIpLoading] = useState(false);
+
+  const fetchServerIp = () => {
+    setIpLoading(true);
+    api.get('/api/server-ip')
+    .then(res => {
+      if (res.data && res.data.success) {
+        setServerIp(res.data.ip);
+        if (res.data.ssid) {
+          setServerSsid(res.data.ssid);
+        } else {
+          setServerSsid(null);
+        }
+      } else {
+        console.error("Failed to fetch server IP, success:false", res.data);
+      }
+    })
+    .catch(err => console.error("Failed to fetch server IP:", err))
+    .finally(() => setIpLoading(false));
+  };
+
+  useEffect(() => {
+    if (activeSection === 'connect-users') {
+      fetchServerIp();
+    }
+  }, [activeSection]);
 
   // Auto-clear notification after 3 seconds
   useEffect(() => {
@@ -78,6 +112,152 @@ function UserDashboard() {
       return () => clearTimeout(timer);
     }
   }, [notification]);
+  const [savedReports, setSavedReports] = useState([]);
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [reportsError, setReportsError] = useState(null);
+  const [recentRuns, setRecentRuns] = useState([]);
+  const [recentLoading, setRecentLoading] = useState(false);
+  const [recentError, setRecentError] = useState(null);
+  const loadSavedReports = async () => {
+    setReportsLoading(true);
+    setReportsError(null);
+    try {
+      const token = localStorage.getItem('token');
+      if (!token || token === 'undefined' || token === null) {
+        setSavedReports([]);
+        setReportsError('Not authenticated. Please log in.');
+        return;
+      }
+      const files = await experimentsAPI.listFiles({ page: 1, limit: 50 });
+      setSavedReports(files);
+    } catch (e) {
+      const msg = e?.response?.data?.message || e?.message || 'Failed to load saved reports';
+      setReportsError(msg);
+    } finally {
+      setReportsLoading(false);
+    }
+  };
+  useEffect(() => {
+    if (activeSection === 'reports') {
+      loadSavedReports();
+    }
+  }, [activeSection]);
+  const loadRecentRuns = async () => {
+    setRecentLoading(true);
+    setRecentError(null);
+    try {
+      const token = localStorage.getItem('token');
+      if (!token || token === 'undefined' || token === null) {
+        setRecentRuns([]);
+        setRecentError('Not authenticated. Please log in.');
+        return;
+      }
+      const files = await experimentsAPI.listFiles({ page: 1, limit: 12 });
+      setRecentRuns(files);
+    } catch (e) {
+      const msg = e?.response?.data?.message || e?.message || 'Failed to load recent activity';
+      setRecentError(msg);
+    } finally {
+      setRecentLoading(false);
+    }
+  };
+  useEffect(() => {
+    if (activeSection === 'recent') {
+      loadRecentRuns();
+    }
+  }, [activeSection]);
+  const groupedReports = React.useMemo(() => {
+    const map = {};
+    for (const r of savedReports || []) {
+      const key = `${r.experiment_type || 'experiment'}::${r.sub_experiment || 'default'}`;
+      if (!map[key]) map[key] = [];
+      map[key].push(r);
+    }
+    return map;
+  }, [savedReports]);
+  const resolveExperimentNames = (expType, subVal) => {
+    let mainName = expType || 'Experiment';
+    let subName = subVal || '';
+    if (typeof subVal === 'string' && /^\d+\.\d+$/.test(subVal)) {
+      const mainId = subVal.split('.')[0];
+      const cfg = getExperimentConfig(mainId, subVal);
+      if (cfg?.mainExperiment?.name) mainName = cfg.mainExperiment.name;
+      if (cfg?.subExperiment?.name) subName = cfg.subExperiment.name;
+      return { mainName, subName };
+    }
+    try {
+      for (const eid of Object.keys(experimentRegistry)) {
+        const se = experimentRegistry[eid]?.subExperiments || {};
+        if (se[subVal]) {
+          mainName = experimentRegistry[eid].name || mainName;
+          subName = se[subVal].name || subName;
+          return { mainName, subName };
+        }
+      }
+    } catch {}
+    return { mainName, subName };
+  };
+  const resolveDurationSeconds = (subVal, expType) => {
+    let secs = 0;
+    try {
+      for (const eid of Object.keys(experimentRegistry)) {
+        const se = experimentRegistry[eid]?.subExperiments || {};
+        for (const sk of Object.keys(se)) {
+          const cfg = se[sk];
+          if (sk === subVal || cfg.id === subVal) {
+            const dc = cfg.defaultConfig || {};
+            if (typeof dc.duration_s === 'number') secs = dc.duration_s;
+            else if (typeof dc.duration === 'number') secs = dc.duration;
+            return secs;
+          }
+        }
+      }
+    } catch {}
+    return secs;
+  };
+  const recentStats = React.useMemo(() => {
+    const total = recentRuns.length;
+    const completed = recentRuns.length;
+    let totalSecs = 0;
+    for (const r of recentRuns) {
+      totalSecs += resolveDurationSeconds(r.sub_experiment, r.experiment_type);
+    }
+    let totalTime = `${totalSecs}s`;
+    if (totalSecs >= 3600) {
+      const h = Math.floor(totalSecs / 3600);
+      const m = Math.floor((totalSecs % 3600) / 60);
+      totalTime = `${h}h ${m}m`;
+    } else if (totalSecs >= 60) {
+      const m = Math.floor(totalSecs / 60);
+      const s = totalSecs % 60;
+      totalTime = `${m}m ${s}s`;
+    }
+    return { total, completed, totalTime };
+  }, [recentRuns]);
+  const formatDate = (s) => {
+    try {
+      return new Date(s).toLocaleString();
+    } catch (e) {
+      return s || '';
+    }
+  };
+  const handleDownload = async (runId, filename) => {
+    try {
+      const res = await experimentsAPI.downloadRun(runId);
+      const type = res.headers?.['content-type'] || 'text/csv';
+      const blob = new Blob([res.data], { type });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || 'report.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setReportsError('Download failed');
+    }
+  };
   
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
@@ -183,6 +363,89 @@ function UserDashboard() {
       color: 'bg-cyan-500'
     }
   ];
+
+  // Calculate available experiments count
+  const availableExperimentsCount = availableExperiments.filter(exp => exp.difficulty === 'Available').length;
+
+  // Calculate total time sum from completed experiments
+  const totalTimeSum = availableExperiments
+    .filter(exp => exp.difficulty === 'Available')
+    .reduce((sum, exp) => {
+      const minutes = parseInt(exp.duration) || 0;
+      return sum + minutes;
+    }, 0);
+
+  // Calculate completed vs remaining experiments for pie chart
+  const totalAvailable = availableExperiments.filter(exp => exp.difficulty === 'Available').length;
+  const completedCount = recentRuns.length;
+  const remainingCount = Math.max(0, totalAvailable - completedCount);
+  const completionPercentage = totalAvailable > 0 ? Math.round((completedCount / totalAvailable) * 100) : 0;
+
+  // Modern Radial Progress Component
+  const PieChart = ({ completed, remaining }) => {
+    const total = completed + remaining;
+    const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+    const radius = 40;
+    const circumference = 2 * Math.PI * radius;
+    const strokeDashoffset = circumference - (percentage / 100) * circumference;
+    
+    return (
+      <div className="flex flex-row items-center justify-center gap-6 md:gap-8">
+        {/* Ring */}
+        <div className="relative w-28 h-28 md:w-32 md:h-32 flex-shrink-0">
+          <svg className="w-full h-full transform -rotate-90 drop-shadow-sm" viewBox="0 0 100 100">
+            {/* Track */}
+            <circle
+              className="text-gray-100 dark:text-gray-700"
+              strokeWidth="8"
+              stroke="currentColor"
+              fill="transparent"
+              r={radius}
+              cx="50"
+              cy="50"
+            />
+            {/* Progress */}
+            {completed > 0 && (
+              <circle
+                className="text-emerald-500 transition-all duration-1000 ease-out"
+                strokeWidth="8"
+                strokeDasharray={circumference}
+                strokeDashoffset={strokeDashoffset}
+                strokeLinecap="round"
+                stroke="currentColor"
+                fill="transparent"
+                r={radius}
+                cx="50"
+                cy="50"
+              />
+            )}
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className="text-3xl font-bold text-gray-900 dark:text-white tracking-tight">{percentage}%</span>
+            <span className="text-[10px] md:text-xs text-gray-400 dark:text-gray-500 font-bold uppercase tracking-widest mt-0.5">Done</span>
+          </div>
+        </div>
+        
+        {/* Modern Stats Legend */}
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center gap-3 group">
+            <div className="w-1.5 h-8 rounded-full bg-emerald-500 shadow-sm group-hover:bg-emerald-400 transition-colors"></div>
+            <div>
+              <p className="text-[10px] text-gray-400 dark:text-gray-500 uppercase font-bold tracking-wider mb-0.5">Completed</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-white leading-none">{completed}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 group">
+            <div className="w-1.5 h-8 rounded-full bg-gray-200 dark:bg-gray-700 group-hover:bg-gray-300 dark:group-hover:bg-gray-600 transition-colors"></div>
+            <div>
+              <p className="text-[10px] text-gray-400 dark:text-gray-500 uppercase font-bold tracking-wider mb-0.5">Remaining</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-white leading-none">{remaining}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   // Recent experiments (dummy data)
   const recentExperimentsData = [
@@ -499,6 +762,7 @@ function UserDashboard() {
             <NavItem id="profile" icon={<User size={20} />} label="Profile" />
             <NavItem id="sensors" icon={<Settings size={20} />} label="Sensors" />
             <NavItem id="reports" icon={<FileText size={20} />} label="Reports" />
+            <NavItem id="connect-users" icon={<Users size={20} />} label="Connect New Users" />
           </nav>
 
           {/* User Info & Logout */}
@@ -750,54 +1014,107 @@ function UserDashboard() {
           {/* Recent Activity Section */}
           {activeSection === 'recent' && (
             <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                {[
-                  { label: 'Total Experiments', value: usageStats.totalExperiments, icon: <FlaskConical className="text-blue-500" />, color: 'bg-blue-50 dark:bg-blue-900/20' },
-                  { label: 'Completed', value: usageStats.completedExperiments, icon: <Activity className="text-green-500" />, color: 'bg-green-50 dark:bg-green-900/20' },
-                  { label: 'Total Time', value: usageStats.totalTime, icon: <History className="text-purple-500" />, color: 'bg-purple-50 dark:bg-purple-900/20' },
-                  { label: 'Avg Score', value: `${usageStats.averageScore}%`, icon: <Zap className="text-amber-500" />, color: 'bg-amber-50 dark:bg-amber-900/20' },
-                ].map((stat, index) => (
-                  <div key={index} className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className={`p-3 rounded-lg ${stat.color}`}>
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                {/* First Column - 3 tiles in responsive grid */}
+                <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-1 gap-4">
+                  {[
+                    { label: 'Total Experiments', value: availableExperimentsCount, icon: <FlaskConical className="w-6 h-6 text-blue-600 dark:text-blue-400" />, color: 'bg-blue-50 dark:bg-blue-900/30' },
+                    { label: 'Completed', value: recentStats.completed, icon: <Activity className="w-6 h-6 text-green-600 dark:text-green-400" />, color: 'bg-green-50 dark:bg-green-900/30' },
+                    { label: 'Total Time', value: `${totalTimeSum}+ min`, icon: <History className="w-6 h-6 text-purple-600 dark:text-purple-400" />, color: 'bg-purple-50 dark:bg-purple-900/30' },
+                  ].map((stat, index) => (
+                    <div key={index} className="bg-white dark:bg-gray-800 p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 min-h-[100px] flex items-center justify-between group transition-all duration-300 hover:shadow-md hover:border-gray-200 dark:hover:border-gray-600">
+                      <div>
+                        <p className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">{stat.label}</p>
+                        <h3 className="text-2xl xl:text-3xl font-bold text-gray-900 dark:text-white tracking-tight">{stat.value}</h3>
+                      </div>
+                      <div className={`p-3 rounded-xl ${stat.color} transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3`}>
                         {stat.icon}
                       </div>
-                      <span className="text-xs font-medium text-green-600 bg-green-100 dark:bg-green-900/30 dark:text-green-400 px-2 py-1 rounded-full">
-                        +12%
-                      </span>
-                    </div>
-                    <h3 className="text-2xl font-bold text-gray-900 dark:text-white">{stat.value}</h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">{stat.label}</p>
-                  </div>
-                ))}
-              </div>
-
-              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-                <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-6">Recent History</h3>
-                <div className="space-y-4">
-                  {recentExperiments.map((experiment) => (
-                    <div key={experiment.id} className="flex items-center justify-between p-4 rounded-lg bg-gray-50 dark:bg-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
-                      <div className="flex items-center gap-4">
-                        <div className="p-2 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400">
-                          <FlaskConical size={20} />
-                        </div>
-                        <div>
-                          <h4 className="font-semibold text-gray-900 dark:text-white">{experiment.name}</h4>
-                          <p className="text-sm text-gray-500 dark:text-gray-400">
-                            {new Date(experiment.date).toLocaleDateString()} • {experiment.duration}
-                          </p>
-                        </div>
-                      </div>
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                        experiment.status === 'Completed'
-                          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                          : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                      }`}>
-                        {experiment.status}
-                      </span>
                     </div>
                   ))}
                 </div>
+
+                {/* Second Column - Progress tile spanning full height */}
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 xl:h-full flex flex-col relative overflow-hidden group transition-all duration-300 hover:shadow-md">
+                  <div className="flex items-center justify-between mb-6">
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-900 dark:text-white">Progress</h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">Overall completion rate</p>
+                    </div>
+                    <div className="p-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                      <div className="w-2 h-2 rounded-full bg-amber-500"></div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex-1 flex items-center justify-center">  
+                    <div className="w-full">
+                      <div className="flex justify-center xl:justify-start">
+                        <PieChart completed={completedCount} remaining={remainingCount} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white">Recent Activity</h3>
+                  <button
+                    onClick={loadRecentRuns}
+                    className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm"
+                  >
+                    Refresh
+                  </button>
+                </div>
+                {recentLoading && (
+                  <div className="text-sm text-gray-500 dark:text-gray-400">Loading...</div>
+                )}
+                {!recentLoading && recentError && (
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm text-red-600 dark:text-red-400">{recentError}</div>
+                    <button
+                      onClick={loadRecentRuns}
+                      className="text-sm px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
+                {!recentLoading && !recentError && recentRuns.length === 0 && (
+                  <div className="text-sm text-gray-500 dark:text-gray-400">No recent activity</div>
+                )}
+                {!recentLoading && !recentError && recentRuns.length > 0 && (
+                  <div className="space-y-4">
+                    {recentRuns.map((r) => {
+                      const names = resolveExperimentNames(r.experiment_type, r.sub_experiment);
+                      return (
+                        <div key={r.id} className="flex items-center justify-between p-4 rounded-lg bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 hover:from-indigo-100 hover:to-purple-100 dark:hover:from-indigo-900/30 dark:hover:to-purple-900/30 transition-all border border-indigo-100 dark:border-gray-700">
+                          <div className="flex items-center gap-4">
+                            <div className="p-2 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400">
+                              <FileText size={20} />
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-semibold text-gray-900 dark:text-white">{names.mainName}</span>
+                                <span className="text-xs px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400">{names.subName || r.sub_experiment}</span>
+                              </div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400">
+                                {new Date(r.performed_at).toLocaleString()} • {Math.round((r.size || 0) / 1024)} KB
+                              </div>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleDownload(r.id, r.filename)}
+                            className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm"
+                          >
+                            <Download size={16} />
+                            Download
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1051,40 +1368,64 @@ function UserDashboard() {
           {/* Sensors Section */}
           {/* Sensors Section */}
           {activeSection === 'sensors' && (
-            <div className="space-y-6">
+            <div className="space-y-8">
               {sensorMode === 'menu' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* Add New Sensor Module */}
                   <button 
                     onClick={() => setSensorMode('add')}
-                    className="flex flex-col items-center justify-center p-8 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 hover:shadow-lg hover:border-indigo-500 dark:hover:border-indigo-500 transition-all duration-300 group"
+                    className="relative group overflow-hidden p-8 rounded-3xl bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 shadow-sm hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 text-left"
                   >
-                    <div className="p-4 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 mb-4 group-hover:scale-110 transition-transform">
-                      <Settings size={48} />
+                    <div className="absolute top-0 right-0 p-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                      <ChevronRight className="w-6 h-6 text-indigo-500" />
                     </div>
-                    <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Add New Sensor Module</h3>
-                    <p className="text-gray-500 dark:text-gray-400 text-center">Configure and provision new sensor modules via Bluetooth</p>
+                    <div className="absolute inset-0 bg-gradient-to-br from-indigo-50/50 to-transparent dark:from-indigo-900/10 dark:to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                    
+                    <div className="relative z-10">
+                      <div className="w-16 h-16 rounded-2xl bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-6 group-hover:scale-110 group-hover:rotate-3 transition-transform duration-300 shadow-sm">
+                        <Settings size={32} />
+                      </div>
+                      <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-3 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">Add New Sensor</h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">Configure and provision new sensor modules via Bluetooth connection.</p>
+                    </div>
                   </button>
 
+                  {/* Sensor Calibration */}
                   <button 
                     onClick={() => setSensorMode('calibration')}
-                    className="flex flex-col items-center justify-center p-8 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 hover:shadow-lg hover:border-indigo-500 dark:hover:border-indigo-500 transition-all duration-300 group"
+                    className="relative group overflow-hidden p-8 rounded-3xl bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 shadow-sm hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 text-left"
                   >
-                    <div className="p-4 rounded-full bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 mb-4 group-hover:scale-110 transition-transform">
-                      <Activity size={48} />
+                    <div className="absolute top-0 right-0 p-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                      <ChevronRight className="w-6 h-6 text-purple-500" />
                     </div>
-                    <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Sensor Calibration</h3>
-                    <p className="text-gray-500 dark:text-gray-400 text-center">View status and calibrate existing sensors</p>
+                    <div className="absolute inset-0 bg-gradient-to-br from-purple-50/50 to-transparent dark:from-purple-900/10 dark:to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                    
+                    <div className="relative z-10">
+                      <div className="w-16 h-16 rounded-2xl bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 flex items-center justify-center mb-6 group-hover:scale-110 group-hover:rotate-3 transition-transform duration-300 shadow-sm">
+                        <Activity size={32} />
+                      </div>
+                      <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-3 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">Calibration</h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">View real-time status and calibrate existing sensor parameters.</p>
+                    </div>
                   </button>
 
+                  {/* Program Sensor */}
                   <button 
                     onClick={() => setSensorMode('program')}
-                    className="flex flex-col items-center justify-center p-8 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 hover:shadow-lg hover:border-indigo-500 dark:hover:border-indigo-500 transition-all duration-300 group"
+                    className="relative group overflow-hidden p-8 rounded-3xl bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 shadow-sm hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 text-left"
                   >
-                    <div className="p-4 rounded-full bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 mb-4 group-hover:scale-110 transition-transform">
-                      <Wrench size={48} />
+                    <div className="absolute top-0 right-0 p-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                      <ChevronRight className="w-6 h-6 text-amber-500" />
                     </div>
-                    <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Program Sensor</h3>
-                    <p className="text-gray-500 dark:text-gray-400 text-center">Repair and reprogram sensor EEPROM IDs</p>
+                    <div className="absolute inset-0 bg-gradient-to-br from-amber-50/50 to-transparent dark:from-amber-900/10 dark:to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                    
+                    <div className="relative z-10">
+                      <div className="w-16 h-16 rounded-2xl bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 flex items-center justify-center mb-6 group-hover:scale-110 group-hover:rotate-3 transition-transform duration-300 shadow-sm">
+                        <Wrench size={32} />
+                      </div>
+                      <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-3 group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors">Program Sensor</h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">Repair and reprogram sensor EEPROM IDs for maintenance.</p>
+                    </div>
                   </button>
                 </div>
               )}
@@ -1174,28 +1515,177 @@ function UserDashboard() {
 
           {/* Reports Section */}
           {activeSection === 'reports' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {[
-                { title: 'Experiment Summary', desc: 'Comprehensive report of all your experiments', icon: <FileText /> },
-                { title: 'Performance Analytics', desc: 'Detailed performance metrics and trends', icon: <Activity /> },
-                { title: 'Raw Data Export', desc: 'Export raw sensor data in CSV format', icon: <LayoutDashboard /> },
-                { title: 'Custom Report', desc: 'Generate custom reports with specific parameters', icon: <Settings /> },
-              ].map((report, index) => (
-                <div key={index} className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 flex flex-col items-center text-center hover:shadow-md transition-shadow">
-                  <div className="p-4 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 mb-4">
-                    {React.cloneElement(report.icon, { size: 32 })}
+            <div className="space-y-6">
+              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Saved Reports</h3>
+                {reportsLoading && (
+                  <div className="text-sm text-gray-500 dark:text-gray-400">Loading...</div>
+                )}
+                {!reportsLoading && reportsError && (
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm text-red-600 dark:text-red-400">{reportsError}</div>
+                    <button
+                      onClick={loadSavedReports}
+                      className="text-sm px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg"
+                    >
+                      Retry
+                    </button>
                   </div>
-                  <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">{report.title}</h3>
-                  <p className="text-gray-500 dark:text-gray-400 mb-6">{report.desc}</p>
-                  <button 
-                    onClick={() => downloadReport(report.title.toLowerCase().replace(' ', '-'))}
-                    className="flex items-center gap-2 px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors"
-                  >
-                    <Download size={18} />
-                    Download
-                  </button>
+                )}
+                {!reportsLoading && !reportsError && savedReports.length === 0 && (
+                  <div className="text-sm text-gray-500 dark:text-gray-400">No saved reports yet</div>
+                )}
+                {!reportsLoading && !reportsError && savedReports.length > 0 && (
+                  <div className="space-y-6">
+                    {Object.entries(groupedReports).map(([key, items]) => {
+                      const parts = key.split('::');
+                      const exp = parts[0];
+                      const sub = parts[1];
+                      const names = resolveExperimentNames(exp, sub);
+                      return (
+                        <div key={key}>
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="px-2 py-1 rounded text-xs font-semibold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400">
+                                {names.mainName}
+                              </span>
+                              <span className="text-sm text-gray-700 dark:text-gray-200 font-semibold">{names.subName || sub}</span>
+                            </div>
+                            <span className="text-xs text-gray-500 dark:text-gray-400">{items.length} files</span>
+                          </div>
+                          <div className="divide-y divide-gray-200 dark:divide-gray-700">
+                            {items.map((f) => (
+                              <div key={f.id} className="py-3 flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <FileText className="text-indigo-600 dark:text-indigo-400" />
+                                  <div>
+                                    <div className="text-sm font-medium text-gray-900 dark:text-white">{f.filename}</div>
+                                    <div className="text-xs text-gray-500 dark:text-gray-400">{formatDate(f.performed_at)} · {Math.round((f.size || 0) / 1024)} KB</div>
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => handleDownload(f.id, f.filename)}
+                                  className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm"
+                                >
+                                  <Download size={16} />
+                                  Download
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Connect New Users Section */}
+          {activeSection === 'connect-users' && (
+            <div className="relative flex flex-col items-center justify-center h-full p-8 overflow-hidden">
+              {/* Background Animation Elements */}
+              <div className="connect-bg-pattern"></div>
+              <div className="floating-circle circle-1"></div>
+              <div className="floating-circle circle-2"></div>
+
+              <div className="relative z-10 w-full max-w-6xl mx-auto flex flex-col lg:flex-row items-center justify-center gap-12">
+                
+                {/* Left Column: Text & Instructions */}
+                <div className="flex-1 flex flex-col items-center lg:items-start text-center lg:text-left space-y-8">
+                  <div>
+                    <h2 className="text-4xl font-extrabold text-gray-900 dark:text-white mb-4 tracking-tight">
+                      Connect New Users
+                    </h2>
+                    <p className="text-lg text-gray-600 dark:text-gray-400 max-w-lg">
+                      Seamlessly connect your mobile device to the LabExpert network by scanning the QR code.
+                    </p>
+                  </div>
+
+                  <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-md p-8 rounded-2xl border border-white/20 shadow-lg max-w-lg w-full">
+                    <div className="flex items-start gap-4">
+                      <div className="p-3 bg-indigo-100 dark:bg-indigo-900/50 rounded-xl text-indigo-600 dark:text-indigo-400 shrink-0">
+                        <Zap size={28} />
+                      </div>
+                      <div className="text-left">
+                        <h4 className="text-lg font-bold text-gray-900 dark:text-white mb-2">How to Connect</h4>
+                        <ul className="space-y-3 text-gray-600 dark:text-gray-400">
+                          <li className="flex items-start gap-2">
+                            <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 mt-2"></div>
+                            <span>
+                              Ensure your device is connected to the same WiFi network 
+                              {serverSsid ? (
+                                <>: <strong className="text-indigo-600 dark:text-indigo-400">{serverSsid}</strong></>
+                              ) : (
+                                " as this computer"
+                              )}.
+                            </span>
+                          </li>
+                          <li className="flex items-center gap-2">
+                            <div className="w-1.5 h-1.5 rounded-full bg-indigo-500"></div>
+                            <span>Open your camera or QR scanner app</span>
+                          </li>
+                          <li className="flex items-center gap-2">
+                            <div className="w-1.5 h-1.5 rounded-full bg-indigo-500"></div>
+                            <span>Scan the code to launch LabExpert</span>
+                          </li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              ))}
+
+                {/* Right Column: QR Code Card */}
+                <div className="flex-1 flex justify-center lg:justify-start">
+                  <div className="bg-white dark:bg-gray-800 p-8 rounded-3xl qr-card-glow transition-all duration-300 transform hover:scale-[1.02] border border-gray-100 dark:border-gray-700">
+                    {ipLoading ? (
+                        <div className="w-72 h-72 flex items-center justify-center">
+                          <div className="animate-spin rounded-full h-16 w-16 border-4 border-t-indigo-600 border-r-indigo-600 border-b-indigo-100 border-l-indigo-100 dark:border-t-indigo-400 dark:border-r-indigo-400 dark:border-b-indigo-900 dark:border-l-indigo-900"></div>
+                        </div>
+                    ) : serverIp ? (
+                      <div className="flex flex-col items-center gap-6">
+                        <div className="qr-scan-container p-4 bg-white rounded-2xl shadow-inner">
+                          <div className="qr-scan-overlay"></div>
+                          <QRCode value={`http://${serverIp}:3000`} size={280} />
+                        </div>
+                        <div className="text-center">
+                          <div className="flex items-center justify-center gap-2 mb-2">
+                            <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">Network Address</p>
+                            <button 
+                              onClick={fetchServerIp}
+                              className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                              title="Refresh Network Info"
+                            >
+                              <RotateCw size={14} />
+                            </button>
+                          </div>
+                          <p className="font-mono text-xl font-bold text-indigo-600 dark:text-indigo-400 px-6 py-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-900/50 select-all">
+                            http://{serverIp}:3000
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center w-72 h-72 text-red-500 gap-4">
+                        <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-full">
+                          <Activity className="w-12 h-12" />
+                        </div>
+                        <div className="text-center">
+                          <p className="font-bold text-lg mb-1">Connection Failed</p>
+                          <p className="text-sm opacity-80">Could not retrieve server IP</p>
+                        </div>
+                        <button 
+                          onClick={() => setActiveSection('connect-users')} 
+                          className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm hover:shadow"
+                        >
+                          Retry Connection
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+              </div>
             </div>
           )}
 

@@ -4,6 +4,7 @@ import {
   FiSettings, FiCheckCircle, FiAlertTriangle, FiLoader, 
   FiWifiOff, FiZap, FiX, FiArrowLeft
 } from 'react-icons/fi';
+import AIExperimentSetup from './AIExperimentSetup';
 
 const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sharedDeviceManager, sharedExperimentManager }) => {
   const { theme } = useTheme();
@@ -74,23 +75,23 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
       ]
     },
     5: {
-      name: 'Motion Detection',
+      name: 'Motion Analysis (AI)',
       subExperiments: [
         {
           id: '5.1',
-          name: 'Experiment A',
-          description: 'Motion detection experiment type A',
-          icon: '📹',
-          firmware: 'A.bin',
-          firmwareType: 'motion'
+          name: 'Simple Pendulum',
+          description: 'Analyze pendulum motion using AI vision',
+          icon: '🔄',
+          firmware: 'AI_VISION.bin',
+          firmwareType: 'ai_motion'
         },
         {
           id: '5.2',
-          name: 'Experiment B',
-          description: 'Motion detection experiment type B',
-          icon: '📹',
-          firmware: 'B.bin',
-          firmwareType: 'motion'
+          name: 'Modern Galileo Experiment',
+          description: 'Track inclined plane motion using AI vision',
+          icon: '📐',
+          firmware: 'AI_VISION.bin',
+          firmwareType: 'ai_motion'
         }
       ]
     }
@@ -278,173 +279,193 @@ const ConfigurationModal = ({ experimentId = 1, onComplete, sharedWebSocket, sha
         </div>
 
         <div className="p-4 sm:p-6 md:p-8 space-y-6 sm:space-y-8">
-          <div>
-            <h3 className="text-lg sm:text-xl font-semibold text-slate-800 mb-3 sm:mb-4">1. Select Configuration Type</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
-              {currentConfig.subExperiments.map((subExp) => (
-                <button
-                  key={subExp.id}
-                  onClick={() => handleExperimentTypeSelection(subExp.id)}
-                  className={`p-4 sm:p-6 rounded-xl border-2 transition-all duration-300 group ${
-                    experimentType === subExp.id
-                      ? (isDark ? 'border-purple-500 bg-slate-800 shadow-lg scale-105' : 'border-purple-600 bg-purple-50 shadow-lg scale-105')
-                      : (isDark ? 'border-slate-700 hover:border-slate-500' : 'border-slate-200 hover:border-purple-300 hover:shadow-md')
-                  }`}
-                >
-                  <div className="text-2xl sm:text-3xl mb-1">{subExp.icon}</div>
-                  <div className={`font-semibold text-base sm:text-lg ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>{subExp.name}</div>
-                  <p className={`text-xs sm:text-sm mt-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{subExp.description}</p>
-                  <p className={`text-xs mt-1 font-medium ${isDark ? 'text-indigo-300' : 'text-purple-600'}`}>→ {subExp.firmware}</p>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <h3 className="text-lg sm:text-xl font-semibold text-slate-800 mb-2 sm:mb-3">2. Select Sensor</h3>
-            
-            <div className="mb-2 sm:mb-3 flex flex-col sm:flex-row sm:items-center gap-2">
-              <button
-                onClick={async () => {
-                  console.log('Manual scan button clicked');
-                  const wsSuccess = sharedWebSocket.sendMessage({ action: 'scan_devices' });
-                  console.log('WebSocket scan message sent:', wsSuccess);
-                  
-                  if (!wsSuccess || !isConnected) {
-                    console.log('WebSocket failed, trying REST API...');
-                    try {
-                      const result = await deviceAPI.scanDevices();
-                      console.log('REST API scan result:', result);
-                      
-                      if (result.success && result.devices) {
-                        console.log(`Found ${result.devices.length} devices via REST API:`, result.devices);
-                      }
-                    } catch (error) {
-                      console.error('REST API scan failed:', error);
-                    }
-                  }
-                }}
-              className="px-3 sm:px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm sm:text-base"
-            >
-                Scan Devices
-            </button>
-              <span className="text-xs sm:text-sm text-gray-600">
-                Connected: {isConnected ? 'Yes' : 'No'} | Scanning: {isScanning ? 'Yes' : 'No'} | Devices: {devices.length}
-              </span>
-            </div>
-            
-            <div className="max-h-48 sm:max-h-60 overflow-y-auto bg-slate-50 p-3 sm:p-4 rounded-lg border border-slate-200">
-              {isScanning ? (
-                <div className="flex items-center justify-center py-10 text-slate-500">
-                  <FiLoader className="animate-spin h-8 w-8 text-purple-600" />
-                  <span className="ml-3 text-lg">Scanning for devices...</span>
-                </div>
-              ) : tofDevices.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-10 text-slate-500">
-                  <FiWifiOff className="h-10 w-10 mb-2" />
-                  <span className="text-lg font-medium">No TOF devices found</span>
-                  <span className="text-sm">Ensure devices are online and on the same network.</span>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  {tofDevices
-                    .slice()
-                    .sort((a, b) => {
-                        const getRank = (d) => {
-                            // Rank 0: Online (online_status == 1)
-                            if (d.online_status === 1) return 0;
-                            // Rank 1: In Use (online_status == 0 && availability == 0)
-                            if (d.online_status === 0 && d.availability === 0) return 1;
-                            // Rank 2: Offline (online_status == 0 && availability == 1)
-                            return 2;
-                        };
-                        return getRank(a) - getRank(b);
-                    })
-                    .map(device => {
-                    const getStatus = (d) => {
-                      const online = d.online_status === 1;
-                      const available = d.availability === 1;
-                      
-                      if (online) return { label: 'Online', color: 'text-green-600', bg: 'bg-green-100', border: 'border-green-200', dot: 'bg-green-500' };
-                      if (!online && !available) return { label: 'In Use', color: 'text-yellow-600', bg: 'bg-yellow-100', border: 'border-yellow-200', dot: 'bg-yellow-500' };
-                      return { label: 'Offline', color: 'text-red-600', bg: 'bg-red-100', border: 'border-red-200', dot: 'bg-red-500' };
-                    };
-                    const status = getStatus(device);
-                    const isDisabled = status.label === 'Offline' || status.label === 'In Use';
-
-                    return (
-                    <button
-                      key={device.id}
-                      onClick={() => !isDisabled && handleFlash(device)}
-                      disabled={isFlashing || isDisabled}
-                      className={`p-0 rounded-lg border-2 border-slate-200 bg-white text-left transition-all disabled:opacity-50 disabled:cursor-not-allowed group overflow-hidden ${(!isFlashing && !isDisabled) ? 'hover:border-purple-600 hover:shadow-lg' : ''}`}
-                    >
-                      {device.sensor_type && (
-                        <div className={`w-full px-3 py-1 rounded-t-lg text-xs font-semibold border-b ${isDark ? 'bg-indigo-900/50 text-indigo-200 border-indigo-700' : 'bg-blue-100 text-blue-700 border-blue-200'}`}>
-                          Sensor: {device.sensor_type}
-                        </div>
-                      )}
-                      <div className="p-4">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-bold text-slate-800 group-hover:text-purple-600">{device.id}</span>
-                            <div className={`flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${status.bg} ${status.color} ${status.border}`}>
-                               <div className={`w-1.5 h-1.5 rounded-full mr-1 ${status.dot}`}></div>
-                               {status.label}
-                            </div>
-                          </div>
-                          <FiZap className="h-4 w-4 text-slate-400 group-hover:text-purple-600" />
-                        </div>
-                        <div className="text-xs text-slate-500 mt-1">{device.ip_address || 'Unknown IP'}</div>
-                      </div>
-                    </button>
-                  )})}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Detailed Status Display with Progress Background */}
-          <div className={`relative rounded-lg border overflow-hidden ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
-            <div 
-              className={`absolute inset-0 transition-all duration-500 ease-out ${isDark ? 'bg-gradient-to-r from-blue-400 to-blue-500 border-r border-blue-300 shadow-[0_0_15px_rgba(59,130,246,0.5)]' : 'bg-gradient-to-r from-green-300 to-green-400'}`}
-              style={{ width: `${getProgressPercentage()}%` }}
+          {(experimentId == 5 || experimentId === '5') ? (
+            <AIExperimentSetup 
+              subExperiments={currentConfig.subExperiments} 
+              onComplete={(data) => {
+                console.log('AI Experiment Complete:', data);
+                onComplete({ 
+                  experimentType: data.experimentType, 
+                  token: userToken,
+                  device: { 
+                    id: 'local_camera', 
+                    type: 'camera', 
+                    camera_id: data.cameraId 
+                  } 
+                });
+              }}
             />
-            <div className="relative z-10 p-1 sm:p-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center">
-                <span className="mr-1 sm:mr-2">{flashStatusDisplay.icon}</span>
-                <span className={`text-xs sm:text-sm font-medium ${flashStatusDisplay.color}`}>
-                  {flashStatus}
-                </span>
+          ) : (
+            <>
+              <div>
+                <h3 className="text-lg sm:text-xl font-semibold text-slate-800 mb-3 sm:mb-4">1. Select Configuration Type</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+                  {currentConfig.subExperiments.map((subExp) => (
+                    <button
+                      key={subExp.id}
+                      onClick={() => handleExperimentTypeSelection(subExp.id)}
+                      className={`p-4 sm:p-6 rounded-xl border-2 transition-all duration-300 group ${
+                        experimentType === subExp.id
+                          ? (isDark ? 'border-purple-500 bg-slate-800 shadow-lg scale-105' : 'border-purple-600 bg-purple-50 shadow-lg scale-105')
+                          : (isDark ? 'border-slate-700 hover:border-slate-500' : 'border-slate-200 hover:border-purple-300 hover:shadow-md')
+                      }`}
+                    >
+                      <div className="text-2xl sm:text-3xl mb-1">{subExp.icon}</div>
+                      <div className={`font-semibold text-base sm:text-lg ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>{subExp.name}</div>
+                      <p className={`text-xs sm:text-sm mt-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{subExp.description}</p>
+                      <p className={`text-xs mt-1 font-medium ${isDark ? 'text-indigo-300' : 'text-purple-600'}`}>→ {subExp.firmware}</p>
+                    </button>
+                  ))}
+                </div>
               </div>
-              <span className={`text-xs ${isDark ? 'text-slate-300' : 'text-slate-500'}`}>
-                {getProgressPercentage()}%
-              </span>
-            </div>
-            
-            {/* Additional Status Details */}
-            <div className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-              {flashStatus === 'idle' && 'Ready to flash firmware to selected device'}
-              {flashStatus === 'flashing' && 'Firmware is being uploaded to the device'}
-              {flashStatus.includes('Allocating') && 'Connecting to device and preparing for firmware update'}
-              {flashStatus.includes('✓') && 'Firmware successfully flashed! Device is ready for experiment'}
-              {flashStatus.includes('✗') && 'An error occurred during the flashing process'}
-              {flashStatus === 'no_device' && 'Please select a device to flash firmware'}
-            </div>
-            </div>
-          </div>
 
-          {/* Back to Dashboard Button */}
-          <div className="flex justify-center pt-4 border-t border-slate-200">
-            <button
-              onClick={() => window.location.href = '/dashboard'}
-              className="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors flex items-center"
-            >
-              <FiArrowLeft className="mr-2" />
-              Back to Dashboard
-            </button>
-          </div>
+              <div>
+                <h3 className="text-lg sm:text-xl font-semibold text-slate-800 mb-2 sm:mb-3">2. Select Sensor</h3>
+                
+                <div className="mb-2 sm:mb-3 flex flex-col sm:flex-row sm:items-center gap-2">
+                  <button
+                    onClick={async () => {
+                      console.log('Manual scan button clicked');
+                      const wsSuccess = sharedWebSocket.sendMessage({ action: 'scan_devices' });
+                      console.log('WebSocket scan message sent:', wsSuccess);
+                      
+                      if (!wsSuccess || !isConnected) {
+                        console.log('WebSocket failed, trying REST API...');
+                        try {
+                          const result = await deviceAPI.scanDevices();
+                          console.log('REST API scan result:', result);
+                          
+                          if (result.success && result.devices) {
+                            console.log(`Found ${result.devices.length} devices via REST API:`, result.devices);
+                          }
+                        } catch (error) {
+                          console.error('REST API scan failed:', error);
+                        }
+                      }
+                    }}
+                  className="px-3 sm:px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm sm:text-base"
+                >
+                    Scan Devices
+                </button>
+                  <span className="text-xs sm:text-sm text-gray-600">
+                    Connected: {isConnected ? 'Yes' : 'No'} | Scanning: {isScanning ? 'Yes' : 'No'} | Devices: {devices.length}
+                  </span>
+                </div>
+                
+                <div className="max-h-48 sm:max-h-60 overflow-y-auto bg-slate-50 p-3 sm:p-4 rounded-lg border border-slate-200">
+                  {isScanning ? (
+                    <div className="flex items-center justify-center py-10 text-slate-500">
+                      <FiLoader className="animate-spin h-8 w-8 text-purple-600" />
+                      <span className="ml-3 text-lg">Scanning for devices...</span>
+                    </div>
+                  ) : tofDevices.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-10 text-slate-500">
+                      <FiWifiOff className="h-10 w-10 mb-2" />
+                      <span className="text-lg font-medium">No TOF devices found</span>
+                      <span className="text-sm">Ensure devices are online and on the same network.</span>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      {tofDevices
+                        .slice()
+                        .sort((a, b) => {
+                            const getRank = (d) => {
+                                // Rank 0: Online (online_status == 1)
+                                if (d.online_status === 1) return 0;
+                                // Rank 1: In Use (online_status == 0 && availability == 0)
+                                if (d.online_status === 0 && d.availability === 0) return 1;
+                                // Rank 2: Offline (online_status == 0 && availability == 1)
+                                return 2;
+                            };
+                            return getRank(a) - getRank(b);
+                        })
+                        .map(device => {
+                        const getStatus = (d) => {
+                          const online = d.online_status === 1;
+                          const available = d.availability === 1;
+                          
+                          if (online) return { label: 'Online', color: 'text-green-600', bg: 'bg-green-100', border: 'border-green-200', dot: 'bg-green-500' };
+                          if (!online && !available) return { label: 'In Use', color: 'text-yellow-600', bg: 'bg-yellow-100', border: 'border-yellow-200', dot: 'bg-yellow-500' };
+                          return { label: 'Offline', color: 'text-red-600', bg: 'bg-red-100', border: 'border-red-200', dot: 'bg-red-500' };
+                        };
+                        const status = getStatus(device);
+                        const isDisabled = status.label === 'Offline' || status.label === 'In Use';
+
+                        return (
+                        <button
+                          key={device.id}
+                          onClick={() => !isDisabled && handleFlash(device)}
+                          disabled={isFlashing || isDisabled}
+                          className={`p-0 rounded-lg border-2 border-slate-200 bg-white text-left transition-all disabled:opacity-50 disabled:cursor-not-allowed group overflow-hidden ${(!isFlashing && !isDisabled) ? 'hover:border-purple-600 hover:shadow-lg' : ''}`}
+                        >
+                          {device.sensor_type && (
+                            <div className={`w-full px-3 py-1 rounded-t-lg text-xs font-semibold border-b ${isDark ? 'bg-indigo-900/50 text-indigo-200 border-indigo-700' : 'bg-blue-100 text-blue-700 border-blue-200'}`}>
+                              Sensor: {device.sensor_type}
+                            </div>
+                          )}
+                          <div className="p-4">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-bold text-slate-800 group-hover:text-purple-600">{device.id}</span>
+                                <div className={`flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${status.bg} ${status.color} ${status.border}`}>
+                                  <div className={`w-1.5 h-1.5 rounded-full mr-1 ${status.dot}`}></div>
+                                  {status.label}
+                                </div>
+                              </div>
+                              <FiZap className="h-4 w-4 text-slate-400 group-hover:text-purple-600" />
+                            </div>
+                            <div className="text-xs text-slate-500 mt-1">{device.ip_address || 'Unknown IP'}</div>
+                          </div>
+                        </button>
+                      )})}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Detailed Status Display with Progress Background */}
+              <div className={`relative rounded-lg border overflow-hidden ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                <div 
+                  className={`absolute inset-0 transition-all duration-500 ease-out ${isDark ? 'bg-gradient-to-r from-blue-400 to-blue-500 border-r border-blue-300 shadow-[0_0_15px_rgba(59,130,246,0.5)]' : 'bg-gradient-to-r from-green-300 to-green-400'}`}
+                  style={{ width: `${getProgressPercentage()}%` }}
+                />
+                <div className="relative z-10 p-1 sm:p-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <span className="mr-1 sm:mr-2">{flashStatusDisplay.icon}</span>
+                    <span className={`text-xs sm:text-sm font-medium ${flashStatusDisplay.color}`}>
+                      {flashStatus}
+                    </span>
+                  </div>
+                  <span className={`text-xs ${isDark ? 'text-slate-300' : 'text-slate-500'}`}>
+                    {getProgressPercentage()}%
+                  </span>
+                </div>
+                
+                {/* Additional Status Details */}
+                <div className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                  {flashStatus === 'idle' && 'Ready to flash firmware to selected device'}
+                  {flashStatus === 'flashing' && 'Firmware is being uploaded to the device'}
+                  {flashStatus.includes('Allocating') && 'Connecting to device and preparing for firmware update'}
+                  {flashStatus.includes('✓') && 'Firmware successfully flashed! Device is ready for experiment'}
+                  {flashStatus.includes('✗') && 'An error occurred during the flashing process'}
+                  {flashStatus === 'no_device' && 'Please select a device to flash firmware'}
+                </div>
+                </div>
+              </div>
+
+              {/* Back to Dashboard Button */}
+              <div className="flex justify-center pt-4 border-t border-slate-200">
+                <button
+                  onClick={() => window.location.href = '/dashboard'}
+                  className="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors flex items-center"
+                >
+                  <FiArrowLeft className="mr-2" />
+                  Back to Dashboard
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

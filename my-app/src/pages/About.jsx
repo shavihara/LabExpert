@@ -11,7 +11,9 @@ import {
   Code, 
   Database, 
   Wifi,
-  Layers
+  Layers,
+  Settings,
+  Wrench
 } from 'lucide-react';
 import DeveloperCard from '../components/common/DeveloperCard';
 import dev1Image from '../assets/Developers/dev1.jpg';
@@ -25,32 +27,32 @@ const About = () => {
     {
       id: 1,
       name: 'T.H.N.S.Shavihara',
-      role: 'Full Stack Developer',
-      description: 'Specializes in React frontend development and system integration',
+      role: 'Backend & Data Processing Lead',
+      description: 'Architected the full-stack platform, integrating a FastAPI backend with a React/Plotly.js frontend for multi-user experimentation. Implemented advanced signal processing algorithms, MQTT sensor data transmission, and 3D sensor module design for "Plug and Play" sensor structure.',
       image: dev1Image,
       borderColor: '#8b5cf6' // Violet-500
     },
     {
       id: 2,
       name: 'D.M.T.Rananimala',
-      role: 'Backend Engineer',
-      description: 'Expert in Python backend services and WebSocket architecture',
+      role: 'Hardware & Firmware Engineer',
+      description: 'Led hardware sensor integration and ESP32 firmware development using the Arduino framework. Engineered a robust OTA update system with version control and rollback capabilities, ensuring seamless wireless communication and power optimization.',
       image: dev2Image,
       borderColor: '#10b981' // Emerald-500
     },
     {
       id: 3,
       name: 'R.A.T.Ranawaka',
-      role: 'Embedded Systems Engineer',
-      description: 'Specializes in ESP32 firmware development and sensor integration',
+      role: 'QA & Validation Engineer',
+      description: 'Conducted comprehensive system testing and data validation using RMSE/MAE calculations and 3D Kalman Filter optimization. Managed technical documentation, user manuals, and validated experimental physics theories for accuracy.',
       image: dev3Image,
       borderColor: '#f43f5e' // Rose-500
     },
     {
       id: 4,
       name: 'Sudesh Bandara',
-      role: 'DevOps & System Architecture',
-      description: 'Focuses on system deployment and infrastructure management',
+      role: 'Mechanical Design Engineer',
+      description: 'Designed the precision mechanical infrastructure, including the motorized inclined plane with low-friction aluminum tracks and stable base construction for reliable physical experimentation.',
       image: dev4Image,
       borderColor: '#f59e0b' // Amber-500
     }
@@ -104,12 +106,12 @@ const About = () => {
               <div className="card-icon-wrapper esp-color">
                 <Cpu className="card-icon" />
               </div>
-              <h3>ESP32 Sensor Layer</h3>
+              <h3>Firmware & IoT</h3>
               <ul className="tech-list">
-                <li><Activity size={16} /> TOF & Oscillation Sensors</li>
-                <li><Zap size={16} /> Real-time Data Streaming</li>
-                <li><Wifi size={16} /> Dual-partition OTA Updates</li>
-                <li><Shield size={16} /> Auto-discovery Protocol</li>
+                <li><Code size={16} /> Arduino Framework / C++</li>
+                <li><Wifi size={16} /> Robust OTA Update System</li>
+                <li><Zap size={16} /> MQTT & Auto-discovery</li>
+                <li><Activity size={16} /> Power Optimization</li>
               </ul>
             </div>
 
@@ -118,12 +120,12 @@ const About = () => {
               <div className="card-icon-wrapper python-color">
                 <Server className="card-icon" />
               </div>
-              <h3>Python Backend</h3>
+              <h3>Backend & Processing</h3>
               <ul className="tech-list">
-                <li><Code size={16} /> FastAPI Framework</li>
-                <li><Zap size={16} /> WebSocket Managers</li>
-                <li><Database size={16} /> SQLite & Session Mgmt</li>
-                <li><Cpu size={16} /> Modular Processing Engines</li>
+                <li><Code size={16} /> FastAPI & WebSockets</li>
+                <li><Activity size={16} /> Signal Processing Algorithms</li>
+                <li><Shield size={16} /> 3D Kalman Filter Validation</li>
+                <li><Database size={16} /> SQLite Session Management</li>
               </ul>
             </div>
 
@@ -132,12 +134,26 @@ const About = () => {
               <div className="card-icon-wrapper react-color">
                 <Monitor className="card-icon" />
               </div>
-              <h3>React Frontend</h3>
+              <h3>Frontend & Visualization</h3>
               <ul className="tech-list">
-                <li><Activity size={16} /> Plotly.js Visualization</li>
-                <li><Layers size={16} /> Tailwind CSS & Responsive</li>
-                <li><Globe size={16} /> Progressive Web App</li>
+                <li><Activity size={16} /> React & Plotly.js Charts</li>
+                <li><Zap size={16} /> Real-time Data Streaming</li>
+                <li><Globe size={16} /> Responsive PWA Design</li>
                 <li><Users size={16} /> Multi-user Interface</li>
+              </ul>
+            </div>
+
+            {/* Mechanical Layer */}
+            <div className="tech-card">
+              <div className="card-icon-wrapper mech-color">
+                <Settings className="card-icon" />
+              </div>
+              <h3>Mechanical Design</h3>
+              <ul className="tech-list">
+                <li><Wrench size={16} /> Motorized Inclined Plane</li>
+                <li><Layers size={16} /> Low-friction Aluminum Tracks</li>
+                <li><Zap size={16} /> Plug & Play Modules</li>
+                <li><Shield size={16} /> Stable Base Construction</li>
               </ul>
             </div>
           </div>

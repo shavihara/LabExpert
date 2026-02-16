@@ -29,6 +29,7 @@ import {
   LoadingSpinner, 
   StatusIndicator
 } from '../ui-system/ResponsiveUI';
+import AIExperimentSetup from '../../pages/ExperimentInterface/components/ConfigurationModal/AIExperimentSetup';
 
 /**
  * Dynamic Experiment Selector Component
@@ -202,32 +203,7 @@ const DynamicExperimentSelector = ({
 
   // Filter devices based on selected experiment
   const getCompatibleDevices = () => {
-    if (!selectedSubExperiment) return devices;
-    
-    return devices.filter(device => {
-      if (device.supported_experiments && Array.isArray(device.supported_experiments)) {
-        return device.supported_experiments.includes(selectedSubExperiment.id);
-      }
-      
-      if (device.type) {
-        const experimentToDeviceType = {
-          'displacement': ['tof', 'displacement', 'distance'],
-          'inclined_plane': ['inclined_plane', 'angle', 'incline'],
-          'pendulum_simple': ['pendulum', 'accelerometer', 'gyroscope'],
-          'pendulum_compound': ['pendulum', 'accelerometer', 'gyroscope'],
-          'temperature': ['temperature', 'thermal', 'thermometer'],
-          'thermal': ['temperature', 'thermal', 'thermometer'],
-          'light_intensity': ['light', 'ldr', 'photo', 'intensity', 'lux']
-        };
-        
-        const compatibleTypes = experimentToDeviceType[selectedSubExperiment.firmwareType] || [];
-        return compatibleTypes.some(type => 
-          device.type.toLowerCase().includes(type.toLowerCase())
-        );
-      }
-      
-      return true;
-    });
+    return devices;
   };
 
   // Get flash status display (theme-aware)
@@ -286,6 +262,34 @@ const DynamicExperimentSelector = ({
     return (
       <div className="flex items-center justify-center h-full">
         <LoadingSpinner />
+      </div>
+    );
+  }
+
+  // Special handling for AI Experiment (ID 5)
+  if (experimentId == 5 || experimentId === '5') {
+    return (
+      <div className="h-full w-full overflow-y-auto p-4 custom-scrollbar">
+        <AIExperimentSetup 
+          subExperiments={subExperiments} 
+          onComplete={(data) => {
+            console.log('AI Experiment Complete:', data);
+            const subExp = subExperiments.find(s => s.id === data.experimentType);
+            onComplete({ 
+              experimentType: data.experimentType, 
+              token: userToken,
+              device: { 
+                id: 'local_camera', 
+                type: 'camera', 
+                camera_id: data.cameraIndex, // Use integer index for backend OpenCV
+                device_id_string: data.cameraId,
+                status: 'connected',
+                online_status: 1
+              },
+              subExperiment: subExp
+            });
+          }}
+        />
       </div>
     );
   }
@@ -535,7 +539,19 @@ const DynamicExperimentSelector = ({
                             return { label: 'Offline', color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-200', dot: 'bg-red-500', glow: '' };
                             };
                             const status = getStatus(device);
-                            const isDisabled = status.label === 'Offline' || status.label === 'In Use';
+                            const requiredType = (() => {
+                                if (selectedSensorOption?.type) return String(selectedSensorOption.type).toUpperCase();
+                                const id = String(selectedSubExperiment?.id || '');
+                                if (id === '2.1' || id === '2.2') return 'OSI';
+                                if (id === '3') return 'THR';
+                                if (id === '4') return 'LUX';
+                                if (id === '6') return 'WAV';
+                                return null;
+                            })();
+                            const matchesType = requiredType
+                                ? String(device.sensor_type || '').toUpperCase() === requiredType
+                                : true;
+                            const isDisabled = status.label === 'Offline' || status.label === 'In Use' || !matchesType;
                             
                             return (
                             <div

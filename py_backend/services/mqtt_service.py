@@ -293,27 +293,40 @@ class MQTTService:
             else:
                 # Default behavior: Convert field names to match ESP32 firmware expectations
                 esp32_config = {
-                        "freq": config.get("frequency", 50),  # ESP32 expects "freq" not "frequency"
-                        "duration": config.get("duration", 60),
-                        "averagingSamples": config.get("averagingSamples", 1)
-                    }
-                    # Only include maxRange if explicitly provided to avoid forcing unsupported range
-                    if "maxRange" in config and config["maxRange"] is not None:
-                        esp32_config["maxRange"] = config["maxRange"]
-                    
-                    # Include resolution for temperature experiments
-                    if "resolution" in config and config["resolution"] is not None:
-                        esp32_config["resolution"] = config["resolution"]
+                    "freq": config.get("frequency", 50),
+                    "duration": config.get("duration", 60),
+                    "averagingSamples": config.get("averagingSamples", 1)
+                }
+                # Only include maxRange if explicitly provided to avoid forcing unsupported range
+                if "maxRange" in config and config["maxRange"] is not None:
+                    esp32_config["maxRange"] = config["maxRange"]
+                
+                # Include resolution for temperature experiments
+                if "resolution" in config and config["resolution"] is not None:
+                    esp32_config["resolution"] = config["resolution"]
+                if config.get("run_indefinite") or config.get("indefinite"):
+                    # Many firmware builds default to 60s when duration is missing.
+                    # Force a very large duration to emulate "run until stop".
+                    # Use 86400 seconds (24 hours) which is safe for 32-bit int.
+                    esp32_config["duration"] = 86400
+                    # Include hint flag for newer firmware builds (ignored by older ones).
+                    esp32_config["run_indefinite"] = True
             
             topic = f"sensors/{device_id}/config"
             payload = json.dumps(esp32_config)
             
-            result = self.client.publish(topic, payload, qos=1)
+            result = self.client.publish(topic, payload, qos=1, retain=True)
             if result.rc != mqtt.MQTT_ERR_SUCCESS:
                 logger.error(f"Failed to publish config to {device_id}: RC {result.rc}")
                 raise ValueError(f"MQTT publish failed with RC {result.rc}")
             
             logger.info(f"Successfully published config to {device_id}: {esp32_config}")
+            
+            try:
+                alt_topic = f"sensor/{device_id}/config"
+                self.client.publish(alt_topic, payload, qos=1, retain=True)
+            except Exception:
+                pass
             
         except Exception as e:
             logger.error(f"Error publishing config to {device_id}: {e}")

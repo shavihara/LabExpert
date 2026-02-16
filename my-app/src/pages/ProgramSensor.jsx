@@ -187,17 +187,18 @@ export default function ProgramSensor({ token, isEmbedded = false }) {
                           {filteredDevices.map((d) => {
                               const canRepair = isRepairable(d.sensor_type);
                               const isSelected = selectedDevice && (selectedDevice.device_id === d.device_id || selectedDevice.id === d.id);
-                              
+                              const matchesType = String(d.sensor_type || '').toUpperCase() === String(sensorType || '').toUpperCase();
+                              const isClickable = matchesType;
                               return (
                                   <div 
                                       key={d.id || d.device_id}
-                                      onClick={() => canRepair && setSelectedDevice(d)}
+                                      onClick={() => isClickable && setSelectedDevice(d)}
                                       className={`group relative flex items-center justify-between p-3 rounded-lg border transition-all duration-200 ${
                                           isSelected
                                               ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 ring-1 ring-indigo-500 shadow-md z-10'
-                                              : canRepair 
+                                              : isClickable 
                                                   ? 'border-amber-200 dark:border-amber-800/50 bg-white dark:bg-gray-800 hover:border-amber-400 dark:hover:border-amber-700 hover:shadow-md cursor-pointer' 
-                                                  : 'border-transparent bg-transparent opacity-60 hover:opacity-100 hover:bg-white dark:hover:bg-gray-800/50'
+                                                  : 'border-transparent bg-transparent opacity-60 hover:opacity-100 hover:bg-white dark:hover:bg-gray-800/50 cursor-not-allowed'
                                       }`}
                                   >
                                       {/* Left: Info */}

@@ -1,1 +1,98 @@
-/* Styles have been migrated to Tailwind CSS in UserDashboard.jsx */
+/* Connect Users Section Animations */
+
+@keyframes grid-move {
+  0% { background-position: 0 0; }
+  100% { background-position: 40px 40px; }
+}
+
+.connect-bg-pattern {
+  background-image: 
+    linear-gradient(rgba(99, 102, 241, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(99, 102, 241, 0.05) 1px, transparent 1px);
+  background-size: 40px 40px;
+  animation: grid-move 20s linear infinite;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.dark .connect-bg-pattern {
+  background-image: 
+    linear-gradient(rgba(129, 140, 248, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(129, 140, 248, 0.05) 1px, transparent 1px);
+}
+
+@keyframes scan-line {
+  0% { top: 0; opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+
+.qr-scan-container {
+  position: relative;
+  overflow: hidden;
+  border-radius: 0.5rem; /* rounded-lg */
+}
+
+.qr-scan-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #4f46e5; /* Indigo-600 */
+  box-shadow: 0 0 4px #4f46e5, 0 0 8px #818cf8;
+  animation: scan-line 2.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.dark .qr-scan-overlay {
+  background: #818cf8; /* Indigo-400 */
+  box-shadow: 0 0 4px #818cf8, 0 0 8px #c7d2fe;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 10px 25px -5px rgba(99, 102, 241, 0.1), 0 8px 10px -6px rgba(99, 102, 241, 0.1); }
+  50% { box-shadow: 0 20px 35px -5px rgba(99, 102, 241, 0.25), 0 8px 10px -6px rgba(99, 102, 241, 0.2); }
+}
+
+.qr-card-glow {
+  animation: pulse-glow 3s infinite ease-in-out;
+}
+
+/* Floating circles background */
+.floating-circle {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(40px);
+  z-index: 0;
+  opacity: 0.4;
+  animation: float-around 20s infinite ease-in-out;
+}
+
+@keyframes float-around {
+  0% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, -50px) scale(1.1); }
+  66% { transform: translate(-20px, 20px) scale(0.9); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+
+.circle-1 {
+  width: 300px;
+  height: 300px;
+  background: rgba(99, 102, 241, 0.15); /* Indigo */
+  top: -100px;
+  left: -100px;
+  animation-delay: 0s;
+}
+
+.circle-2 {
+  width: 250px;
+  height: 250px;
+  background: rgba(236, 72, 153, 0.1); /* Pink */
+  bottom: -50px;
+  right: -50px;
+  animation-delay: -5s;
+}

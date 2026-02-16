@@ -10,6 +10,18 @@
 #------------------------------------------------------------------
 import asyncio
 import sys
+import signal
+
+# Global shutdown flag
+SERVER_SHUTTING_DOWN = False
+
+def handle_sigint(signum, frame):
+    global SERVER_SHUTTING_DOWN
+    print("\n🛑 SIGINT received (Ctrl+C). Initiating force shutdown...")
+    SERVER_SHUTTING_DOWN = True
+
+# Register signal handler
+signal.signal(signal.SIGINT, handle_sigint)
 
 # Check the OS
 if sys.platform == 'win32':
@@ -31,6 +43,7 @@ import aiohttp
 import asyncio
 import time
 import json
+import cv2
 from datetime import datetime
 import logging
 from collections import deque
@@ -42,7 +55,8 @@ from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Query, Re
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
+from processor.processor_manager import SensorProcessorManager
 from pydantic import BaseModel, EmailStr
 import yagmail
 from dotenv import load_dotenv
@@ -93,7 +107,7 @@ from config.database import engine
 
 # Import MQTT service
 from services.mqtt_service import MQTTService
-from utils.network_utils import get_host_ip, get_candidate_local_ips
+from utils.network_utils import get_host_ip, get_candidate_local_ips, get_wifi_ssid
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -273,32 +287,11 @@ app.add_middleware(
         "http://127.0.0.1:5174",
         "http://localhost:5175",
         "http://127.0.0.1:5175",
-        f"http://{get_host_ip()}:3000",
-        f"http://{LOCAL_IP}:5173",
-        f"http://{LOCAL_IP}:5174",
-        f"http://{LOCAL_IP}:5175",
-        "http://192.168.1.198:5173",
-        
-        # Also allow these ranges on other ports
-        "http://10.*.*.*:5173",
-        "http://172.16.*.*:5173",
-        "http://172.17.*.*:5173",
-        "http://172.18.*.*:5173",
-        "http://172.19.*.*:5173",
-        "http://172.20.*.*:5173",
-        "http://172.21.*.*:5173",
-        "http://172.22.*.*:5173",
-        "http://172.23.*.*:5173",
-        "http://172.24.*.*:5173",
-        "http://172.25.*.*:5173",
-        "http://172.26.*.*:5173",
-        "http://172.27.*.*:5173",
-        "http://172.28.*.*:5173",
-        "http://172.29.*.*:5173",
-        "http://172.30.*.*:5173",
-        "http://172.31.*.*:5173",
-        "http://192.168.*.*:5173"
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
     ],
+    # Allow all local network IPs via regex (192.168.x.x, 10.x.x.x, 172.16-31.x.x) on any port
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -553,6 +546,87 @@ async def websocket_client(websocket: WebSocket, token: str = Query(...)):
     except Exception as e:
         logger.error(f"WS client error for user {user_id}: {e}")
         await client_ws_manager.disconnect(user_id)
+
+@app.get("/video_feed")
+async def video_feed(request: Request, device_id: str = "local_camera"):
+    """
+    Stream video from the active VideoOscillationProcessor.
+    This replaces the WebSocket-based preview for better performance.
+    """
+    processor_manager = SensorProcessorManager.get_instance()
+    # We assume experiment_type is 'video_oscillation' for this feed
+    # Note: 'video_oscillation' maps to the processor type in processor_manager
+    processor = processor_manager.get_processor(device_id, "video_oscillation")
+    
+    if not processor or not hasattr(processor, 'get_jpeg_frame'):
+        return JSONResponse(status_code=404, content={"error": "Video processor not found or not active"})
+
+    async def generate():
+        frame_count = 0
+        logger.info(f"Video stream started for device {device_id}")
+        
+        try:
+            # Keep stream alive even if camera is not yet active
+            while True:
+                # Check for shutdown (Global flag or App state)
+                if SERVER_SHUTTING_DOWN or getattr(request.app.state, "is_shutting_down", False):
+                    logger.info("Video stream stopping due to server shutdown")
+                    break
+
+                # Check for client disconnect
+                if await request.is_disconnected():
+                    logger.info("Video stream stopping due to client disconnect")
+                    break
+
+                current_processor = processor
+                
+                # Stop streaming if processor has been disabled or is inactive
+                if current_processor and (getattr(current_processor, "disabled", False) or not getattr(current_processor, "is_active", False)):
+                    logger.info("Video stream stopping due to processor disabled or inactive")
+                    break
+                
+                if current_processor and hasattr(current_processor, 'get_jpeg_frame'):
+                    frame = current_processor.get_jpeg_frame()
+                else:
+                    # Fallback blank frame using cv2
+                    try:
+                        blank = np.zeros((480, 640, 3), dtype=np.uint8)
+                        cv2.putText(blank, "Initializing...", (200, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+                        _, jpeg = cv2.imencode('.jpg', blank)
+                        frame = jpeg.tobytes()
+                    except Exception:
+                        frame = b''
+            
+                if not frame:
+                    # Double fallback
+                    try:
+                        blank = np.zeros((480, 640, 3), dtype=np.uint8)
+                        _, jpeg = cv2.imencode('.jpg', blank)
+                        frame = jpeg.tobytes()
+                    except Exception:
+                        await asyncio.sleep(0.1)
+                        continue
+            
+                # Only log periodically (every 1000 frames) to avoid console spam
+                if frame_count % 1000 == 0:
+                      logger.info(f"Video stream active - frame {frame_count}")
+                
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n'
+                       b'Content-Length: ' + str(len(frame)).encode() + b'\r\n\r\n' + 
+                       frame + b'\r\n')
+                frame_count += 1
+                await asyncio.sleep(0.03) # ~30 FPS
+        except asyncio.CancelledError:
+            logger.info("Video stream cancelled (client disconnected)")
+            raise
+        except Exception as e:
+            logger.error(f"Error in video stream generator: {e}")
+            # Stop stream on error to allow connection closure
+            return
+
+    return StreamingResponse(generate(), media_type="multipart/x-mixed-replace; boundary=frame")
+
 @app.websocket("/ws/device")
 async def websocket_device(websocket: WebSocket, device_id: str = Query(...)):
     # Register and accept device connection
@@ -794,6 +868,13 @@ async def admin_system(current_user=Depends(get_current_user)):
         },
     }
     return {"success": True, "system": system_info}
+
+
+@app.get("/api/server-ip")
+async def get_server_ip(current_user=Depends(get_current_user)):
+    ip = get_host_ip()
+    ssid = get_wifi_ssid()
+    return {"success": True, "ip": ip, "port": 3000, "ssid": ssid}
 
 
 # ------------------ Sensor Routes ------------------
@@ -1153,14 +1234,14 @@ async def list_experiment_files(
     params["limit"] = limit
     params["offset"] = max(0, (page - 1) * limit)
     stmt = prepare(base_sql)
-    rows = stmt(params).fetchall()
+    rows = stmt(params).mappings().fetchall()
     return {"success": True, "files": [dict(r) for r in rows]}
 
 @app.get("/api/experiments/download/{run_id}")
 async def download_experiment_file(run_id: str, current_user=Depends(get_current_user)):
     from config.database import prepare
     stmt = prepare("SELECT * FROM experiment_runs WHERE id = :id AND user_id = :user_id")
-    row = stmt({"id": run_id, "user_id": current_user['id']}).fetchone()
+    row = stmt({"id": run_id, "user_id": current_user['id']}).mappings().fetchone()
     if not row:
         raise HTTPException(404, "Not found")
     return FileResponse(path=row['file_path'], media_type="text/csv", filename=row['filename'])
@@ -1461,6 +1542,29 @@ async def startup_event():
     
     # Start background session cleanup task
     asyncio.create_task(background_session_cleanup())
+    
+    # Initialize shutdown state
+    app.state.is_shutting_down = False
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    logger.info("🛑 Lab Expert API Shutting Down...")
+    app.state.is_shutting_down = True
+    logger.info("Shutdown signal received - stopping video streams and background tasks")
+    
+    # Force cleanup of all video processors
+    try:
+        from processor.processor_manager import SensorProcessorManager
+        pm = SensorProcessorManager.get_instance()
+        # Find all devices with video_oscillation
+        # We need a copy of keys to avoid runtime error during iteration
+        for device_id, processors in list(pm.processors.items()):
+            if "video_oscillation" in processors:
+                logger.info(f"Force stopping video processor for {device_id}")
+                pm.stop_processor(device_id, "video_oscillation")
+    except Exception as e:
+        logger.error(f"Error during shutdown cleanup: {e}")
 
 
 # ------------------ Run ------------------
