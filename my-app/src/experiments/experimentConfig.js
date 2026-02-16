@@ -313,37 +313,7 @@ export const experimentRegistry = {
           max_intensity_lux: 1000
         }
       },
-      '4.2': {
-        id: '4.2',
-        name: 'Intensity Monitor2',
-        icon: '💡',
-        description: 'Real-time monitoring of light intensity with time-based analysis',
-        firmware: 'TOF.bin',
-        firmwareType: 'displacement',
-        dataFields: ['time', 'intensity'],
-        units: {
-          time: 's',
-          intensity: 'lux'
-        },
-        graphConfig: {
-          xAxis: 'time',
-          yAxes: ['intensity'],
-          colors: ['#F59E0B'],
-          yAxisLabels: ['Intensity (lux)']
-        },
-        tableConfig: {
-          columns: [
-            { key: 'time', label: 'Time (s)', format: 'float', precision: 2 },
-            { key: 'intensity', label: 'Intensity (lux)', format: 'float', precision: 1 }
-          ]
-        },
-        requiredSensors: ['light'],
-        defaultConfig: {
-          frequency_hz: 10,
-          duration_s: 60,
-          max_intensity: 1000
-        }
-      }
+
     }
   },
 

@@ -68,6 +68,7 @@ const ExperimentGraph = ({ experimentType, token, sharedWebSocket, sharedExperim
   const rafPendingRef = useRef(false);
   const lastFlushRef = useRef(0);
   const FLUSH_INTERVAL_MS = 50;
+  const countingStartedRef = useRef(false);
 
   const scheduleChartFlush = useCallback(() => {
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
